@@ -35,6 +35,8 @@ from nerfstudio.field_components.field_heads import FieldHeadNames
 from nerfstudio.field_components.spatial_distortions import SpatialDistortion
 from nerfstudio.fields.sdf_field import SDFFieldConfig, SDFField, LearnedVariance
 
+from reni_neus.reni_neus.reni_neus_fieldheadnames import RENINeuSFieldHeadNames
+
 try:
     import tinycudann as tcnn
 except ImportError:
@@ -65,13 +67,12 @@ class SDFAlbedoField(SDFField):
 
     def __init__(
         self,
-        config: SDFFieldConfig,
+        config: SDFAlbedoFieldConfig,
         aabb: TensorType[2, 3],
         num_images: int,
         use_average_appearance_embedding: bool = False,
         spatial_distortion: Optional[SpatialDistortion] = None,
     ) -> None:
-        super().__init__(config=config, aabb=aabb, num_images=num_images, use_average_appearance_embedding=use_average_appearance_embedding, spatial_distortion=spatial_distortion)
         self.config = config
 
         self.aabb = Parameter(aabb, requires_grad=False)
@@ -116,15 +117,12 @@ class SDFAlbedoField(SDFField):
         # deviation_network to compute alpha from sdf from NeuS
         self.deviation_network = LearnedVariance(init_val=self.config.beta_init)
 
-        # color network
+        # albedo network, only depends on position and geo features
         dims = [self.config.hidden_dim_color for _ in range(self.config.num_layers_color)]
-        # point, view_direction, normal, feature, embedding
+        # point, feature
         in_dim = (
             3
-            + self.direction_encoding.get_out_dim()
-            + 3
             + self.config.geo_feat_dim
-            + self.embedding_appearance.get_out_dim()
         )
         dims = [in_dim] + dims + [3]
         self.num_layers_color = len(dims)
@@ -155,31 +153,11 @@ class SDFAlbedoField(SDFField):
         camera_indices: TensorType,
     ) -> TensorType[..., 3]:
         """compute colors"""
-        d = self.direction_encoding(directions)
-
-        # appearance
-        if self.training:
-            embedded_appearance = self.embedding_appearance(camera_indices)
-            # set it to zero if don't use it
-            if not self.config.use_appearance_embedding:
-                embedded_appearance = torch.zeros_like(embedded_appearance)
-        else:
-            if self.use_average_appearance_embedding:
-                embedded_appearance = torch.ones(
-                    (*directions.shape[:-1], self.config.appearance_embedding_dim), device=directions.device
-                ) * self.embedding_appearance.mean(dim=0)
-            else:
-                embedded_appearance = torch.zeros(
-                    (*directions.shape[:-1], self.config.appearance_embedding_dim), device=directions.device
-                )
 
         hidden_input = torch.cat(
             [
                 points,
-                d,
-                normals,
-                geo_features.view(-1, self.config.geo_feat_dim),
-                embedded_appearance.view(-1, self.config.appearance_embedding_dim),
+                geo_features.view(-1, self.config.geo_feat_dim)
             ],
             dim=-1,
         )
@@ -225,16 +203,17 @@ class SDFAlbedoField(SDFField):
             outputs=sdf, inputs=inputs, grad_outputs=d_output, create_graph=True, retain_graph=True, only_inputs=True
         )[0]
 
-        rgb = self.get_colors(inputs, directions_flat, gradients, geo_feature, camera_indices)
+        # doesn't actually use directions or normals or camera_indices
+        albedo = self.get_colors(inputs, directions_flat, gradients, geo_feature, camera_indices)
 
-        rgb = rgb.view(*ray_samples.frustums.directions.shape[:-1], -1)
+        albedo = albedo.view(*ray_samples.frustums.directions.shape[:-1], -1)
         sdf = sdf.view(*ray_samples.frustums.directions.shape[:-1], -1)
         gradients = gradients.view(*ray_samples.frustums.directions.shape[:-1], -1)
         normals = torch.nn.functional.normalize(gradients, p=2, dim=-1)
 
         outputs.update(
             {
-                FieldHeadNames.RGB: rgb,
+                RENINeuSFieldHeadNames.ALBEDO: albedo,
                 FieldHeadNames.SDF: sdf,
                 FieldHeadNames.NORMALS: normals,
                 FieldHeadNames.GRADIENT: gradients,

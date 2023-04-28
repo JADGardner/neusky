@@ -1,0 +1,2 @@
+[nerfstudio.method_configs]
+reni_neus = reni_neus.reni_neus_config:RENINeuS

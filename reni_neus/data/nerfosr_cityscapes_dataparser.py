@@ -36,8 +36,10 @@ from nerfstudio.data.dataparsers.base_dataparser import (
     DataParser,
     DataParserConfig,
     DataparserOutputs,
+    Semantics,
 )
 from nerfstudio.data.scene_box import SceneBox
+from nerfstudio.utils.io import load_from_json
 
 CONSOLE = Console(width=120)
 
@@ -131,8 +133,8 @@ class NeRFOSRCityScapesDataParserConfig(DataParserConfig):
     """How much to scale the region of interest by."""
     scale_factor: float = 1.0
     """How much to scale the camera origins by."""
-    use_masks: bool = False
-    """Whether to use masks."""
+    mask_source: Literal["none", "original", "cityscapes"] = "cityscapes"
+    """Source of masks, can be none, cityscapes not provided in original dataset."""
     orientation_method: Literal["pca", "up", "vertical", "none"] = "vertical"
     """The method to use for orientation."""
     center_method: Literal["poses", "focus", "none"] = "focus"
@@ -154,7 +156,7 @@ class NeRFOSRCityScapes(DataParser):
       masks are 0 for dynamic content, 255 for static content
     """
 
-    config: NeRFOSRDataParserConfig
+    config: NeRFOSRCityScapesDataParserConfig
 
     def _generate_dataparser_outputs(self, split="train"):
         data = self.config.data
@@ -223,14 +225,23 @@ class NeRFOSRCityScapes(DataParser):
 
         # --- masks ---
         mask_filenames = []
-        if self.config.use_masks:
+        semantics = None
+        if self.config.mask_source == "original":
             mask_filenames = _find_files(f"{split_dir}/mask", exts=["*.png", "*.jpg", "*.JPG", "*.PNG"])
+        elif self.config.mask_source == "cityscapes":
+            panoptic_classes = load_from_json(Path(data) / "cityscapes_classes.json")
+            classes = panoptic_classes["classes"]
+            colors = torch.tensor(panoptic_classes["colours"], dtype=torch.float32) / 255.0
+            segmentation_filenames = _find_files(f"{split_dir}/cityscapes_mask", exts=["*.png", "*.jpg", "*.JPG", "*.PNG"])
+            semantics = Semantics(filenames=segmentation_filenames, classes=classes, colors=colors, mask_classes=["person", "rider", "car", "truck", "bus", "train", "motorcycle", "bicycle"])
+
 
         dataparser_outputs = DataparserOutputs(
             image_filenames=image_filenames,
             cameras=cameras,
             scene_box=scene_box,
             mask_filenames=mask_filenames if len(mask_filenames) > 0 else None,
+            metadata={"semantics": semantics} if semantics is not None else {},
             dataparser_scale=self.config.scale_factor,
         )
         return dataparser_outputs

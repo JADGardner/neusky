@@ -43,12 +43,29 @@ from nerfstudio.models.neus import NeuSModel, NeuSModelConfig
 from nerfstudio.models.neus_facto import NeuSFactoModel, NeuSFactoModelConfig
 from nerfstudio.utils import colormaps
 
+from reni_neus.illumination_fields.reni_field import RENIFieldConfig, RENIField
+from reni_neus.illumination_fields.base_illumination_field import IlluminationFieldConfig, IlluminationField
+from reni_neus.model_components.renderers import RGBLambertianRendererWithVisibility
+from reni_neus.model_components.illumination_samplers import IlluminationSamplerConfig, IlluminationSampler
 
 @dataclass
 class RENINeuSFactoModelConfig(NeuSFactoModelConfig):
     """NeusFacto Model Config"""
 
     _target: Type = field(default_factory=lambda: RENINeuSFactoModel)
+    illumination_field: IlluminationFieldConfig = IlluminationFieldConfig()
+    """Illumination Field"""
+    illumination_sampler: IlluminationSamplerConfig = IlluminationSamplerConfig()
+    """Illumination sampler to use"""
+    reni_prior_loss_weight: float = 1e-7
+    """Weight for the prior loss"""
+    reni_cosine_loss_weight: float = 1e-1
+    """Weight for the reni cosine loss"""
+    reni_loss_mult: float = 1.0
+    """Weight for the reni loss"""
+    visibility_loss_mse_mult: float = 0.01
+    """Weight for the visibility mse loss"""
+
 
 class RENINeuSFactoModel(NeuSFactoModel):
     """NeuSFactoModel extends NeuSModel for a more efficient sampling strategy.

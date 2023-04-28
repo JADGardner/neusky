@@ -24,17 +24,10 @@ from nerfstudio.fields.sdf_field import SDFFieldConfig
 from nerfstudio.models.neus_facto import NeuSFactoModelConfig
 from nerfstudio.pipelines.base_pipeline import VanillaPipelineConfig
 
-from reni_neus.nerfosr_cityscapes_dataparser import NeRFOSRCityScapesDataParserConfig
+from reni_neus.data.nerfosr_cityscapes_dataparser import NeRFOSRCityScapesDataParserConfig
 from reni_neus.reni_neus_model import RENINeuSFactoModel, RENINeuSFactoModelConfig
-# from lerf.data.lerf_datamanager import LERFDataManagerConfig
-# from lerf.lerf import LERFModelConfig
-# from lerf.lerf_pipeline import LERFPipelineConfig
-
-"""
-Swap out the network config to use OpenCLIP or CLIP here.
-"""
-# from lerf.encoders.clip_encoder import CLIPNetworkConfig
-# from lerf.encoders.openclip_encoder import OpenCLIPNetworkConfig
+from reni_neus.illumination_fields.reni_field import RENIFieldConfig, RENIField
+from reni_neus.model_components.illumination_samplers import IcosahedronSamplerConfig, IcosahedronSampler
 
 RENINeuS = MethodSpecification(
     config=TrainerConfig(
@@ -47,7 +40,7 @@ RENINeuS = MethodSpecification(
         mixed_precision=False,
         pipeline=VanillaPipelineConfig(
             datamanager=SDFDataManagerConfig(
-                dataparser=SDFStudioDataParserConfig(),
+                dataparser=NeRFOSRCityScapesDataParserConfig(),
                 train_num_rays_per_batch=2048,
                 eval_num_rays_per_batch=2048,
                 camera_optimizer=CameraOptimizerConfig(
@@ -64,7 +57,22 @@ RENINeuS = MethodSpecification(
                     bias=0.5,
                     beta_init=0.8,
                     use_appearance_embedding=False,
+                    inside_outside=False,
                 ),
+                illumination_field=RENIFieldConfig(
+                    checkpoint_path="path/to/checkpoint",
+                    fixed_decoder=True,
+                    train_scale=True,
+                ),
+                illumination_sampler=IcosahedronSamplerConfig(
+                    icosphere_order=11,
+                    apply_random_rotation=True,
+                    remove_lower_hemisphere=False,
+                ),
+                reni_prior_loss_weight=1e-7,
+                reni_cosine_loss_weight=1e-1,
+                reni_loss_mult=1.0,
+                visibility_loss_mse_mult=0.01,
                 background_model="none",
                 eval_num_rays_per_chunk=2048,
             ),

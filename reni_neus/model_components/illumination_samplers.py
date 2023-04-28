@@ -17,12 +17,23 @@ Base class for the graphs.
 """
 
 from abc import abstractmethod
-from typing import Optional
+from typing import Optional, Type
+from dataclasses import dataclass, field
 
 import icosphere
 import torch
 from scipy.spatial.transform import Rotation
 from torch import nn
+
+from nerfstudio.configs.base_config import InstantiateConfig
+
+# Field related configs
+@dataclass
+class IlluminationSamplerConfig(InstantiateConfig):
+    """Configuration for model instantiation"""
+
+    _target: Type = nn.Module
+    """target class to instantiate"""
 
 
 class IlluminationSampler(nn.Module):
@@ -34,10 +45,9 @@ class IlluminationSampler(nn.Module):
 
     def __init__(
         self,
-        num_samples: Optional[int] = None,
+        config: IlluminationSamplerConfig,
     ) -> None:
         super().__init__()
-        self.num_samples = num_samples
 
     @abstractmethod
     def generate_direction_samples(self, num_directions) -> torch.Tensor:
@@ -56,16 +66,31 @@ class IlluminationSampler(nn.Module):
         return self.generate_direction_samples(num_directions)
 
 
+# Field related configs
+@dataclass
+class IcosahedronSamplerConfig(IlluminationSamplerConfig):
+    """Configuration for model instantiation"""
+
+    _target: Type = IlluminationSampler
+    """target class to instantiate"""
+    icosphere_order: int = 2
+    """order of the icosphere"""
+    apply_random_rotation: bool = False
+    """apply random rotation to the icosphere"""
+    remove_lower_hemisphere: bool = False
+    """remove lower hemisphere"""
+
+
 class IcosahedronSampler(IlluminationSampler):
     """For sampling directions from an icosahedron."""
 
     def __init__(
-        self, icosphere_order: int = 2, apply_random_rotation: bool = False, remove_lower_hemisphere: bool = False
+        self,
+        config: IcosahedronSamplerConfig,
     ):
-        super().__init__()
-        self.icosphere_order = icosphere_order
-        self.apply_random_rotation = apply_random_rotation
-        self.remove_lower_hemisphere = remove_lower_hemisphere
+        self.icosphere_order = config.icosphere_order
+        self.apply_random_rotation = config.apply_random_rotation
+        self.remove_lower_hemisphere = config.remove_lower_hemisphere
 
         vertices, _ = icosphere.icosphere(self.icosphere_order)
         self.directions = torch.from_numpy(vertices).float()  # [N, 3], # Z is up
