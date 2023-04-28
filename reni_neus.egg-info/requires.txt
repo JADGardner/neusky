@@ -1,3 +1,0 @@
-icosphere
-tqdm
-nerfstudio>=0.2.0
