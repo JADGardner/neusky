@@ -1,0 +1,15 @@
+[project]
+name = "reni_neus"
+version = "0.1.0"
+
+dependencies=[
+    "icosphere",
+    "tqdm",
+    "nerfstudio>=0.2.0"
+]
+
+[tool.setuptools.packages.find]
+include = ["reni_neus*"]
+
+[project.entry-points.'nerfstudio.method_configs']
+reni_neus = 'reni_neus.reni_neus_config:RENINeuS'
