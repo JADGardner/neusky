@@ -18,7 +18,7 @@ Base class for the graphs.
 
 from abc import abstractmethod
 from dataclasses import dataclass, field
-from typing import Literal, Type
+from typing import Any, Literal, Type
 
 import torch
 from torch import nn
@@ -42,6 +42,12 @@ class IlluminationField(nn.Module):
         self,
     ) -> None:
         super().__init__()
+
+        self.split = 'train'
+
+    def set_split(self, split):
+        assert split in ['train', 'val', 'test']
+        self.split = split
 
     @abstractmethod
     def get_outputs(self, unique_indices, inverse_indices, directions, illumination_type):

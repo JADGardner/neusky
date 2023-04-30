@@ -35,7 +35,7 @@ from nerfstudio.field_components.field_heads import FieldHeadNames
 from nerfstudio.field_components.spatial_distortions import SpatialDistortion
 from nerfstudio.fields.sdf_field import SDFFieldConfig, SDFField, LearnedVariance
 
-from reni_neus.reni_neus.reni_neus_fieldheadnames import RENINeuSFieldHeadNames
+from reni_neus.reni_neus_fieldheadnames import RENINeuSFieldHeadNames
 
 try:
     import tinycudann as tcnn

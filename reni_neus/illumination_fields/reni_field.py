@@ -15,7 +15,7 @@
 """Classic NeRF field"""
 
 from functools import singledispatch, update_wrapper
-from typing import Dict, Literal, Optional
+from typing import Dict, Literal, Optional, Type
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -25,7 +25,6 @@ from torchtyping import TensorType
 
 from reni_neus.illumination_fields.base_illumination_field import IlluminationField, IlluminationFieldConfig
 from reni_neus.utils.utils import sRGB
-
 ####################################################################
 ###################### ↓↓↓↓↓ UTILS ↓↓↓↓↓ ###########################
 ####################################################################
@@ -416,7 +415,21 @@ class RENIVariationalAutoDecoder(nn.Module):
     def _(self, idx: int, directions):
         assert len([idx]) == directions.shape[0]
         if self.fixed_decoder:
-            Z = self.mu[[idx], :, :]field
+            Z = self.mu[[idx], :, :]
+        else:
+            Z, _, _ = self.sample_latent([idx])
+        x = invariant_representation(Z, directions, equivariance=self.equivariance, conditioning="Concat")
+        return self.net(x)
+
+    @forward.register
+    def _(self, idx: list, directions):
+        assert len(idx) == directions.shape[0]
+        if self.fixed_decoder:
+            Z = self.mu[idx, :, :]
+        else:
+            Z, _, _ = self.sample_latent(idx)
+        x = invariant_representation(Z, directions, equivariance=self.equivariance, conditioning="Concat")
+        return self.net(x)
 
     @forward.register
     def _(self, x: torch.Tensor, directions):
@@ -524,38 +537,43 @@ class RENIField(IlluminationField):
         self,
         config: RENIFieldConfig,
         num_train_latents: int = 100,
-        num_test_latents: int = 100,
-        num_val_latents: int = 100,
+        num_eval_latents: int = 100,
     ):
         super().__init__()
         self.chkpt_path = config.checkpoint_path
         self.num_train_latents = num_train_latents
-        self.num_test_latents = num_test_latents
-        self.num_val_latents = num_val_latents
+        self.num_eval_latents = num_eval_latents
         self.fixed_decoder = config.fixed_decoder
         self.train_scale = config.train_scale
 
         self.reni_train = get_reni_field(self.chkpt_path, self.num_train_latents, self.fixed_decoder)
-        self.reni_test = get_reni_field(self.chkpt_path, self.num_test_latents, self.fixed_decoder)
-        self.reni_val = get_reni_field(self.chkpt_path, self.num_val_latents, self.fixed_decoder)
+        self.reni_eval = get_reni_field(self.chkpt_path, self.num_eval_latents, self.fixed_decoder)
         
         if self.train_scale:
             self.scale = nn.Parameter(torch.ones(num_latent_codes))
 
-    def reset_latents(self, mode="train"):
-        reni = self.reni_train if mode == "train" else self.reni_test if mode == "test" else self.reni_val
+    def get_split_reni(self):
+        if self.split == "train":
+            return self.reni_train
+        elif self.split == "eval":
+            return self.reni_eval
+        else:
+            raise ValueError(f"Split {split} not recognised")
+
+    def reset_latents(self):
+        reni = self.get_split_reni()
         reni.get_Z().data = torch.zeros_like(reni.get_Z().data)
 
-    def get_latents(self, mode="train"):
-        reni = self.reni_train if mode == "train" else self.reni_test if mode == "test" else self.reni_val
+    def get_latents(self):
+        reni = self.get_split_reni()
         return reni.get_Z()
 
-    def set_no_grad(self, mode="train"):
+    def set_no_grad(self):
         # TODO (james): make generic for type of reni
-        reni = self.reni_train if mode == "train" else self.reni_test if mode == "test" else self.reni_val
+        reni = self.get_split_reni()
         reni.mu.requires_grad = False
 
-    def get_outputs(self, unique_indices, inverse_indices, directions, illumination_type, mode="train"):
+    def get_outputs(self, unique_indices, inverse_indices, directions, illumination_type):
         """Computes and returns the HDR illumination colours.
 
         Args:
@@ -567,7 +585,7 @@ class RENIField(IlluminationField):
             light_colours: [num_rays * samples_per_ray, num_directions, 3]
             light_directions: [num_rays * samples_per_ray, num_directions, 3]
         """
-        reni = self.reni_train if mode == "train" else self.reni_test if mode == "test" else self.reni_val
+        reni = self.get_split_reni()
         if illumination_type == "illumination":
             Z, _, _ = reni.sample_latent(unique_indices)  # [unique_indices, ndims, 3]
             # convert directions to RENI coordinate system
@@ -603,6 +621,7 @@ class RENIField(IlluminationField):
             if self.train_scale:
                 scale = self.scale[inverse_indices[:, 0]].view(-1, 1)  # [unique_indices, 1]
                 light_colours = light_colours * scale
+            light_colours = sRGB(light_colours)  # [num_rays, 1, 3]
             return light_colours, light_directions
         elif illumination_type == "envmap":
             Z, _, _ = reni.sample_latent(unique_indices)
@@ -611,4 +630,5 @@ class RENIField(IlluminationField):
             if self.train_scale:
                 scale = self.scale[unique_indices].view(-1, 1, 1)  # [unique_indices, 1, 1]
                 light_colours = light_colours * scale
+            light_colours = sRGB(light_colours)  # [num_rays, 1, 3]
             return light_colours, None

@@ -13,6 +13,7 @@ from nerfstudio.plugins.types import MethodSpecification
 from nerfstudio.configs.base_config import ViewerConfig
 from nerfstudio.data.datamanagers.sdf_datamanager import SDFDataManagerConfig
 from nerfstudio.data.dataparsers.sdfstudio_dataparser import SDFStudioDataParserConfig
+from nerfstudio.data.datamanagers.semantic_datamanager import SemanticDataManagerConfig
 from nerfstudio.engine.optimizers import AdamOptimizerConfig, RAdamOptimizerConfig
 from nerfstudio.engine.schedulers import (
     CosineDecaySchedulerConfig,
@@ -28,6 +29,10 @@ from reni_neus.data.nerfosr_cityscapes_dataparser import NeRFOSRCityScapesDataPa
 from reni_neus.reni_neus_model import RENINeuSFactoModel, RENINeuSFactoModelConfig
 from reni_neus.illumination_fields.reni_field import RENIFieldConfig, RENIField
 from reni_neus.model_components.illumination_samplers import IcosahedronSamplerConfig, IcosahedronSampler
+from reni_neus.fields.sdf_albedo_field import SDFAlbedoFieldConfig, SDFAlbedoField
+from reni_neus.reni_neus_pipeline import RENINeuSPipelineConfig
+from reni_neus.data.reni_neus_datamanager import RENINeuSDataManagerConfig
+
 
 RENINeuS = MethodSpecification(
     config=TrainerConfig(
@@ -38,9 +43,14 @@ RENINeuS = MethodSpecification(
         steps_per_eval_all_images=1000000,  # set to a very large model so we don't eval with all images
         max_num_iterations=20001,
         mixed_precision=False,
-        pipeline=VanillaPipelineConfig(
-            datamanager=SDFDataManagerConfig(
-                dataparser=NeRFOSRCityScapesDataParserConfig(),
+        pipeline=RENINeuSPipelineConfig(
+            eval_latent_optimisation_source="image_half",
+            eval_latent_optimisation_epochs=100,
+            eval_latent_optimisation_lr=0.1,
+            datamanager=RENINeuSDataManagerConfig(
+                dataparser=NeRFOSRCityScapesDataParserConfig(
+                    scene='lk2',
+                ),
                 train_num_rays_per_batch=2048,
                 eval_num_rays_per_batch=2048,
                 camera_optimizer=CameraOptimizerConfig(
@@ -49,7 +59,7 @@ RENINeuS = MethodSpecification(
             ),
             model=RENINeuSFactoModelConfig(
                 # proposal network allows for signifanctly smaller sdf/color network
-                sdf_field=SDFFieldConfig(
+                sdf_field=SDFAlbedoFieldConfig(
                     use_grid_feature=True,
                     num_layers=2,
                     num_layers_color=2,
@@ -69,12 +79,13 @@ RENINeuS = MethodSpecification(
                     apply_random_rotation=True,
                     remove_lower_hemisphere=False,
                 ),
-                reni_prior_loss_weight=1e-7,
-                reni_cosine_loss_weight=1e-1,
-                reni_loss_mult=1.0,
+                illumination_field_prior_loss_weight=1e-7,
+                illumination_field_cosine_loss_weight=1e-1,
+                illumination_field_loss_weight=1.0,
                 visibility_loss_mse_mult=0.01,
                 background_model="none",
                 eval_num_rays_per_chunk=2048,
+                use_average_appearance_embedding=False,
             ),
         ),
         optimizers={

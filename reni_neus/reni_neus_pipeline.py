@@ -1,0 +1,205 @@
+# Copyright 2022 The Nerfstudio Team. All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""
+Abstracts for the Pipeline class.
+"""
+from __future__ import annotations
+
+import typing
+from abc import abstractmethod
+from dataclasses import dataclass, field
+from time import time
+from typing import Any, Dict, List, Mapping, Optional, Type, Union, cast
+
+import torch
+import torch.distributed as dist
+from rich.progress import (
+    BarColumn,
+    MofNCompleteColumn,
+    Progress,
+    TextColumn,
+    TimeElapsedColumn,
+)
+from torch import nn
+from torch.nn import Parameter
+from torch.nn.parallel import DistributedDataParallel as DDP
+from typing_extensions import Literal
+
+from nerfstudio.configs import base_config as cfg
+from nerfstudio.data.datamanagers.base_datamanager import (
+    DataManager,
+    DataManagerConfig,
+    VanillaDataManager,
+    VanillaDataManagerConfig,
+)
+from nerfstudio.engine.callbacks import TrainingCallback, TrainingCallbackAttributes
+from nerfstudio.models.base_model import Model, ModelConfig
+from nerfstudio.utils import profiler
+from nerfstudio.pipelines.base_pipeline import VanillaPipelineConfig, VanillaPipeline
+
+@dataclass
+class RENINeuSPipelineConfig(VanillaPipelineConfig):
+    """Configuration for pipeline instantiation"""
+
+    _target: Type = field(default_factory=lambda: RENINeuSPipeline)
+    """target class to instantiate"""
+    eval_latent_optimisation_source: Literal[
+        "none", "envmap", "image_half"
+    ] = "image_half"
+    """Source for latent optimisation during eval"""
+    eval_latent_optimisation_epochs: int = 100
+    """Number of epochs to optimise latent during eval"""
+    eval_latent_optimisation_lr: float = 0.1
+    """Learning rate for latent optimisation during eval"""
+
+
+class RENINeuSPipeline(VanillaPipeline):
+    """The pipeline class for the vanilla nerf setup of multiple cameras for one or a few scenes.
+
+    Args:
+        config: configuration to instantiate pipeline
+        device: location to place model and data
+        test_mode:
+            'val': loads train/val datasets into memory
+            'test': loads train/test dataset into memory
+            'inference': does not load any dataset into memory
+        world_size: total number of machines available
+        local_rank: rank of current machine
+
+    Attributes:
+        datamanager: The data manager that will be used
+        model: The model that will be used
+    """
+
+    def __init__(
+        self,
+        config: RENINeuSPipelineConfig,
+        device: str,
+        test_mode: Literal["test", "val", "inference"] = "val",
+        world_size: int = 1,
+        local_rank: int = 0,
+    ):
+        self.config = config
+        self.test_mode = test_mode
+        self.datamanager: VanillaDataManager = config.datamanager.setup(
+            device=device, test_mode=test_mode, world_size=world_size, local_rank=local_rank
+        )
+        self.datamanager.to(device)
+        assert self.datamanager.train_dataset is not None, "Missing input dataset"
+
+        if test_mode in ["val", "test"]:
+            assert self.datamanager.eval_dataset is not None, "Missing validation dataset"
+
+        self._model = config.model.setup(
+            scene_box=self.datamanager.train_dataset.scene_box,
+            num_train_data=len(self.datamanager.train_dataset),
+            num_eval_data=len(self.datamanager.eval_dataset),
+            metadata=self.datamanager.train_dataset.metadata,
+        )
+        self.model.to(device)
+
+        self.world_size = world_size
+        if world_size > 1:
+            self._model = typing.cast(Model, DDP(self._model, device_ids=[local_rank], find_unused_parameters=True))
+            dist.barrier(device_ids=[local_rank])
+
+    def _optimise_evaluation_latents(self):
+        # If we are optimising per eval image latents then we need to do that first
+        if self.config.eval_latent_optimisation_source in ["envmap", "image_half"]:
+            self.model.fit_latent_codes_for_eval(
+                datamanager=self.datamanager,
+                gt_source=self.config.eval_latent_optimisation_source,
+                epochs=self.config.eval_latent_optimisation_epochs,
+                learning_rate=self.config.eval_latent_optimisation_lr,
+            )
+
+    @profiler.time_function
+    def get_eval_loss_dict(self, step: int):
+        """This function gets your evaluation loss dict. It needs to get the data
+        from the DataManager and feed it to the model's forward function
+
+        Args:
+            step: current iteration step
+        """
+        self._optimise_evaluation_latents()
+        self.eval()
+        ray_bundle, batch = self.datamanager.next_eval(step)
+        model_outputs = self.model(ray_bundle)
+        metrics_dict = self.model.get_metrics_dict(model_outputs, batch)
+        loss_dict = self.model.get_loss_dict(model_outputs, batch, metrics_dict)
+        self.train()
+        return model_outputs, loss_dict, metrics_dict
+
+    @profiler.time_function
+    def get_eval_image_metrics_and_images(self, step: int):
+        """This function gets your evaluation loss dict. It needs to get the data
+        from the DataManager and feed it to the model's forward function
+
+        Args:
+            step: current iteration step
+        """
+        self._optimise_evaluation_latents()
+        self.eval()
+        image_idx, camera_ray_bundle, batch = self.datamanager.next_eval_image(step)
+        outputs = self.model.get_outputs_for_camera_ray_bundle(camera_ray_bundle)
+        metrics_dict, images_dict = self.model.get_image_metrics_and_images(outputs, batch)
+        assert "image_idx" not in metrics_dict
+        metrics_dict["image_idx"] = image_idx
+        assert "num_rays" not in metrics_dict
+        metrics_dict["num_rays"] = len(camera_ray_bundle)
+        self.train()
+        return metrics_dict, images_dict
+
+    @profiler.time_function
+    def get_average_eval_image_metrics(self, step: Optional[int] = None):
+        """Iterate over all the images in the eval dataset and get the average.
+
+        Returns:
+            metrics_dict: dictionary of metrics
+        """
+        self._optimise_evaluation_latents()
+        self.eval()
+        metrics_dict_list = []
+        num_images = len(self.datamanager.fixed_indices_eval_dataloader)
+        with Progress(
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TimeElapsedColumn(),
+            MofNCompleteColumn(),
+            transient=True,
+        ) as progress:
+            task = progress.add_task("[green]Evaluating all eval images...", total=num_images)
+            for camera_ray_bundle, batch in self.datamanager.fixed_indices_eval_dataloader:
+                # time this the following line
+                inner_start = time()
+                height, width = camera_ray_bundle.shape
+                num_rays = height * width
+                outputs = self.model.get_outputs_for_camera_ray_bundle(camera_ray_bundle)
+                metrics_dict, _ = self.model.get_image_metrics_and_images(outputs, batch)
+                assert "num_rays_per_sec" not in metrics_dict
+                metrics_dict["num_rays_per_sec"] = num_rays / (time() - inner_start)
+                fps_str = "fps"
+                assert fps_str not in metrics_dict
+                metrics_dict[fps_str] = metrics_dict["num_rays_per_sec"] / (height * width)
+                metrics_dict_list.append(metrics_dict)
+                progress.advance(task)
+        # average the metrics list
+        metrics_dict = {}
+        for key in metrics_dict_list[0].keys():
+            metrics_dict[key] = float(
+                torch.mean(torch.tensor([metrics_dict[key] for metrics_dict in metrics_dict_list]))
+            )
+        self.train()
+        return metrics_dict

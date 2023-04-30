@@ -40,6 +40,7 @@ from nerfstudio.data.dataparsers.base_dataparser import (
 )
 from nerfstudio.data.scene_box import SceneBox
 from nerfstudio.utils.io import load_from_json
+from nerfstudio.data.dataparsers.nerfosr_dataparser import NeRFOSRDataParserConfig
 
 CONSOLE = Console(width=120)
 
@@ -120,27 +121,13 @@ def get_camera_params(
 
 
 @dataclass
-class NeRFOSRCityScapesDataParserConfig(DataParserConfig):
+class NeRFOSRCityScapesDataParserConfig(NeRFOSRDataParserConfig):
     """Nerfstudio dataset config"""
 
     _target: Type = field(default_factory=lambda: NeRFOSRCityScapes)
     """target class to instantiate"""
-    data: Path = Path("data/NeRF-OSR/Data/")
-    """Directory specifying location of data."""
-    scene: str = "stjacob"
-    """Which scene to load"""
-    scene_scale: float = 1.0
-    """How much to scale the region of interest by."""
-    scale_factor: float = 1.0
-    """How much to scale the camera origins by."""
     mask_source: Literal["none", "original", "cityscapes"] = "cityscapes"
     """Source of masks, can be none, cityscapes not provided in original dataset."""
-    orientation_method: Literal["pca", "up", "vertical", "none"] = "vertical"
-    """The method to use for orientation."""
-    center_method: Literal["poses", "focus", "none"] = "focus"
-    """The method to use for centering."""
-    auto_scale_poses: bool = True
-    """Whether to automatically scale the poses to fit in +/- 1 bounding box."""
 
 
 @dataclass
@@ -179,7 +166,7 @@ class NeRFOSRCityScapes(DataParser):
         intrinsics = torch.cat([intrinsics_train, intrinsics_val, intrinsics_test], dim=0)
         camera_to_worlds = torch.cat([camera_to_worlds_train, camera_to_worlds_val, camera_to_worlds_test], dim=0)
 
-        camera_to_worlds, _ = camera_utils.auto_orient_and_center_poses(
+        camera_to_worlds, transform = camera_utils.auto_orient_and_center_poses(
             camera_to_worlds,
             method=self.config.orientation_method,
             center_method=self.config.center_method,
@@ -201,6 +188,10 @@ class NeRFOSRCityScapes(DataParser):
         elif split == "test":
             camera_to_worlds = camera_to_worlds[n_train + n_val :]
             intrinsics = intrinsics[n_train + n_val :]
+
+        c2w_colmap = camera_to_worlds
+        # convert to COLMAP/OpenCV convention from NeRFStudio
+        c2w_colmap[:, 0:3, 1:3] *= -1
 
         cameras = Cameras(
             camera_to_worlds=camera_to_worlds[:, :3, :4],
@@ -235,13 +226,21 @@ class NeRFOSRCityScapes(DataParser):
             segmentation_filenames = _find_files(f"{split_dir}/cityscapes_mask", exts=["*.png", "*.jpg", "*.JPG", "*.PNG"])
             semantics = Semantics(filenames=segmentation_filenames, classes=classes, colors=colors, mask_classes=["person", "rider", "car", "truck", "bus", "train", "motorcycle", "bicycle"])
 
+        metadata = {
+            "semantics": semantics,
+            "transform": transform,
+            "camera_to_worlds": c2w_colmap,
+            "depth_filenames": None,
+            "normal_filenames": None,
+            "include_mono_prior": False,
+        }
 
         dataparser_outputs = DataparserOutputs(
             image_filenames=image_filenames,
             cameras=cameras,
             scene_box=scene_box,
             mask_filenames=mask_filenames if len(mask_filenames) > 0 else None,
-            metadata={"semantics": semantics} if semantics is not None else {},
+            metadata=metadata,
             dataparser_scale=self.config.scale_factor,
         )
         return dataparser_outputs
