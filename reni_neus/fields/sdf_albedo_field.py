@@ -73,6 +73,7 @@ class SDFAlbedoField(SDFField):
         use_average_appearance_embedding: bool = False,
         spatial_distortion: Optional[SpatialDistortion] = None,
     ) -> None:
+        super(SDFField, self).__init__()  # Call grandparent class constructor ignoring parent class
         self.config = config
 
         self.aabb = Parameter(aabb, requires_grad=False)
@@ -120,10 +121,7 @@ class SDFAlbedoField(SDFField):
         # albedo network, only depends on position and geo features
         dims = [self.config.hidden_dim_color for _ in range(self.config.num_layers_color)]
         # point, feature
-        in_dim = (
-            3
-            + self.config.geo_feat_dim
-        )
+        in_dim = 3 + self.config.geo_feat_dim
         dims = [in_dim] + dims + [3]
         self.num_layers_color = len(dims)
 
@@ -155,10 +153,7 @@ class SDFAlbedoField(SDFField):
         """compute colors"""
 
         hidden_input = torch.cat(
-            [
-                points,
-                geo_features.view(-1, self.config.geo_feat_dim)
-            ],
+            [points, geo_features.view(-1, self.config.geo_feat_dim)],
             dim=-1,
         )
 

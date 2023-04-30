@@ -77,6 +77,7 @@ from nerfstudio.data.datamanagers.base_datamanager import DataManagerConfig, Dat
 
 CONSOLE = Console(width=120)
 
+
 def semantic_variable_res_collate(batch: List[Dict]) -> Dict:
     """Default collate function for the cached dataloader.
     Args:
@@ -91,19 +92,19 @@ def semantic_variable_res_collate(batch: List[Dict]) -> Dict:
     normals = []
     for data in batch:
         image = data.pop("image")
-        mask = data.pop("mask", None)
-        semantic = data.pop("semantic", None)
+        mask = [data.pop("mask", None)]
+        semantic = [data.pop("semantics", None)]
         depth = data.pop("depth", None)
         normal = data.pop("normal", None)
 
         images.append(image)
-        if mask is not None:
+        if mask:
             masks.append(mask)
-        if semantic is not None:
+        if semantic:
             semantics.append(semantic)
-        if depth is not None:
+        if depth:
             depths.append(depth)
-        if normal is not None:
+        if normal:
             normals.append(normal)
 
     new_batch: dict = nerfstudio_collate(batch)
@@ -119,6 +120,7 @@ def semantic_variable_res_collate(batch: List[Dict]) -> Dict:
         new_batch["normal"] = normals
 
     return new_batch
+
 
 @dataclass
 class RENINeuSDataManagerConfig(DataManagerConfig):
@@ -170,7 +172,7 @@ class RENINeuSDataManager(DataManager):  # pylint: disable=abstract-method
         config: the DataManagerConfig used to instantiate class
     """
 
-    config: VanillaDataManagerConfig
+    config: RENINeuSDataManagerConfig
     train_dataset: InputDataset
     eval_dataset: InputDataset
     train_dataparser_outputs: DataparserOutputs
@@ -179,7 +181,7 @@ class RENINeuSDataManager(DataManager):  # pylint: disable=abstract-method
 
     def __init__(
         self,
-        config: VanillaDataManagerConfig,
+        config: RENINeuSDataManagerConfig,
         device: Union[torch.device, str] = "cpu",
         test_mode: Literal["test", "val", "inference"] = "val",
         world_size: int = 1,
@@ -228,7 +230,7 @@ class RENINeuSDataManager(DataManager):  # pylint: disable=abstract-method
             dataparser_outputs=self.dataparser.get_dataparser_outputs(split=self.test_split),
             scale_factor=self.config.camera_res_scale_factor,
         )
-    
+
     def _get_pixel_sampler(  # pylint: disable=no-self-use
         self, dataset: InputDataset, *args: Any, **kwargs: Any
     ) -> PixelSampler:
@@ -353,4 +355,3 @@ class RENINeuSDataManager(DataManager):  # pylint: disable=abstract-method
             assert len(camera_opt_params) == 0
 
         return param_groups
-

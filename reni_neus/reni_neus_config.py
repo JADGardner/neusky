@@ -49,7 +49,7 @@ RENINeuS = MethodSpecification(
             eval_latent_optimisation_lr=0.1,
             datamanager=RENINeuSDataManagerConfig(
                 dataparser=NeRFOSRCityScapesDataParserConfig(
-                    scene='lk2',
+                    scene="lk2",
                 ),
                 train_num_rays_per_batch=2048,
                 eval_num_rays_per_batch=2048,
@@ -70,12 +70,13 @@ RENINeuS = MethodSpecification(
                     inside_outside=False,
                 ),
                 illumination_field=RENIFieldConfig(
-                    checkpoint_path="path/to/checkpoint",
+                    checkpoint_path="/workspace/checkpoints/reni_weights/latent_dim_36_net_5_256_vad_cbc_tanh_hdr/version_0/checkpoints/fit_decoder_epoch=1589.ckpt",
                     fixed_decoder=True,
-                    train_scale=True,
+                    exposure_scale=True,
                 ),
                 illumination_sampler=IcosahedronSamplerConfig(
                     icosphere_order=11,
+                    cache_dir="checkpoints/icosphere/",
                     apply_random_rotation=True,
                     remove_lower_hemisphere=False,
                 ),
@@ -97,7 +98,7 @@ RENINeuS = MethodSpecification(
                 "optimizer": AdamOptimizerConfig(lr=5e-4, eps=1e-15),
                 "scheduler": CosineDecaySchedulerConfig(warm_up_end=500, learning_rate_alpha=0.05, max_steps=20001),
             },
-            "field_background": {
+            "illumination_field": {
                 "optimizer": AdamOptimizerConfig(lr=5e-4, eps=1e-15),
                 "scheduler": CosineDecaySchedulerConfig(warm_up_end=500, learning_rate_alpha=0.05, max_steps=20001),
             },

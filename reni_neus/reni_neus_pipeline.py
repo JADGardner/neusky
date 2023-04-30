@@ -47,7 +47,10 @@ from nerfstudio.data.datamanagers.base_datamanager import (
 from nerfstudio.engine.callbacks import TrainingCallback, TrainingCallbackAttributes
 from nerfstudio.models.base_model import Model, ModelConfig
 from nerfstudio.utils import profiler
-from nerfstudio.pipelines.base_pipeline import VanillaPipelineConfig, VanillaPipeline
+from nerfstudio.pipelines.base_pipeline import VanillaPipelineConfig, VanillaPipeline, Pipeline
+
+from reni_neus.data.reni_neus_datamanager import RENINeuSDataManagerConfig, RENINeuSDataManager
+
 
 @dataclass
 class RENINeuSPipelineConfig(VanillaPipelineConfig):
@@ -55,9 +58,11 @@ class RENINeuSPipelineConfig(VanillaPipelineConfig):
 
     _target: Type = field(default_factory=lambda: RENINeuSPipeline)
     """target class to instantiate"""
-    eval_latent_optimisation_source: Literal[
-        "none", "envmap", "image_half"
-    ] = "image_half"
+    datamanager: DataManagerConfig = RENINeuSDataManagerConfig()
+    """specifies the datamanager config"""
+    model: ModelConfig = ModelConfig()
+    """specifies the model config"""
+    eval_latent_optimisation_source: Literal["none", "envmap", "image_half"] = "image_half"
     """Source for latent optimisation during eval"""
     eval_latent_optimisation_epochs: int = 100
     """Number of epochs to optimise latent during eval"""
@@ -91,9 +96,10 @@ class RENINeuSPipeline(VanillaPipeline):
         world_size: int = 1,
         local_rank: int = 0,
     ):
+        super(VanillaPipeline, self).__init__()  # Call grandparent class constructor ignoring parent class
         self.config = config
         self.test_mode = test_mode
-        self.datamanager: VanillaDataManager = config.datamanager.setup(
+        self.datamanager: RENINeuSDataManager = config.datamanager.setup(
             device=device, test_mode=test_mode, world_size=world_size, local_rank=local_rank
         )
         self.datamanager.to(device)

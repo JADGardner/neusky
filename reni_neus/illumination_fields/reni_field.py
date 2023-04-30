@@ -17,6 +17,9 @@
 from functools import singledispatch, update_wrapper
 from typing import Dict, Literal, Optional, Type
 from dataclasses import dataclass, field
+import wget
+import zipfile
+import os
 
 import numpy as np
 import torch
@@ -25,6 +28,7 @@ from torchtyping import TensorType
 
 from reni_neus.illumination_fields.base_illumination_field import IlluminationField, IlluminationFieldConfig
 from reni_neus.utils.utils import sRGB
+
 ####################################################################
 ###################### ↓↓↓↓↓ UTILS ↓↓↓↓↓ ###########################
 ####################################################################
@@ -450,7 +454,29 @@ class RENIVariationalAutoDecoder(nn.Module):
         return self.net(x)
 
 
-def get_reni_field(chkpt_path, num_latent_codes, fixed_decoder=True):
+def download_weights():
+    """Downloads the weights for the RENI model"""
+    download_folder = "/workspace/checkpoints/reni_weights"
+
+    url = "https://www.dropbox.com/s/3zt9c3864e8936r/RENI_Pretrained_Weights.zip?dl=1"
+
+    if not os.path.exists(download_folder):
+        os.makedirs(download_folder)
+
+    output = os.path.join(download_folder, "RENI_Pretrained_Weights.zip")
+
+    if not os.path.exists(output):
+        print("Downloading RENI weights...")
+        wget.download(url, out=output)
+
+    # if not extracted already
+    if not os.path.exists(os.path.join(download_folder, "latent_dim_36_net_5_256_vad_cbc_tanh_hdr")):
+        print("Extracting RENI weights...")
+        with zipfile.ZipFile(output, "r") as zip_ref:
+            zip_ref.extractall(download_folder)
+
+
+def get_reni_field(chkpt_path, num_latent_codes, latent_dim, fixed_decoder=True):
     """Returns a RENI model from a PyTorch Lightning checkpoint
 
     Args:
@@ -460,6 +486,7 @@ def get_reni_field(chkpt_path, num_latent_codes, fixed_decoder=True):
     Returns:
         nn.Module: The initalised RENI model
     """
+    download_weights()
     chkpt = torch.load(chkpt_path)
     config = chkpt["hyper_parameters"]["config"]
 
@@ -516,11 +543,13 @@ class RENIFieldConfig(IlluminationFieldConfig):
 
     _target: Type = field(default_factory=lambda: RENIField)
     """target class to instantiate"""
-    checkpoint_path: str = "path/to/checkpoint"
+    checkpoint_path: str = "checkpoints/"
     """path to PyTorch Lightning checkpoint"""
+    latent_dim: int = 36
+    """size of latent code to use, checkpoints provided for 36 and 49"""
     fixed_decoder: bool = True
     """whether to use the fixed decoder, not optimised during training"""
-    train_scale: bool = False
+    exposure_scale: bool = False
     """whether to train a per-illumination scale parameter"""
 
 
@@ -541,37 +570,41 @@ class RENIField(IlluminationField):
     ):
         super().__init__()
         self.chkpt_path = config.checkpoint_path
+        self.latent_dim = config.latent_dim
         self.num_train_latents = num_train_latents
         self.num_eval_latents = num_eval_latents
         self.fixed_decoder = config.fixed_decoder
-        self.train_scale = config.train_scale
+        self.exposure_scale = config.exposure_scale
 
-        self.reni_train = get_reni_field(self.chkpt_path, self.num_train_latents, self.fixed_decoder)
-        self.reni_eval = get_reni_field(self.chkpt_path, self.num_eval_latents, self.fixed_decoder)
-        
-        if self.train_scale:
-            self.scale = nn.Parameter(torch.ones(num_latent_codes))
+        self.reni_train = get_reni_field(self.chkpt_path, self.num_train_latents, self.latent_dim, self.fixed_decoder)
+        self.reni_eval = get_reni_field(self.chkpt_path, self.num_eval_latents, self.latent_dim, self.fixed_decoder)
+
+        self.train_scale = None
+        self.eval_scale = None
+        if self.exposure_scale:
+            self.train_scale = nn.Parameter(torch.ones(num_train_latents))
+            self.eval_scale = nn.Parameter(torch.ones(num_eval_latents))
 
     def get_split_reni(self):
         if self.split == "train":
-            return self.reni_train
+            return self.reni_train, self.train_scale
         elif self.split == "eval":
-            return self.reni_eval
-        else:
-            raise ValueError(f"Split {split} not recognised")
+            return self.reni_eval, self.eval_scale
 
     def reset_latents(self):
-        reni = self.get_split_reni()
+        reni, scale = self.get_split_reni()
         reni.get_Z().data = torch.zeros_like(reni.get_Z().data)
+        scale.data = torch.ones_like(scale.data)
 
     def get_latents(self):
-        reni = self.get_split_reni()
+        reni, _ = self.get_split_reni()
         return reni.get_Z()
 
-    def set_no_grad(self):
+    def set_grad(self, use_grad):
         # TODO (james): make generic for type of reni
-        reni = self.get_split_reni()
-        reni.mu.requires_grad = False
+        reni, scale = self.get_split_reni()
+        reni.mu.requires_grad = use_grad
+        scale.requires_grad = use_grad
 
     def get_outputs(self, unique_indices, inverse_indices, directions, illumination_type):
         """Computes and returns the HDR illumination colours.
@@ -585,7 +618,7 @@ class RENIField(IlluminationField):
             light_colours: [num_rays * samples_per_ray, num_directions, 3]
             light_directions: [num_rays * samples_per_ray, num_directions, 3]
         """
-        reni = self.get_split_reni()
+        reni, scale = self.get_split_reni()
         if illumination_type == "illumination":
             Z, _, _ = reni.sample_latent(unique_indices)  # [unique_indices, ndims, 3]
             # convert directions to RENI coordinate system
@@ -593,9 +626,9 @@ class RENIField(IlluminationField):
             light_directions = directions.unsqueeze(0).repeat(Z.shape[0], 1, 1).to(Z.device)  # [unique_indices, D, 3]
             light_colours = reni(Z, light_directions)  # [unique_indices, D, 3]
             light_colours = reni.unnormalise(light_colours)  # undo reni scaling between -1 and 1
-            if self.train_scale:
-                scale = self.scale[unique_indices].view(-1, 1, 1)  # [unique_indices, 1, 1]
-                light_colours = light_colours * scale
+            if self.exposure_scale:
+                s = scale[unique_indices].view(-1, 1, 1)  # [unique_indices, 1, 1]
+                light_colours = light_colours * s
             light_colours = light_colours[inverse_indices]  # [num_rays, samples_per_ray, D, 3]
             light_colours = light_colours.reshape(-1, directions.shape[0], 3)  # [num_rays * samples_per_ray, D, 3]
             # convert directions back to nerfstudio coordinate system
@@ -618,17 +651,17 @@ class RENIField(IlluminationField):
             light_colours = reni(Z, light_directions)  # [num_rays, 1, 3]
             light_colours = light_colours.squeeze(1)  # [num_rays, 3]
             light_colours = reni.unnormalise(light_colours)  # undo reni scaling between -1 and 1
-            if self.train_scale:
-                scale = self.scale[inverse_indices[:, 0]].view(-1, 1)  # [unique_indices, 1]
-                light_colours = light_colours * scale
+            if self.exposure_scale:
+                s = scale[inverse_indices[:, 0]].view(-1, 1)  # [unique_indices, 1]
+                light_colours = light_colours * s
             light_colours = sRGB(light_colours)  # [num_rays, 1, 3]
             return light_colours, light_directions
         elif illumination_type == "envmap":
             Z, _, _ = reni.sample_latent(unique_indices)
             light_colours = reni(Z, directions)  # [unique_indices, D, 3]
             light_colours = reni.unnormalise(light_colours)  # undo reni scaling between -1 and 1
-            if self.train_scale:
-                scale = self.scale[unique_indices].view(-1, 1, 1)  # [unique_indices, 1, 1]
-                light_colours = light_colours * scale
+            if self.exposure_scale:
+                s = scale[unique_indices].view(-1, 1, 1)  # [unique_indices, 1, 1]
+                light_colours = light_colours * s
             light_colours = sRGB(light_colours)  # [num_rays, 1, 3]
             return light_colours, None
