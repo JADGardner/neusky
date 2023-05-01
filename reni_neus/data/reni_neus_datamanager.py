@@ -74,6 +74,8 @@ from nerfstudio.utils.misc import IterableWrapper
 from nerfstudio.data.datasets.semantic_dataset import SemanticDataset
 from nerfstudio.data.datamanagers.base_datamanager import DataManagerConfig, DataManager, AnnotatedDataParserUnion
 
+from reni_neus.data.reni_neus_pixel_sampler import RENINeuSPixelSampler
+
 
 CONSOLE = Console(width=120)
 
@@ -245,7 +247,7 @@ class RENINeuSDataManager(DataManager):  # pylint: disable=abstract-method
         # Otherwise, use the default pixel sampler
         if is_equirectangular.any():
             CONSOLE.print("[bold yellow]Warning: Some cameras are equirectangular, but using default pixel sampler.")
-        return PixelSampler(*args, **kwargs)
+        return RENINeuSPixelSampler(*args, **kwargs)
 
     def setup_train(self):
         """Sets up the data loaders for training"""

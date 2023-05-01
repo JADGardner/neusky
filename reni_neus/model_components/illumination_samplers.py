@@ -76,8 +76,6 @@ class IcosahedronSamplerConfig(IlluminationSamplerConfig):
     """target class to instantiate"""
     icosphere_order: int = 2
     """order of the icosphere"""
-    cache_dir: str = "checkpoints/icosphere/"
-    """cache directory for the icosphere"""
     apply_random_rotation: bool = False
     """apply random rotation to the icosphere"""
     remove_lower_hemisphere: bool = False

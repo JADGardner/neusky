@@ -70,13 +70,12 @@ RENINeuS = MethodSpecification(
                     inside_outside=False,
                 ),
                 illumination_field=RENIFieldConfig(
-                    checkpoint_path="/workspace/checkpoints/reni_weights/latent_dim_36_net_5_256_vad_cbc_tanh_hdr/version_0/checkpoints/fit_decoder_epoch=1589.ckpt",
+                    checkpoint_path="/workspace/reni_neus/checkpoints/reni_weights/latent_dim_36_net_5_256_vad_cbc_tanh_hdr/version_0/checkpoints/fit_decoder_epoch=1589.ckpt",
                     fixed_decoder=True,
                     exposure_scale=True,
                 ),
                 illumination_sampler=IcosahedronSamplerConfig(
                     icosphere_order=11,
-                    cache_dir="checkpoints/icosphere/",
                     apply_random_rotation=True,
                     remove_lower_hemisphere=False,
                 ),

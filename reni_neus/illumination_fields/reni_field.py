@@ -456,7 +456,7 @@ class RENIVariationalAutoDecoder(nn.Module):
 
 def download_weights():
     """Downloads the weights for the RENI model"""
-    download_folder = "/workspace/checkpoints/reni_weights"
+    download_folder = "/workspace/reni_neus/checkpoints/reni_weights"
 
     url = "https://www.dropbox.com/s/3zt9c3864e8936r/RENI_Pretrained_Weights.zip?dl=1"
 
