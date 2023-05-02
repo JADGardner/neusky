@@ -137,13 +137,6 @@ class RENINeuSFactoModel(NeuSFactoModel):
         weights_list.append(weights)
         ray_samples_list.append(ray_samples)
 
-        p2p_dist = self.renderer_depth(weights=weights, ray_samples=ray_samples)
-        # the rendered depth is point-to-point distance and we should convert to depth
-        depth = p2p_dist / ray_bundle.metadata["directions_norm"]
-        normal = self.renderer_normal(semantics=field_outputs[FieldHeadNames.NORMALS], weights=weights)
-        accumulation = self.renderer_accumulation(weights=weights)
-        albedo = self.albedo_renderer(rgb=field_outputs[RENINeuSFieldHeadNames.ALBEDO], weights=weights)
-
         if self.training:
             illumination_field = (
                 self.illumination_field_train if not self.fitting_eval_latents else self.illumination_field_eval
@@ -177,11 +170,6 @@ class RENINeuSFactoModel(NeuSFactoModel):
             "bg_transmittance": bg_transmittance,
             "weights_list": weights_list,
             "ray_samples_list": ray_samples_list,
-            "accumulation": accumulation,
-            "p2p_dist": p2p_dist,
-            "albedo": albedo,
-            "depth": depth,
-            "normal": normal,
             "illumination_directions": illumination_directions,
             "hdr_illumination_colours": hdr_illumination_colours,
             "background_colours": background_colours,
@@ -199,7 +187,19 @@ class RENINeuSFactoModel(NeuSFactoModel):
             weights=weights,
         )
 
+        p2p_dist = self.renderer_depth(weights=weights, ray_samples=ray_samples)
+        # the rendered depth is point-to-point distance and we should convert to depth
+        depth = p2p_dist / ray_bundle.metadata["directions_norm"]
+        normal = self.renderer_normal(semantics=field_outputs[FieldHeadNames.NORMALS], weights=weights)
+        accumulation = self.renderer_accumulation(weights=weights)
+        albedo = self.albedo_renderer(rgb=field_outputs[RENINeuSFieldHeadNames.ALBEDO], weights=weights)
+
         samples_and_field_outputs["rgb"] = rgb
+        samples_and_field_outputs["accumulation"] = accumulation
+        samples_and_field_outputs["depth"] = depth
+        samples_and_field_outputs["normal"] = normal
+        samples_and_field_outputs["albedo"] = albedo
+        samples_and_field_outputs["p2p_dist"] = p2p_dist
 
         return samples_and_field_outputs
 
@@ -217,6 +217,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
 
         # shortcuts
         field_outputs = samples_and_field_outputs["field_outputs"]
+
         weights = samples_and_field_outputs["weights"]
         rgb = samples_and_field_outputs["rgb"]
         accumulation = samples_and_field_outputs["accumulation"]
@@ -224,13 +225,12 @@ class RENINeuSFactoModel(NeuSFactoModel):
         normal = samples_and_field_outputs["normal"]
         p2p_dist = samples_and_field_outputs["p2p_dist"]
         background_colours = samples_and_field_outputs["background_colours"]
-
-        albedo = field_outputs[RENINeuSFieldHeadNames.ALBEDO]
-        normal = field_outputs[FieldHeadNames.NORMALS]
+        albedo = samples_and_field_outputs["albedo"]
+        normal = samples_and_field_outputs["normal"]
 
         outputs = {
             "rgb": rgb,
-            "albedos": albedo,
+            "albedo": albedo,
             "accumulation": accumulation,
             "depth": depth,
             "p2p_dist": p2p_dist,
@@ -306,6 +306,18 @@ class RENINeuSFactoModel(NeuSFactoModel):
                 accumulation=outputs["accumulation"],
             )
             images_dict[key] = prop_depth_i
+
+        images_dict["albedo"] = outputs["albedo"]
+        images_dict["background"] = outputs["background_colours"]
+
+        with torch.no_grad():
+            idx = torch.tensor(batch["image_idx"], device=self.device)
+            W = 512
+            H = W // 2
+            D = get_directions(W).to(self.device)  # [B, H*W, 3]
+            envmap, _ = self.illumination_field_eval(idx, None, D, "envmap")
+            envmap = envmap.reshape(1, H, W, 3).squeeze(0)
+            images_dict["RENI"] = envmap
 
         return metrics_dict, images_dict
 
