@@ -28,6 +28,7 @@ import torch.nn.functional as F
 from torch.nn import Parameter
 
 from nerfstudio.cameras.rays import RayBundle
+from nerfstudio.data.scene_box import SceneBox
 from nerfstudio.engine.callbacks import (
     TrainingCallback,
     TrainingCallbackAttributes,
@@ -41,6 +42,7 @@ from nerfstudio.model_components.ray_samplers import (
     ProposalNetworkSampler,
     UniformSampler,
 )
+from nerfstudio.models.base_model import ModelConfig
 from nerfstudio.models.neus import NeuSModel, NeuSModelConfig
 from nerfstudio.models.neus_facto import NeuSFactoModel, NeuSFactoModelConfig
 from nerfstudio.utils import colormaps
@@ -85,15 +87,20 @@ class RENINeuSFactoModel(NeuSFactoModel):
     """
 
     config: RENINeuSFactoModelConfig
-    num_train_data: int
-    num_eval_data: int
-    fitting_eval_latents: bool = False
+
+    def __init__(
+        self, config: ModelConfig, scene_box: SceneBox, num_train_data: int, num_eval_data: int, **kwargs
+    ) -> None:
+        self.num_eval_data = num_eval_data
+        self.fitting_eval_latents = False
+        super().__init__(config, scene_box, num_train_data, **kwargs)
 
     def populate_modules(self):
         """Instantiate modules and fields, including proposal networks."""
         super().populate_modules()
 
-        self.illumination_field = self.config.illumination_field.setup()
+        self.illumination_field_train = self.config.illumination_field.setup(num_latent_codes=self.num_train_data)
+        self.illumination_field_eval = self.config.illumination_field.setup(num_latent_codes=self.num_eval_data)
         self.illumination_sampler = self.config.illumination_sampler.setup()
 
         self.field_background = None
@@ -111,7 +118,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
         param_groups = {}
         param_groups["fields"] = list(self.field.parameters())
         param_groups["proposal_networks"] = list(self.proposal_networks.parameters())
-        param_groups["illumination_field"] = list(self.illumination_field.parameters())
+        param_groups["illumination_field"] = list(self.illumination_field_train.parameters())
         return param_groups
 
     def sample_and_forward_field(self, ray_bundle: RayBundle) -> Dict[str, Any]:
@@ -140,16 +147,17 @@ class RENINeuSFactoModel(NeuSFactoModel):
         accumulation = self.renderer_accumulation(weights=weights)
 
         if self.training:
-            split = "train" if not self.fitting_eval_latents else "eval"
-            self.illumination_field.set_split(split)
+            illumination_field = (
+                self.illumination_field_train if not self.fitting_eval_latents else self.illumination_field_eval
+            )
         else:
-            self.illumination_field.set_split("eval")
+            illumination_field = self.illumination_field_eval
 
         illumination_directions = self.illumination_sampler()
         illumination_directions = illumination_directions.to(self.device)
 
         # Get environment illumination for samples along the rays for each unique camera
-        hdr_illumination_colours, illumination_directions = self.illumination_field(
+        hdr_illumination_colours, illumination_directions = illumination_field(
             camera_indices=camera_indices,
             positions=None,
             directions=illumination_directions,
@@ -157,7 +165,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
         )
 
         # Get LDR colour of the background for rays from the camera that don't hit the scene
-        background_colours, _ = self.illumination_field(
+        background_colours, _ = illumination_field(
             camera_indices=camera_indices,
             positions=None,
             directions=ray_samples.frustums.directions[:, 0, :],
@@ -184,7 +192,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
         # TODO Add visibility here?
 
         rgb = self.lambertian_renderer(
-            albedos=albedos,
+            albedos=albedo,
             normals=normal,
             light_directions=illumination_directions,
             light_colors=hdr_illumination_colours,
@@ -272,7 +280,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
                         inputs=outputs["background_colours"],
                         targets=batch["image"].to(self.device),
                         mask=fg_label,
-                        Z=self.illumination_field.get_latents(),
+                        Z=self.illumination_field_train.get_latents(),
                     )
                     * self.config.illumination_field_loss_weight
                 )

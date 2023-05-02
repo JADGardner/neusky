@@ -562,49 +562,35 @@ class RENIField(IlluminationField):
         fixed_decoder (bool, optional): whether to use the fixed decoder. Defaults to True.
     """
 
+    config: RENIFieldConfig
+
     def __init__(
         self,
         config: RENIFieldConfig,
-        num_train_latents: int = 100,
-        num_eval_latents: int = 100,
+        num_latent_codes: int,
     ):
         super().__init__()
+        self.num_latent_codes = num_latent_codes
         self.chkpt_path = config.checkpoint_path
         self.latent_dim = config.latent_dim
-        self.num_train_latents = num_train_latents
-        self.num_eval_latents = num_eval_latents
         self.fixed_decoder = config.fixed_decoder
         self.exposure_scale = config.exposure_scale
 
-        self.reni_train = get_reni_field(self.chkpt_path, self.num_train_latents, self.latent_dim, self.fixed_decoder)
-        self.reni_eval = get_reni_field(self.chkpt_path, self.num_eval_latents, self.latent_dim, self.fixed_decoder)
+        self.reni = get_reni_field(self.chkpt_path, self.num_latent_codes, self.latent_dim, self.fixed_decoder)
 
-        self.train_scale = None
-        self.eval_scale = None
         if self.exposure_scale:
-            self.train_scale = nn.Parameter(torch.ones(num_train_latents))
-            self.eval_scale = nn.Parameter(torch.ones(num_eval_latents))
-
-    def get_split_reni(self):
-        if self.split == "train":
-            return self.reni_train, self.train_scale
-        elif self.split == "eval":
-            return self.reni_eval, self.eval_scale
+            self.scale = nn.Parameter(torch.ones(self.num_latent_codes))
 
     def reset_latents(self):
-        reni, scale = self.get_split_reni()
-        reni.get_Z().data = torch.zeros_like(reni.get_Z().data)
-        scale.data = torch.ones_like(scale.data)
+        """Resets the latent codes to random values"""
+        self.reni.get_Z().data = torch.zeros_like(self.reni.get_Z().data)
 
     def get_latents(self):
-        reni, _ = self.get_split_reni()
-        return reni.get_Z()
+        return self.reni.get_Z()
 
-    def set_grad(self, use_grad):
+    def set_no_grad(self):
         # TODO (james): make generic for type of reni
-        reni, scale = self.get_split_reni()
-        reni.mu.requires_grad = use_grad
-        scale.requires_grad = use_grad
+        self.reni.mu.requires_grad = False
 
     def get_outputs(self, unique_indices, inverse_indices, directions, illumination_type):
         """Computes and returns the HDR illumination colours.
@@ -618,16 +604,15 @@ class RENIField(IlluminationField):
             light_colours: [num_rays * samples_per_ray, num_directions, 3]
             light_directions: [num_rays * samples_per_ray, num_directions, 3]
         """
-        reni, scale = self.get_split_reni()
         if illumination_type == "illumination":
-            Z, _, _ = reni.sample_latent(unique_indices)  # [unique_indices, ndims, 3]
+            Z, _, _ = self.reni.sample_latent(unique_indices)  # [unique_indices, ndims, 3]
             # convert directions to RENI coordinate system
             light_directions = torch.stack([-directions[:, 0], directions[:, 2], directions[:, 1]], dim=1)
             light_directions = directions.unsqueeze(0).repeat(Z.shape[0], 1, 1).to(Z.device)  # [unique_indices, D, 3]
-            light_colours = reni(Z, light_directions)  # [unique_indices, D, 3]
-            light_colours = reni.unnormalise(light_colours)  # undo reni scaling between -1 and 1
+            light_colours = self.reni(Z, light_directions)  # [unique_indices, D, 3]
+            light_colours = self.reni.unnormalise(light_colours)  # undo reni scaling between -1 and 1
             if self.exposure_scale:
-                s = scale[unique_indices].view(-1, 1, 1)  # [unique_indices, 1, 1]
+                s = self.scale[unique_indices].view(-1, 1, 1)  # [unique_indices, 1, 1]
                 light_colours = light_colours * s
             light_colours = light_colours[inverse_indices]  # [num_rays, samples_per_ray, D, 3]
             light_colours = light_colours.reshape(-1, directions.shape[0], 3)  # [num_rays * samples_per_ray, D, 3]
@@ -641,27 +626,27 @@ class RENIField(IlluminationField):
             )  # [num_rays * samples_per_ray, D, 3]
             return light_colours, light_directions
         elif illumination_type == "background":
-            Z, _, _ = reni.sample_latent(unique_indices)  # [unique_indices, ndims, 3]
+            Z, _, _ = self.reni.sample_latent(unique_indices)  # [unique_indices, ndims, 3]
             Z = Z[inverse_indices[:, 0], :, :]  # [num_rays, ndims, 3]
             light_directions = directions.unsqueeze(1)  # [num_rays, 1, 3]
             # convert directions to RENI coordinate system
             light_directions = torch.stack(
                 [-light_directions[:, :, 0], light_directions[:, :, 2], light_directions[:, :, 1]], dim=2
             )
-            light_colours = reni(Z, light_directions)  # [num_rays, 1, 3]
+            light_colours = self.reni(Z, light_directions)  # [num_rays, 1, 3]
             light_colours = light_colours.squeeze(1)  # [num_rays, 3]
-            light_colours = reni.unnormalise(light_colours)  # undo reni scaling between -1 and 1
+            light_colours = self.reni.unnormalise(light_colours)  # undo reni scaling between -1 and 1
             if self.exposure_scale:
-                s = scale[inverse_indices[:, 0]].view(-1, 1)  # [unique_indices, 1]
+                s = self.scale[inverse_indices[:, 0]].view(-1, 1)  # [unique_indices, 1]
                 light_colours = light_colours * s
             light_colours = sRGB(light_colours)  # [num_rays, 1, 3]
             return light_colours, light_directions
         elif illumination_type == "envmap":
-            Z, _, _ = reni.sample_latent(unique_indices)
-            light_colours = reni(Z, directions)  # [unique_indices, D, 3]
-            light_colours = reni.unnormalise(light_colours)  # undo reni scaling between -1 and 1
+            Z, _, _ = self.reni.sample_latent(unique_indices)
+            light_colours = self.reni(Z, directions)  # [unique_indices, D, 3]
+            light_colours = self.reni.unnormalise(light_colours)  # undo reni scaling between -1 and 1
             if self.exposure_scale:
-                s = scale[unique_indices].view(-1, 1, 1)  # [unique_indices, 1, 1]
+                s = self.scale[unique_indices].view(-1, 1, 1)  # [unique_indices, 1, 1]
                 light_colours = light_colours * s
             light_colours = sRGB(light_colours)  # [num_rays, 1, 3]
             return light_colours, None

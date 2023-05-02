@@ -38,16 +38,12 @@ class IlluminationFieldConfig(InstantiateConfig):
 class IlluminationField(nn.Module):
     """Base class for illumination fields."""
 
+    config: IlluminationFieldConfig
+
     def __init__(
         self,
     ) -> None:
         super().__init__()
-
-        self.split = "train"
-
-    def set_split(self, split):
-        assert split in ["train", "val", "test"]
-        self.split = split
 
     @abstractmethod
     def get_outputs(self, unique_indices, inverse_indices, directions, illumination_type):
