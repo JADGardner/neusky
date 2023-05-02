@@ -51,7 +51,7 @@ from reni_neus.illumination_fields.reni_field import RENIFieldConfig, RENIField
 from reni_neus.illumination_fields.base_illumination_field import IlluminationFieldConfig, IlluminationField
 from reni_neus.model_components.renderers import RGBLambertianRendererWithVisibility
 from reni_neus.model_components.illumination_samplers import IlluminationSamplerConfig, IlluminationSampler
-from reni_neus.utils.utils import RENITestLossMask
+from reni_neus.utils.utils import RENITestLossMask, get_directions
 from reni_neus.reni_neus_fieldheadnames import RENINeuSFieldHeadNames
 
 
