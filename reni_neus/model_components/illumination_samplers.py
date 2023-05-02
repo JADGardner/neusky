@@ -33,7 +33,7 @@ from nerfstudio.configs.base_config import InstantiateConfig
 class IlluminationSamplerConfig(InstantiateConfig):
     """Configuration for model instantiation"""
 
-    _target: Type = nn.Module
+    _target: Type = field(default_factory=lambda: IlluminationSampler)
     """target class to instantiate"""
 
 
@@ -72,7 +72,7 @@ class IlluminationSampler(nn.Module):
 class IcosahedronSamplerConfig(IlluminationSamplerConfig):
     """Configuration for model instantiation"""
 
-    _target: Type = IlluminationSampler
+    _target: Type = field(default_factory=lambda: IcosahedronSampler)
     """target class to instantiate"""
     icosphere_order: int = 2
     """order of the icosphere"""
@@ -89,6 +89,7 @@ class IcosahedronSampler(IlluminationSampler):
         self,
         config: IcosahedronSamplerConfig,
     ):
+        super().__init__(config)
         self.icosphere_order = config.icosphere_order
         self.apply_random_rotation = config.apply_random_rotation
         self.remove_lower_hemisphere = config.remove_lower_hemisphere

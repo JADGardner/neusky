@@ -24,6 +24,7 @@ from typing import Any, Dict, List, Optional, Tuple, Type
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 from torch.nn import Parameter
 
 from nerfstudio.cameras.rays import RayBundle
@@ -51,6 +52,7 @@ from reni_neus.model_components.illumination_samplers import IlluminationSampler
 from reni_neus.utils.utils import RENITestLossMask
 from reni_neus.reni_neus_fieldheadnames import RENINeuSFieldHeadNames
 
+
 @dataclass
 class RENINeuSFactoModelConfig(NeuSFactoModelConfig):
     """NeusFacto Model Config"""
@@ -66,8 +68,10 @@ class RENINeuSFactoModelConfig(NeuSFactoModelConfig):
     """Weight for the reni cosine loss"""
     illumination_field_loss_weight: float = 1.0
     """Weight for the reni loss"""
-    visibility_loss_mse_mult: float = 0.01
+    visibility_loss_mse_multi: float = 0.01
     """Weight for the visibility mse loss"""
+    fg_mask_loss_multi: float = 0.01
+    """Weight for the fg mask loss"""
 
 
 class RENINeuSFactoModel(NeuSFactoModel):
@@ -91,14 +95,15 @@ class RENINeuSFactoModel(NeuSFactoModel):
 
         self.illumination_field = self.config.illumination_field.setup()
         self.illumination_sampler = self.config.illumination_sampler.setup()
-        
+
         self.field_background = None
 
         self.albedo_renderer = RGBRenderer(background_color=torch.tensor([1.0, 1.0, 1.0]))
         self.lambertian_renderer = RGBLambertianRendererWithVisibility()
 
         self.direct_illumination_loss = RENITestLossMask(
-            alpha=self.config.illumination_field_prior_loss_weight, beta=self.config.illumination_field_cosine_loss_weight
+            alpha=self.config.illumination_field_prior_loss_weight,
+            beta=self.config.illumination_field_cosine_loss_weight,
         )
 
     def get_param_groups(self) -> Dict[str, List[Parameter]]:
@@ -113,19 +118,10 @@ class RENINeuSFactoModel(NeuSFactoModel):
         """Sample rays using proposal networks and compute the corresponding field outputs."""
         ray_samples, weights_list, ray_samples_list = self.proposal_sampler(ray_bundle, density_fns=self.density_fns)
 
-        camera_indices = ray_samples.camera_indices.squeeze() # [num_rays, samples_per_ray]
+        camera_indices = ray_samples.camera_indices.squeeze()  # [num_rays, samples_per_ray]
 
-        if self.training:
-            split = 'train' if not self.fitting_eval_latents else 'eval'
-            self.illumination_field.set_split(split)
-        else:
-            self.illumination_field.set_split('eval')
-
-        illumination_directions = self.illumination_sampler() 
-        illumination_directions = illumination_directions.to(self.device)       
-      
         field_outputs = self.field(ray_samples, return_alphas=True)
-        
+
         albedo = field_outputs[RENINeuSFieldHeadNames.ALBEDO]
         normal = field_outputs[FieldHeadNames.NORMALS]
 
@@ -143,18 +139,31 @@ class RENINeuSFactoModel(NeuSFactoModel):
         normal = self.renderer_normal(semantics=field_outputs[FieldHeadNames.NORMALS], weights=weights)
         accumulation = self.renderer_accumulation(weights=weights)
 
+        if self.training:
+            split = "train" if not self.fitting_eval_latents else "eval"
+            self.illumination_field.set_split(split)
+        else:
+            self.illumination_field.set_split("eval")
+
+        illumination_directions = self.illumination_sampler()
+        illumination_directions = illumination_directions.to(self.device)
+
         # Get environment illumination for samples along the rays for each unique camera
-        hdr_illumination_colours, illumination_directions = self.illumination_field(unique_indices=camera_indices,
-                                                                                    inverse_indices=None,
-                                                                                    directions=illumination_directions,
-                                                                                    illumination_type="illumination")
-        
+        hdr_illumination_colours, illumination_directions = self.illumination_field(
+            camera_indices=camera_indices,
+            positions=None,
+            directions=illumination_directions,
+            illumination_type="illumination",
+        )
+
         # Get LDR colour of the background for rays from the camera that don't hit the scene
-        background_colours, _ = self.illumination_field(unique_indices=camera_indices,
-                                                        inverse_indices=None,
-                                                        directions=ray_samples.frustums.directions[:, 0, :],
-                                                        illumination_type="background")
-        
+        background_colours, _ = self.illumination_field(
+            camera_indices=camera_indices,
+            positions=None,
+            directions=ray_samples.frustums.directions[:, 0, :],
+            illumination_type="background",
+        )
+
         samples_and_field_outputs = {
             "ray_samples": ray_samples,
             "field_outputs": field_outputs,
@@ -175,15 +184,15 @@ class RENINeuSFactoModel(NeuSFactoModel):
         # TODO Add visibility here?
 
         rgb = self.lambertian_renderer(
-                albedos=albedos,
-                normals=normal,
-                light_directions=illumination_directions,
-                light_colors=hdr_illumination_colours,
-                visibility=None,
-                background_color=background_colours,
-                weights=weights,
-            )
-        
+            albedos=albedos,
+            normals=normal,
+            light_directions=illumination_directions,
+            light_colors=hdr_illumination_colours,
+            visibility=None,
+            background_color=background_colours,
+            weights=weights,
+        )
+
         samples_and_field_outputs["rgb"] = rgb
 
         return samples_and_field_outputs
@@ -212,7 +221,6 @@ class RENINeuSFactoModel(NeuSFactoModel):
 
         albedo = field_outputs[RENINeuSFieldHeadNames.ALBEDO]
         normal = field_outputs[FieldHeadNames.NORMALS]
-        
 
         outputs = {
             "rgb": rgb,
@@ -294,6 +302,6 @@ class RENINeuSFactoModel(NeuSFactoModel):
             images_dict[key] = prop_depth_i
 
         return metrics_dict, images_dict
-    
+
     def fit_latent_codes_for_eval(self, datamanager, gt_source, epochs, learning_rate):
         return

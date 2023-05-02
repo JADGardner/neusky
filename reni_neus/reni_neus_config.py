@@ -37,22 +37,22 @@ from reni_neus.data.reni_neus_datamanager import RENINeuSDataManagerConfig
 RENINeuS = MethodSpecification(
     config=TrainerConfig(
         method_name="reni-neus",
-        steps_per_eval_image=5000,
-        steps_per_eval_batch=5000,
-        steps_per_save=2000,
+        steps_per_eval_image=10000,
+        steps_per_eval_batch=100000,
+        steps_per_save=20000,
         steps_per_eval_all_images=1000000,  # set to a very large model so we don't eval with all images
         max_num_iterations=20001,
         mixed_precision=False,
         pipeline=RENINeuSPipelineConfig(
             eval_latent_optimisation_source="image_half",
-            eval_latent_optimisation_epochs=100,
-            eval_latent_optimisation_lr=0.1,
+            eval_latent_optimisation_epochs=50,
+            eval_latent_optimisation_lr=1e-2,
             datamanager=RENINeuSDataManagerConfig(
                 dataparser=NeRFOSRCityScapesDataParserConfig(
                     scene="lk2",
                 ),
-                train_num_rays_per_batch=2048,
-                eval_num_rays_per_batch=2048,
+                train_num_rays_per_batch=256,
+                eval_num_rays_per_batch=256,
                 camera_optimizer=CameraOptimizerConfig(
                     mode="SO3xR3", optimizer=AdamOptimizerConfig(lr=6e-4, eps=1e-8, weight_decay=1e-2)
                 ),
@@ -61,11 +61,12 @@ RENINeuS = MethodSpecification(
                 # proposal network allows for signifanctly smaller sdf/color network
                 sdf_field=SDFAlbedoFieldConfig(
                     use_grid_feature=True,
-                    num_layers=2,
-                    num_layers_color=2,
+                    num_layers=5,
                     hidden_dim=256,
+                    num_layers_color=5,
+                    hidden_dim_color=256,
                     bias=0.5,
-                    beta_init=0.8,
+                    beta_init=0.3,
                     use_appearance_embedding=False,
                     inside_outside=False,
                 ),
@@ -79,12 +80,13 @@ RENINeuS = MethodSpecification(
                     apply_random_rotation=True,
                     remove_lower_hemisphere=False,
                 ),
+                eval_num_rays_per_chunk=256,
                 illumination_field_prior_loss_weight=1e-7,
                 illumination_field_cosine_loss_weight=1e-1,
                 illumination_field_loss_weight=1.0,
-                visibility_loss_mse_mult=0.01,
+                fg_mask_loss_multi=1.0,
+                visibility_loss_mse_multi=0.01,
                 background_model="none",
-                eval_num_rays_per_chunk=2048,
                 use_average_appearance_embedding=False,
             ),
         ),

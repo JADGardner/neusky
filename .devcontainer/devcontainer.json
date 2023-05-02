@@ -1,0 +1,24 @@
+{
+  "name": "NerfStudio Dev Container",
+  "dockerComposeFile": "docker-compose.yml",
+  "service": "nerfstudio",
+  "workspaceFolder": "/workspace",
+  "shutdownAction": "stopCompose",
+  // Configure properties specific to VS Code.
+  "customizations": {
+    // Configure properties specific to VS Code.
+    "vscode": {
+      // Add the IDs of extensions you want installed when the container is created.
+      "extensions": [
+        "mutantdino.resourcemonitor",
+        "nvidia.nsight-vscode-edition",
+        "ms-python.python",
+        "ms-toolsai.jupyter",
+        "esbenp.prettier-vscode",
+        "ms-vscode.cpptools-extension-pack",
+        "GitHub.vscode-pull-request-github",
+        "GitHub.copilot"
+      ]
+    }
+  }
+}

@@ -43,10 +43,10 @@ class IlluminationField(nn.Module):
     ) -> None:
         super().__init__()
 
-        self.split = 'train'
+        self.split = "train"
 
     def set_split(self, split):
-        assert split in ['train', 'val', 'test']
+        assert split in ["train", "val", "test"]
         self.split = split
 
     @abstractmethod

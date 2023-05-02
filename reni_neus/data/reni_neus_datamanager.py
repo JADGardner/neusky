@@ -75,6 +75,7 @@ from nerfstudio.data.datasets.semantic_dataset import SemanticDataset
 from nerfstudio.data.datamanagers.base_datamanager import DataManagerConfig, DataManager, AnnotatedDataParserUnion
 
 from reni_neus.data.reni_neus_pixel_sampler import RENINeuSPixelSampler
+from reni_neus.data.reni_neus_dataset import RENINeuSDataset
 
 
 CONSOLE = Console(width=120)
@@ -89,24 +90,28 @@ def semantic_variable_res_collate(batch: List[Dict]) -> Dict:
     """
     images = []
     masks = []
+    fg_masks = []
     semantics = []
     depths = []
     normals = []
     for data in batch:
         image = data.pop("image")
-        mask = [data.pop("mask", None)]
-        semantic = [data.pop("semantics", None)]
+        mask = data.pop("mask", None)
+        fg_mask = data.pop("fg_mask", None)
+        semantic = data.pop("semantics", None)
         depth = data.pop("depth", None)
         normal = data.pop("normal", None)
 
         images.append(image)
-        if mask:
+        if mask is not None:
             masks.append(mask)
-        if semantic:
+        if fg_mask is not None:
+            fg_masks.append(fg_mask)
+        if semantic is not None:
             semantics.append(semantic)
-        if depth:
+        if depth is not None:
             depths.append(depth)
-        if normal:
+        if normal is not None:
             normals.append(normal)
 
     new_batch: dict = nerfstudio_collate(batch)
@@ -114,6 +119,8 @@ def semantic_variable_res_collate(batch: List[Dict]) -> Dict:
 
     if masks:
         new_batch["mask"] = masks
+    if fg_masks:
+        new_batch["fg_mask"] = fg_masks
     if semantics:
         new_batch["semantic"] = semantics
     if depths:
@@ -220,15 +227,15 @@ class RENINeuSDataManager(DataManager):  # pylint: disable=abstract-method
 
         super().__init__()
 
-    def create_train_dataset(self) -> SemanticDataset:
+    def create_train_dataset(self) -> RENINeuSDataset:
         self.train_dataparser_outputs = self.dataparser.get_dataparser_outputs(split="train")
-        return SemanticDataset(
+        return RENINeuSDataset(
             dataparser_outputs=self.train_dataparser_outputs,
             scale_factor=self.config.camera_res_scale_factor,
         )
 
-    def create_eval_dataset(self) -> SemanticDataset:
-        return SemanticDataset(
+    def create_eval_dataset(self) -> RENINeuSDataset:
+        return RENINeuSDataset(
             dataparser_outputs=self.dataparser.get_dataparser_outputs(split=self.test_split),
             scale_factor=self.config.camera_res_scale_factor,
         )

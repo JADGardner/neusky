@@ -50,6 +50,8 @@ class RENINeuSPixelSampler(PixelSampler):
         # only sample within the mask, if the mask is in the batch
         all_indices = []
         all_images = []
+        all_fg_masks = []
+        all_semantic_masks = []
 
         if "mask" in batch:
             num_rays_in_batch = num_rays_per_batch // num_images
@@ -62,9 +64,13 @@ class RENINeuSPixelSampler(PixelSampler):
                 indices = self.sample_method(
                     num_rays_in_batch, 1, image_height, image_width, mask=batch["mask"][i], device=device
                 )
-                indices[:, 0] = i
+
+                indices = torch.cat([torch.full((num_rays_in_batch, 1), i, device=device), indices], dim=-1)
                 all_indices.append(indices)
                 all_images.append(batch["image"][i][indices[:, 1], indices[:, 2]])
+
+                if "fg_mask" in batch:
+                    all_fg_masks.append(batch["fg_mask"][i][indices[:, 1], indices[:, 2]])
 
         else:
             num_rays_in_batch = num_rays_per_batch // num_images
@@ -83,7 +89,15 @@ class RENINeuSPixelSampler(PixelSampler):
         collated_batch = {
             key: value[c, y, x]
             for key, value in batch.items()
-            if key != "image_idx" and key != "image" and key != "mask" and value is not None
+            if key != "image_idx"
+            and key != "image"
+            and key != "mask"
+            and key != "fg_mask"
+            and key != "semantic"
+            and key != "normal"
+            and key != "depth"
+            and key != "sparse_pts"
+            and value is not None
         }
 
         collated_batch["image"] = torch.cat(all_images, dim=0)

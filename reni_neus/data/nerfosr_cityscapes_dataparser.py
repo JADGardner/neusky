@@ -41,6 +41,7 @@ from nerfstudio.data.dataparsers.base_dataparser import (
 from nerfstudio.data.scene_box import SceneBox
 from nerfstudio.utils.io import load_from_json
 from nerfstudio.data.dataparsers.nerfosr_dataparser import NeRFOSRDataParserConfig
+from nerfstudio.data.utils.data_utils import get_semantics_and_mask_tensors_from_path
 
 CONSOLE = Console(width=120)
 
@@ -223,8 +224,24 @@ class NeRFOSRCityScapes(DataParser):
             panoptic_classes = load_from_json(Path(data) / "cityscapes_classes.json")
             classes = panoptic_classes["classes"]
             colors = torch.tensor(panoptic_classes["colours"], dtype=torch.float32) / 255.0
-            segmentation_filenames = _find_files(f"{split_dir}/cityscapes_mask", exts=["*.png", "*.jpg", "*.JPG", "*.PNG"])
-            semantics = Semantics(filenames=segmentation_filenames, classes=classes, colors=colors, mask_classes=["person", "rider", "car", "truck", "bus", "train", "motorcycle", "bicycle"])
+            segmentation_filenames = _find_files(
+                f"{split_dir}/cityscapes_mask", exts=["*.png", "*.jpg", "*.JPG", "*.PNG"]
+            )
+            semantics = Semantics(
+                filenames=segmentation_filenames,
+                classes=classes,
+                colors=colors,
+                mask_classes=[
+                    "person",
+                    "rider",
+                    "car",
+                    "truck",
+                    "bus",
+                    "train",
+                    "motorcycle",
+                    "bicycle",
+                ],  # dynamic classes
+            )
 
         metadata = {
             "semantics": semantics,
