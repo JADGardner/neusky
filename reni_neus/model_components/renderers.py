@@ -93,7 +93,7 @@ class RGBLambertianRendererWithVisibility(nn.Module):
         albedos = albedos.view(-1, 3)
         normals = normals.view(-1, 3)
 
-        # compute dot product between normals [num_rays * samples_per_ray, 3] and light directions [num_rays * samples_per_ray, num_reni_directions, 3]
+        # compute dot product between normals [num_rays * samples_per_ray, 3] and light directions [num_rays * samples_per_ray, num_illumination_directions, 3]
         dot_prod = torch.einsum(
             "bi,bji->bj", normals, light_directions
         )  # [num_rays * samples_per_ray, num_reni_directions]
@@ -128,7 +128,7 @@ class RGBLambertianRendererWithVisibility(nn.Module):
 
         assert isinstance(background_illumination, torch.Tensor)
 
-        comp_rgb = sRGB(comp_rgb) # background_illumination is already sRGB
+        comp_rgb = sRGB(comp_rgb)  # background_illumination is already sRGB
         comp_rgb = comp_rgb + background_illumination.to(weights.device) * (1.0 - accumulated_weight)
 
         return comp_rgb
@@ -163,18 +163,18 @@ class RGBLambertianRendererWithVisibility(nn.Module):
         """
 
         rgb = self.render_and_combine_rgb(
-                albedos=albedos,
-                normals=normals,
-                light_directions=light_directions,
-                light_colors=light_colors,
-                visibility=visibility,
-                background_illumination=background_illumination,
-                weights=weights,
-                ray_indices=ray_indices,
-                num_rays=num_rays,
-              )
-        
+            albedos=albedos,
+            normals=normals,
+            light_directions=light_directions,
+            light_colors=light_colors,
+            visibility=visibility,
+            background_illumination=background_illumination,
+            weights=weights,
+            ray_indices=ray_indices,
+            num_rays=num_rays,
+        )
+
         if not self.training:
             torch.clamp_(rgb, min=0.0, max=1.0)
-            
+
         return rgb

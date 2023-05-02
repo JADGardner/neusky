@@ -129,9 +129,6 @@ class RENINeuSFactoModel(NeuSFactoModel):
 
         field_outputs = self.field(ray_samples, return_alphas=True)
 
-        albedo = field_outputs[RENINeuSFieldHeadNames.ALBEDO]
-        normal = field_outputs[FieldHeadNames.NORMALS]
-
         weights, transmittance = ray_samples.get_weights_and_transmittance_from_alphas(
             field_outputs[FieldHeadNames.ALPHA]
         )
@@ -145,6 +142,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
         depth = p2p_dist / ray_bundle.metadata["directions_norm"]
         normal = self.renderer_normal(semantics=field_outputs[FieldHeadNames.NORMALS], weights=weights)
         accumulation = self.renderer_accumulation(weights=weights)
+        albedo = self.albedo_renderer(rgb=field_outputs[RENINeuSFieldHeadNames.ALBEDO], weights=weights)
 
         if self.training:
             illumination_field = (
@@ -192,12 +190,12 @@ class RENINeuSFactoModel(NeuSFactoModel):
         # TODO Add visibility here?
 
         rgb = self.lambertian_renderer(
-            albedos=albedo,
-            normals=normal,
+            albedos=field_outputs[RENINeuSFieldHeadNames.ALBEDO],
+            normals=field_outputs[FieldHeadNames.NORMALS],
             light_directions=illumination_directions,
             light_colors=hdr_illumination_colours,
             visibility=None,
-            background_color=background_colours,
+            background_illumination=background_colours,
             weights=weights,
         )
 

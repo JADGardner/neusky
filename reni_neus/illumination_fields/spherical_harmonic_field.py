@@ -59,9 +59,13 @@ class SphericalHarmonicsIlluminationField(IlluminationField):
 
         # Calculate spherical harmonics for each direction
         sph_harmonics = torch.stack(
-            [torch.tensor(sph_harm(m, n, phi, theta).real, device=directions.device)
-             for n in range(self.num_sph_harmonics)
-             for m in range(-n, n+1)], dim=-1)
+            [
+                torch.tensor(sph_harm(m, n, phi, theta).real, device=directions.device)
+                for n in range(self.num_sph_harmonics)
+                for m in range(-n, n + 1)
+            ],
+            dim=-1,
+        )
 
         # Retrieve the corresponding coefficients
         coefficients = self.coefficients[unique_indices]
