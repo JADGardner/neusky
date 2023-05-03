@@ -150,10 +150,7 @@ class SDFAlbedoField(SDFField):
     def get_colors(
         self,
         points: TensorType[..., 3],
-        directions: TensorType[..., 3],
-        normals: TensorType[..., 3],
         geo_features: TensorType[..., "geo-feat-dim"],
-        camera_indices: TensorType,
     ) -> TensorType[..., 3]:
         """compute colors"""
 
@@ -206,7 +203,7 @@ class SDFAlbedoField(SDFField):
         )[0]
 
         # doesn't actually use directions or normals or camera_indices
-        albedo = self.get_colors(inputs, directions_flat, gradients, geo_feature, camera_indices)
+        albedo = self.get_colors(points=inputs, geo_features=geo_feature)
 
         albedo = albedo.view(*ray_samples.frustums.directions.shape[:-1], -1)
         sdf = sdf.view(*ray_samples.frustums.directions.shape[:-1], -1)

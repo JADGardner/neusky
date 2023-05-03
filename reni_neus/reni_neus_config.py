@@ -88,11 +88,11 @@ RENINeuS = MethodSpecification(
         optimizers={
             "proposal_networks": {
                 "optimizer": AdamOptimizerConfig(lr=1e-2, eps=1e-15),
-                "scheduler": MultiStepSchedulerConfig(max_steps=100001),
+                "scheduler": CosineDecaySchedulerConfig(warm_up_end=500, learning_rate_alpha=1.0, max_steps=100001),
             },
             "fields": {
                 "optimizer": AdamOptimizerConfig(lr=1e-3, eps=1e-15),
-                "scheduler": CosineDecaySchedulerConfig(warm_up_end=500, learning_rate_alpha=0.05, max_steps=100001),
+                "scheduler": CosineDecaySchedulerConfig(warm_up_end=500, learning_rate_alpha=1.0, max_steps=100001),
             },
             "illumination_field": {
                 "optimizer": AdamOptimizerConfig(lr=1e-2, eps=1e-15),

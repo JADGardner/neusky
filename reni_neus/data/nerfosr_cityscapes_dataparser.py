@@ -171,6 +171,10 @@ class NeRFOSRCityScapes(DataParser):
             center_method=self.config.center_method,
         )
 
+        # get average z component of camera-to-world translation and shift all cameras by that amount towards the origin
+        # just to move the cameras onto the z=0 plane
+        camera_to_worlds[:, 2, 3] -= torch.mean(camera_to_worlds[:, 2, 3], dim=0)
+
         # Scale poses
         scale_factor = 1.0
         if self.config.auto_scale_poses:
