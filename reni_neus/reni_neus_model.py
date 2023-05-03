@@ -24,6 +24,7 @@ from typing import Any, Dict, List, Optional, Tuple, Type
 
 import numpy as np
 import torch
+import random
 import torch.nn.functional as F
 from torch.nn import Parameter
 
@@ -51,8 +52,12 @@ from reni_neus.illumination_fields.reni_field import RENIFieldConfig, RENIField
 from reni_neus.illumination_fields.base_illumination_field import IlluminationFieldConfig, IlluminationField
 from reni_neus.model_components.renderers import RGBLambertianRendererWithVisibility
 from reni_neus.model_components.illumination_samplers import IlluminationSamplerConfig, IlluminationSampler
-from reni_neus.utils.utils import RENITestLossMask, get_directions
+from reni_neus.utils.utils import RENITestLossMask, get_directions, get_sineweight
 from reni_neus.reni_neus_fieldheadnames import RENINeuSFieldHeadNames
+
+from rich.progress import BarColumn, Console, Progress, TextColumn, TimeRemainingColumn
+
+CONSOLE = Console(width=120)
 
 
 @dataclass
@@ -265,14 +270,8 @@ class RENINeuSFactoModel(NeuSFactoModel):
         loss_dict = super().get_loss_dict(outputs, batch, metrics_dict)
 
         if self.training:
-            loss_dict["interlevel_loss"] = self.config.interlevel_loss_mult * interlevel_loss(
-                outputs["weights_list"], outputs["ray_samples_list"]
-            )
-
             if "fg_mask" in batch:
                 fg_label = batch["fg_mask"].float().to(self.device)
-                # TODO somehow make this not an if statement here
-                # Maybe get_loss_dict for the illumination_field should be a function?
                 loss_dict["illumination_loss"] = (
                     self.direct_illumination_loss(
                         inputs=outputs["background_colours"],
@@ -282,15 +281,6 @@ class RENINeuSFactoModel(NeuSFactoModel):
                     )
                     * self.config.illumination_field_loss_weight
                 )
-
-                # foreground mask loss
-                if self.config.background_model != "none":
-                    if self.config.fg_mask_loss_mult > 0.0:
-                        w = outputs["weights_bg"]
-                        weights_sum = w.sum(dim=1).clip(1e-3, 1.0 - 1e-3)
-                        loss_dict["bg_mask_loss"] = (
-                            F.binary_cross_entropy_with_logits(weights_sum, fg_label) * self.config.fg_mask_loss_mult
-                        )
 
         return loss_dict
 
@@ -322,4 +312,107 @@ class RENINeuSFactoModel(NeuSFactoModel):
         return metrics_dict, images_dict
 
     def fit_latent_codes_for_eval(self, datamanager, gt_source, epochs, learning_rate):
-        return
+        """Fit evaluation latent codes to session envmaps so that illumination is correct."""
+        source = (
+            "environment maps"
+            if gt_source == "envmap"
+            else "left image halves"
+            if gt_source == "image_half"
+            else "full eval image"
+        )
+        CONSOLE.print(f"Optimising evaluation latent codes to {source}:")
+
+        opt = torch.optim.Adam(self.illumination_field_eval.parameters(), lr=learning_rate)
+
+        # reni_test_loss = RENITestLoss(
+        #     alpha=self.config.reni_prior_loss_weight, beta=self.config.reni_cosine_loss_weight
+        # )
+
+        with Progress(
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+            TimeRemainingColumn(),
+            TextColumn("[blue]Loss: {task.fields[extra]}"),
+        ) as progress:
+            task = progress.add_task("[green]Optimising... ", total=epochs, extra="")
+
+            # Reset latents to zeros for fitting
+            self.illumination_field_eval.reset_latents()
+            # Make sure we are using eval RENI
+            self.fitting_eval_latents = True
+
+            # Fit latents
+            for _ in range(epochs):
+                epoch_loss = 0.0
+                for step in range(len(datamanager.eval_dataset)):
+                    # Lots of admin to get the data in the right format depending on task
+                    idx, ray_bundle, batch = datamanager.next_eval_image(step)
+
+                    if gt_source == "envmap":
+                        raise NotImplementedError
+                        # rgb = batch["envmap"].to(self.device)
+                        # directions = get_directions(rgb.shape[1])
+                        # sineweight = get_sineweight(rgb.shape[1])
+                        # rgb = rgb.unsqueeze(0)  # [B, H, W, 3]
+                        # rgb = rgb.reshape(rgb.shape[0], -1, 3)  # [B, H*W, 3]
+                        # D = directions.type_as(rgb).repeat(rgb.shape[0], 1, 1)  # [B, H*W, 3]
+                        # S = sineweight.type_as(rgb).repeat(rgb.shape[0], 1, 1)  # [B, H*W, 3]
+                    elif gt_source in ["image_half", "image_full"]:
+                        divisor = 2 if gt_source == "image_half" else 1
+
+                        rgb = batch["image"].to(self.device)  # [H, W, 3]
+                        rgb = rgb[:, : rgb.shape[1] // divisor, :]  # [H, W//divisor, 3]
+                        rgb = rgb.reshape(-1, 3)  # [H*W, 3]
+
+                        # Use with the left half of the image or the full image, depending on divisor
+                        ray_bundle = ray_bundle[:, : ray_bundle.shape[1] // divisor]
+
+                        ray_bundle = ray_bundle.get_row_major_sliced_ray_bundle(
+                            0, len(ray_bundle)
+                        )  # [H * W//divisor, N]
+
+                        if "mask" in batch:
+                            mask = batch["mask"].to(self.device)  # [H, W, 3]
+                            mask = mask[:, : mask.shape[1] // divisor, 0:1]  # [H, W//divisor, 1]
+                            mask = mask.reshape(-1, 1)  # [H*W, 1]
+                            nonzero_indices = torch.nonzero(mask[..., 0], as_tuple=False)
+                            chosen_indices = random.sample(range(len(nonzero_indices)), k=256)
+                            indices = nonzero_indices[chosen_indices].squeeze()
+                        else:
+                            # Sample N rays and build a new ray_bundle
+                            indices = random.sample(range(len(ray_bundle)), k=256)
+
+                        ray_bundle = ray_bundle[indices]  # [N]
+
+                        # Get GT RGB values for the sampled rays
+                        rgb = rgb[indices, :]  # [N, 3]
+
+                    # Get model output
+                    if gt_source == "envmap":
+                        raise NotImplementedError
+                    else:
+                        outputs = self.forward(ray_bundle=ray_bundle)
+                        model_output = outputs["rgb"]  # [N, 3]
+
+                    opt.zero_grad()
+                    if gt_source in ["envmap", "image_half_sky"]:
+                        raise NotImplementedError
+                        # loss, _, _, _ = reni_test_loss(model_output, rgb, S, Z)
+                    else:
+                        loss = (
+                            self.rgb_loss(rgb, model_output)
+                            + self.config.illumination_field_prior_loss_weight
+                            * torch.pow(self.illumination_field_eval.get_latents(), 2).sum()
+                        )
+                    epoch_loss += loss.item()
+                    loss.backward()
+                    opt.step()
+
+                progress.update(task, advance=1, extra=f"{epoch_loss:.4f}")
+
+        if gt_source in ["envmap"]:
+            self.illumination_field_eval.set_no_grad()  # We no longer need to optimise latent codes as done prior to start of training
+
+        # No longer using eval RENI
+        self.fitting_eval_latents = False

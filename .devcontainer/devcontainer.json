@@ -17,7 +17,8 @@
         "esbenp.prettier-vscode",
         "ms-vscode.cpptools-extension-pack",
         "GitHub.vscode-pull-request-github",
-        "GitHub.copilot"
+        "GitHub.copilot",
+        "ms-python.pylint"
       ]
     }
   },

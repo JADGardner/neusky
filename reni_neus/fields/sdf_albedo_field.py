@@ -139,6 +139,13 @@ class SDFAlbedoField(SDFField):
 
         self._cos_anneal_ratio = 1.0
 
+    def get_sdf_at_pos(self, positions):
+        """get sdf at provided positions"""
+        positions_flat = positions.view(-1, 3)
+        h = self.forward_geonetwork(positions_flat)
+        sdf, _ = torch.split(h, [1, self.config.geo_feat_dim], dim=-1)
+        return sdf
+
     def get_density(self, ray_samples: RaySamples):
         raise NotImplementedError
 

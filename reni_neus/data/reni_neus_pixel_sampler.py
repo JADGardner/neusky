@@ -51,6 +51,7 @@ class RENINeuSPixelSampler(PixelSampler):
         all_indices = []
         all_images = []
         all_fg_masks = []
+        all_transient_masks = []
         all_semantic_masks = []
 
         if "mask" in batch:
@@ -69,8 +70,12 @@ class RENINeuSPixelSampler(PixelSampler):
                 all_indices.append(indices)
                 all_images.append(batch["image"][i][indices[:, 1], indices[:, 2]])
 
+                all_transient_masks.append(batch["mask"][i][indices[:, 1], indices[:, 2]])
+
                 if "fg_mask" in batch:
                     all_fg_masks.append(batch["fg_mask"][i][indices[:, 1], indices[:, 2]])
+                if "semantic" in batch:
+                    all_semantic_masks.append(batch["semantic"][i][indices[:, 1], indices[:, 2]])
 
         else:
             num_rays_in_batch = num_rays_per_batch // num_images
@@ -103,6 +108,15 @@ class RENINeuSPixelSampler(PixelSampler):
         collated_batch["image"] = torch.cat(all_images, dim=0)
 
         assert collated_batch["image"].shape == (num_rays_per_batch, 3), collated_batch["image"].shape
+
+        if len(all_fg_masks) > 0:
+            collated_batch["fg_mask"] = torch.cat(all_fg_masks, dim=0)
+
+        if len(all_transient_masks) > 0:
+            collated_batch["mask"] = torch.cat(all_transient_masks, dim=0)
+
+        if len(all_semantic_masks) > 0:
+            collated_batch["semantic"] = torch.cat(all_semantic_masks, dim=0)
 
         # Needed to correct the random indices to their actual camera idx locations.
         indices[:, 0] = batch["image_idx"][c]

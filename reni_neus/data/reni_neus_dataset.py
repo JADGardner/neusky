@@ -87,7 +87,8 @@ class RENINeuSDataset(InputDataset):
             filepath=filepath, mask_indices=self.fg_mask_indices, scale_factor=self.scale_factor
         )
 
-        fg_mask = (~fg_mask).squeeze(-1).float()
+        fg_mask = (~fg_mask).squeeze()
+        fg_mask = fg_mask[:, :, 0:1]
         metadata["fg_mask"] = fg_mask
 
         return metadata

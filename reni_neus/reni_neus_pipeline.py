@@ -62,7 +62,7 @@ class RENINeuSPipelineConfig(VanillaPipelineConfig):
     """specifies the datamanager config"""
     model: ModelConfig = ModelConfig()
     """specifies the model config"""
-    eval_latent_optimisation_source: Literal["none", "envmap", "image_half"] = "image_half"
+    eval_latent_optimisation_source: Literal["none", "envmap", "image_half", "image_full"] = "image_half"
     """Source for latent optimisation during eval"""
     eval_latent_optimisation_epochs: int = 100
     """Number of epochs to optimise latent during eval"""
@@ -123,7 +123,7 @@ class RENINeuSPipeline(VanillaPipeline):
 
     def _optimise_evaluation_latents(self):
         # If we are optimising per eval image latents then we need to do that first
-        if self.config.eval_latent_optimisation_source in ["envmap", "image_half"]:
+        if self.config.eval_latent_optimisation_source in ["envmap", "image_half", "image_full"]:
             self.model.fit_latent_codes_for_eval(
                 datamanager=self.datamanager,
                 gt_source=self.config.eval_latent_optimisation_source,

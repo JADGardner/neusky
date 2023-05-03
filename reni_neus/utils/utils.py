@@ -1,6 +1,7 @@
 import torch
 from functools import singledispatch, update_wrapper
 import numpy as np
+import torch.nn.functional as F
 
 
 def sRGB(color):
