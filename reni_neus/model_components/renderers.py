@@ -27,18 +27,12 @@ Example:
 
 """
 import contextlib
-import math
-from typing import Generator, Optional, Union
+from typing import Generator, Optional
 
 import nerfacc
 import torch
 from torch import nn
 from torchtyping import TensorType
-from typing_extensions import Literal
-
-from nerfstudio.cameras.rays import RaySamples
-from nerfstudio.utils import colors
-from nerfstudio.utils.math import components_from_spherical_harmonics, safe_normalize
 
 from reni_neus.utils.utils import sRGB
 

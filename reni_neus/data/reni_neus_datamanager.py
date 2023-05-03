@@ -18,44 +18,21 @@ Datamanager.
 
 from __future__ import annotations
 
-from abc import abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Type, Union
 
 import torch
-import tyro
 from rich.progress import Console
-from torch import nn
 from torch.nn import Parameter
-from torch.utils.data import Dataset
-from torch.utils.data.distributed import DistributedSampler
 from typing_extensions import Literal
 
 from nerfstudio.cameras.camera_optimizers import CameraOptimizerConfig
 from nerfstudio.cameras.cameras import CameraType
 from nerfstudio.cameras.rays import RayBundle
-from nerfstudio.configs.base_config import InstantiateConfig
-from nerfstudio.data.dataparsers.arkitscenes_dataparser import (
-    ARKitScenesDataParserConfig,
-)
 from nerfstudio.data.dataparsers.base_dataparser import DataparserOutputs
 from nerfstudio.data.dataparsers.blender_dataparser import BlenderDataParserConfig
-from nerfstudio.data.dataparsers.dnerf_dataparser import DNeRFDataParserConfig
-from nerfstudio.data.dataparsers.dycheck_dataparser import DycheckDataParserConfig
-from nerfstudio.data.dataparsers.instant_ngp_dataparser import (
-    InstantNGPDataParserConfig,
-)
-from nerfstudio.data.dataparsers.minimal_dataparser import MinimalDataParserConfig
-from nerfstudio.data.dataparsers.nerfosr_dataparser import NeRFOSRDataParserConfig
-from nerfstudio.data.dataparsers.nerfstudio_dataparser import NerfstudioDataParserConfig
-from nerfstudio.data.dataparsers.nuscenes_dataparser import NuScenesDataParserConfig
-from nerfstudio.data.dataparsers.phototourism_dataparser import (
-    PhototourismDataParserConfig,
-)
-from nerfstudio.data.dataparsers.scannet_dataparser import ScanNetDataParserConfig
-from nerfstudio.data.dataparsers.sdfstudio_dataparser import SDFStudioDataParserConfig
-from nerfstudio.data.dataparsers.sitcoms3d_dataparser import Sitcoms3DDataParserConfig
+
 from nerfstudio.data.datasets.base_dataset import InputDataset
 from nerfstudio.data.pixel_samplers import (
     EquirectangularPixelSampler,
@@ -68,15 +45,11 @@ from nerfstudio.data.utils.dataloaders import (
     RandIndicesEvalDataloader,
 )
 from nerfstudio.data.utils.nerfstudio_collate import nerfstudio_collate
-from nerfstudio.engine.callbacks import TrainingCallback, TrainingCallbackAttributes
 from nerfstudio.model_components.ray_generators import RayGenerator
-from nerfstudio.utils.misc import IterableWrapper
-from nerfstudio.data.datasets.semantic_dataset import SemanticDataset
 from nerfstudio.data.datamanagers.base_datamanager import DataManagerConfig, DataManager, AnnotatedDataParserUnion
 
 from reni_neus.data.reni_neus_pixel_sampler import RENINeuSPixelSampler
 from reni_neus.data.reni_neus_dataset import RENINeuSDataset
-
 
 CONSOLE = Console(width=120)
 

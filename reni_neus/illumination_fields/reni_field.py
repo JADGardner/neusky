@@ -15,7 +15,7 @@
 """Classic NeRF field"""
 
 from functools import singledispatch, update_wrapper
-from typing import Dict, Literal, Optional, Type
+from typing import Literal, Type
 from dataclasses import dataclass, field
 import wget
 import zipfile
@@ -24,7 +24,6 @@ import os
 import numpy as np
 import torch
 from torch import nn
-from torchtyping import TensorType
 
 from reni_neus.illumination_fields.base_illumination_field import IlluminationField, IlluminationFieldConfig
 from reni_neus.utils.utils import sRGB
@@ -549,7 +548,7 @@ class RENIFieldConfig(IlluminationFieldConfig):
     """size of latent code to use, checkpoints provided for 36 and 49"""
     fixed_decoder: bool = True
     """whether to use the fixed decoder, not optimised during training"""
-    exposure_scale: bool = False
+    optimise_exposure_scale: bool = False
     """whether to train a per-illumination scale parameter"""
 
 
@@ -574,7 +573,7 @@ class RENIField(IlluminationField):
         self.chkpt_path = config.checkpoint_path
         self.latent_dim = config.latent_dim
         self.fixed_decoder = config.fixed_decoder
-        self.exposure_scale = config.exposure_scale
+        self.exposure_scale = config.optimise_exposure_scale
 
         self.reni = get_reni_field(self.chkpt_path, self.num_latent_codes, self.latent_dim, self.fixed_decoder)
 

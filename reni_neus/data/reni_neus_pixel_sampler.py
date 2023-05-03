@@ -16,11 +16,8 @@
 Code for sampling pixels.
 """
 
-import random
-from typing import Dict, Optional, Union
-
 import torch
-from torchtyping import TensorType
+from typing import Dict
 
 from nerfstudio.data.pixel_samplers import PixelSampler
 

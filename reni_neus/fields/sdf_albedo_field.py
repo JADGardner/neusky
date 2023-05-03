@@ -22,11 +22,9 @@ from typing import Dict, Optional, Type
 
 import numpy as np
 import torch
-import torch.nn.functional as F
 from torch import nn
 from torch.nn.parameter import Parameter
 from torchtyping import TensorType
-from typing_extensions import Literal
 
 from nerfstudio.cameras.rays import RaySamples
 from nerfstudio.field_components.embedding import Embedding
@@ -121,7 +119,7 @@ class SDFAlbedoField(SDFField):
         # albedo network, only depends on position and geo features
         dims = [self.config.hidden_dim_color for _ in range(self.config.num_layers_color)]
         # point, feature
-        in_dim = 3 + self.config.geo_feat_dim
+        in_dim = 3 + self.position_encoding.get_out_dim() + self.config.geo_feat_dim
         dims = [in_dim] + dims + [3]
         self.num_layers_color = len(dims)
 
@@ -159,8 +157,10 @@ class SDFAlbedoField(SDFField):
     ) -> TensorType[..., 3]:
         """compute colors"""
 
+        encoded_points = self.position_encoding(points)
+
         hidden_input = torch.cat(
-            [points, geo_features.view(-1, self.config.geo_feat_dim)],
+            [points, encoded_points, geo_features.view(-1, self.config.geo_feat_dim)],
             dim=-1,
         )
 

@@ -4,40 +4,36 @@ RENI-NeuS configuration file.
 
 from nerfstudio.cameras.camera_optimizers import CameraOptimizerConfig
 from nerfstudio.configs.base_config import ViewerConfig
-from nerfstudio.data.dataparsers.nerfstudio_dataparser import NerfstudioDataParserConfig
-from nerfstudio.engine.optimizers import AdamOptimizerConfig, RAdamOptimizerConfig
-from nerfstudio.engine.schedulers import ExponentialDecaySchedulerConfig
 from nerfstudio.engine.trainer import TrainerConfig
 from nerfstudio.plugins.types import MethodSpecification
 
 from nerfstudio.configs.base_config import ViewerConfig
-from nerfstudio.data.datamanagers.sdf_datamanager import SDFDataManagerConfig
-from nerfstudio.data.dataparsers.sdfstudio_dataparser import SDFStudioDataParserConfig
-from nerfstudio.data.datamanagers.semantic_datamanager import SemanticDataManagerConfig
-from nerfstudio.engine.optimizers import AdamOptimizerConfig, RAdamOptimizerConfig
+from nerfstudio.engine.optimizers import AdamOptimizerConfig
 from nerfstudio.engine.schedulers import (
     CosineDecaySchedulerConfig,
-    ExponentialDecaySchedulerConfig,
     MultiStepSchedulerConfig,
+    ExponentialDecaySchedulerConfig,
 )
 from nerfstudio.engine.trainer import TrainerConfig
-from nerfstudio.fields.sdf_field import SDFFieldConfig
-from nerfstudio.models.neus_facto import NeuSFactoModelConfig
 from nerfstudio.pipelines.base_pipeline import VanillaPipelineConfig
 
+from nerfstudio.fields.sdf_field import SDFFieldConfig
+from nerfstudio.models.neus_facto import NeuSFactoModelConfig
+from nerfstudio.models.nerfacto import NerfactoModelConfig
+
 from reni_neus.data.nerfosr_cityscapes_dataparser import NeRFOSRCityScapesDataParserConfig
-from reni_neus.reni_neus_model import RENINeuSFactoModel, RENINeuSFactoModelConfig
-from reni_neus.illumination_fields.reni_field import RENIFieldConfig, RENIField
-from reni_neus.model_components.illumination_samplers import IcosahedronSamplerConfig, IcosahedronSampler
-from reni_neus.fields.sdf_albedo_field import SDFAlbedoFieldConfig, SDFAlbedoField
+from reni_neus.reni_neus_model import RENINeuSFactoModelConfig
+from reni_neus.illumination_fields.reni_field import RENIFieldConfig
+from reni_neus.model_components.illumination_samplers import IcosahedronSamplerConfig
 from reni_neus.reni_neus_pipeline import RENINeuSPipelineConfig
 from reni_neus.data.reni_neus_datamanager import RENINeuSDataManagerConfig
+from reni_neus.fields.sdf_albedo_field import SDFAlbedoFieldConfig
 
 
 RENINeuS = MethodSpecification(
     config=TrainerConfig(
         method_name="reni-neus",
-        steps_per_eval_image=20,
+        steps_per_eval_image=5000,
         steps_per_eval_batch=100000,
         steps_per_save=20000,
         steps_per_eval_all_images=1000000,  # set to a very large model so we don't eval with all images
@@ -54,17 +50,17 @@ RENINeuS = MethodSpecification(
                 train_num_rays_per_batch=256,
                 eval_num_rays_per_batch=256,
                 camera_optimizer=CameraOptimizerConfig(
-                    mode="SO3xR3", optimizer=AdamOptimizerConfig(lr=6e-4, eps=1e-8, weight_decay=1e-2)
+                    mode="off", optimizer=AdamOptimizerConfig(lr=6e-4, eps=1e-8, weight_decay=1e-2)
                 ),
             ),
             model=RENINeuSFactoModelConfig(
                 # proposal network allows for signifanctly smaller sdf/color network
                 sdf_field=SDFAlbedoFieldConfig(
                     use_grid_feature=True,
-                    num_layers=2,
-                    hidden_dim=64,
-                    num_layers_color=2,
-                    hidden_dim_color=64,
+                    num_layers=5,
+                    hidden_dim=256,
+                    num_layers_color=5,
+                    hidden_dim_color=256,
                     bias=0.5,
                     beta_init=0.3,
                     use_appearance_embedding=False,
@@ -73,7 +69,7 @@ RENINeuS = MethodSpecification(
                 illumination_field=RENIFieldConfig(
                     checkpoint_path="/workspace/reni_neus/checkpoints/reni_weights/latent_dim_36_net_5_256_vad_cbc_tanh_hdr/version_0/checkpoints/fit_decoder_epoch=1589.ckpt",
                     fixed_decoder=True,
-                    exposure_scale=True,
+                    optimise_exposure_scale=True,
                 ),
                 illumination_sampler=IcosahedronSamplerConfig(
                     icosphere_order=11,
@@ -85,9 +81,65 @@ RENINeuS = MethodSpecification(
                 illumination_field_cosine_loss_weight=1e-1,
                 illumination_field_loss_weight=1.0,
                 fg_mask_loss_multi=1.0,
-                visibility_loss_mse_multi=0.01,
                 background_model="none",
                 use_average_appearance_embedding=False,
+            ),
+        ),
+        optimizers={
+            "proposal_networks": {
+                "optimizer": AdamOptimizerConfig(lr=1e-2, eps=1e-15),
+                "scheduler": MultiStepSchedulerConfig(max_steps=100001),
+            },
+            "fields": {
+                "optimizer": AdamOptimizerConfig(lr=1e-3, eps=1e-15),
+                "scheduler": CosineDecaySchedulerConfig(warm_up_end=500, learning_rate_alpha=0.05, max_steps=100001),
+            },
+            "illumination_field": {
+                "optimizer": AdamOptimizerConfig(lr=1e-2, eps=1e-15),
+                "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-4, max_steps=100001),
+            },
+        },
+        viewer=ViewerConfig(num_rays_per_chunk=1 << 15),
+        vis="viewer",
+    ),
+    description="Base config for RENI-NeuS.",
+)
+
+
+NeuSFactoNeRFOSR = MethodSpecification(
+    config=TrainerConfig(
+        method_name="neus-facto-nerfosr",
+        steps_per_eval_image=10000,
+        steps_per_eval_batch=100000,
+        steps_per_save=20000,
+        steps_per_eval_all_images=1000000,  # set to a very large model so we don't eval with all images
+        max_num_iterations=100001,
+        mixed_precision=False,
+        pipeline=VanillaPipelineConfig(
+            datamanager=RENINeuSDataManagerConfig(
+                dataparser=NeRFOSRCityScapesDataParserConfig(
+                    scene="lk2",
+                ),
+                train_num_rays_per_batch=256,
+                eval_num_rays_per_batch=256,
+                camera_optimizer=CameraOptimizerConfig(
+                    mode="SO3xR3", optimizer=AdamOptimizerConfig(lr=6e-4, eps=1e-8, weight_decay=1e-2)
+                ),
+            ),
+            model=NeuSFactoModelConfig(
+                # proposal network allows for signifanctly smaller sdf/color network
+                sdf_field=SDFFieldConfig(
+                    use_grid_feature=True,
+                    num_layers=2,
+                    num_layers_color=2,
+                    hidden_dim=256,
+                    bias=0.5,
+                    beta_init=0.8,
+                    use_appearance_embedding=True,
+                    inside_outside=False,
+                ),
+                background_model="mlp",
+                eval_num_rays_per_chunk=2048,
             ),
         ),
         optimizers={
@@ -99,7 +151,7 @@ RENINeuS = MethodSpecification(
                 "optimizer": AdamOptimizerConfig(lr=5e-4, eps=1e-15),
                 "scheduler": CosineDecaySchedulerConfig(warm_up_end=500, learning_rate_alpha=0.05, max_steps=20001),
             },
-            "illumination_field": {
+            "field_background": {
                 "optimizer": AdamOptimizerConfig(lr=5e-4, eps=1e-15),
                 "scheduler": CosineDecaySchedulerConfig(warm_up_end=500, learning_rate_alpha=0.05, max_steps=20001),
             },
@@ -107,5 +159,44 @@ RENINeuS = MethodSpecification(
         viewer=ViewerConfig(num_rays_per_chunk=1 << 15),
         vis="viewer",
     ),
-    description="Base config for RENI-NeuS.",
+    description="Base config for NeuS Facto NeRF-OSR.",
+)
+
+
+NeRFFactoNeRFOSR = MethodSpecification(
+    config=TrainerConfig(
+        method_name="nerfacto-nerfosr",
+        steps_per_eval_batch=500,
+        steps_per_save=2000,
+        max_num_iterations=30000,
+        mixed_precision=True,
+        pipeline=VanillaPipelineConfig(
+            datamanager=RENINeuSDataManagerConfig(
+                dataparser=NeRFOSRCityScapesDataParserConfig(
+                    scene="lk2",
+                ),
+                train_num_rays_per_batch=4096,
+                eval_num_rays_per_batch=4096,
+                camera_optimizer=CameraOptimizerConfig(
+                    mode="SO3xR3",
+                    optimizer=AdamOptimizerConfig(lr=6e-4, eps=1e-8, weight_decay=1e-2),
+                    scheduler=ExponentialDecaySchedulerConfig(lr_final=6e-6, max_steps=200000),
+                ),
+            ),
+            model=NerfactoModelConfig(eval_num_rays_per_chunk=1 << 15),
+        ),
+        optimizers={
+            "proposal_networks": {
+                "optimizer": AdamOptimizerConfig(lr=1e-2, eps=1e-15),
+                "scheduler": ExponentialDecaySchedulerConfig(lr_final=0.0001, max_steps=200000),
+            },
+            "fields": {
+                "optimizer": AdamOptimizerConfig(lr=1e-2, eps=1e-15),
+                "scheduler": ExponentialDecaySchedulerConfig(lr_final=0.0001, max_steps=200000),
+            },
+        },
+        viewer=ViewerConfig(num_rays_per_chunk=1 << 15),
+        vis="viewer",
+    ),
+    description="Base config for NeuS Facto NeRF-OSR.",
 )

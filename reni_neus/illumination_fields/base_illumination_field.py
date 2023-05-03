@@ -18,7 +18,7 @@ Base class for the graphs.
 
 from abc import abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Literal, Type
+from typing import Literal, Type
 
 import torch
 from torch import nn

@@ -41,7 +41,7 @@ class RENINeuSDataset(InputDataset):
         # can be none if monoprior not included
         self.depth_filenames = self.metadata["depth_filenames"]
         self.normal_filenames = self.metadata["normal_filenames"]
-        self.camera_to_worlds = self.metadata["camera_to_worlds"]
+        self.c2w_colmap = self.metadata["c2w_colmap"]
         # can be none if auto orient not enabled in dataparser
         self.transform = self.metadata["transform"]
         self.include_mono_prior = self.metadata["include_mono_prior"]
@@ -59,7 +59,7 @@ class RENINeuSDataset(InputDataset):
         if self.include_mono_prior:
             depth_filepath = self.depth_filenames[data["image_idx"]]
             normal_filepath = self.normal_filenames[data["image_idx"]]
-            camtoworld = self.camera_to_worlds[data["image_idx"]]
+            camtoworld = self.c2w_colmap[data["image_idx"]]
 
             # Scale depth images to meter units and also by scaling applied to cameras
             depth_image, normal_image = self.get_depths_and_normals(

@@ -18,21 +18,15 @@ a signed distance function (SDF) for surface representation is used to help with
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, Optional, Tuple, Type
+from typing import Dict, Tuple, Type
 
-import numpy as np
 import torch
-import torch.nn.functional as F
-from torch import nn
-from torch.nn.parameter import Parameter
 from torchtyping import TensorType
 from typing_extensions import Literal
 
 from nerfstudio.cameras.rays import RaySamples
-from nerfstudio.field_components.embedding import Embedding
 from nerfstudio.field_components.encodings import NeRFEncoding, SHEncoding
 from nerfstudio.field_components.field_heads import FieldHeadNames
-from nerfstudio.field_components.spatial_distortions import SpatialDistortion
 from nerfstudio.fields.base_field import Field, FieldConfig
 
 from reni_neus.utils.siren import Siren

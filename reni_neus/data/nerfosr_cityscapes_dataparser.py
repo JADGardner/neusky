@@ -34,14 +34,12 @@ from nerfstudio.cameras import camera_utils
 from nerfstudio.cameras.cameras import Cameras, CameraType
 from nerfstudio.data.dataparsers.base_dataparser import (
     DataParser,
-    DataParserConfig,
     DataparserOutputs,
     Semantics,
 )
 from nerfstudio.data.scene_box import SceneBox
 from nerfstudio.utils.io import load_from_json
 from nerfstudio.data.dataparsers.nerfosr_dataparser import NeRFOSRDataParserConfig
-from nerfstudio.data.utils.data_utils import get_semantics_and_mask_tensors_from_path
 
 CONSOLE = Console(width=120)
 
@@ -190,7 +188,7 @@ class NeRFOSRCityScapes(DataParser):
             camera_to_worlds = camera_to_worlds[n_train + n_val :]
             intrinsics = intrinsics[n_train + n_val :]
 
-        c2w_colmap = camera_to_worlds
+        c2w_colmap = camera_to_worlds.detach().clone()
         # convert to COLMAP/OpenCV convention from NeRFStudio
         c2w_colmap[:, 0:3, 1:3] *= -1
 
@@ -246,7 +244,7 @@ class NeRFOSRCityScapes(DataParser):
         metadata = {
             "semantics": semantics,
             "transform": transform,
-            "camera_to_worlds": c2w_colmap,
+            "c2w_colmap": c2w_colmap,
             "depth_filenames": None,
             "normal_filenames": None,
             "include_mono_prior": False,

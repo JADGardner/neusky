@@ -21,41 +21,26 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple, Type
-
-import numpy as np
-import torch
 import random
-import torch.nn.functional as F
+from rich.progress import BarColumn, Console, Progress, TextColumn, TimeRemainingColumn
+
+import torch
 from torch.nn import Parameter
 
 from nerfstudio.cameras.rays import RayBundle
 from nerfstudio.data.scene_box import SceneBox
-from nerfstudio.engine.callbacks import (
-    TrainingCallback,
-    TrainingCallbackAttributes,
-    TrainingCallbackLocation,
-)
 from nerfstudio.model_components.renderers import RGBRenderer
 from nerfstudio.field_components.field_heads import FieldHeadNames
-from nerfstudio.fields.density_fields import HashMLPDensityField
-from nerfstudio.model_components.losses import interlevel_loss
-from nerfstudio.model_components.ray_samplers import (
-    ProposalNetworkSampler,
-    UniformSampler,
-)
+
 from nerfstudio.models.base_model import ModelConfig
-from nerfstudio.models.neus import NeuSModel, NeuSModelConfig
 from nerfstudio.models.neus_facto import NeuSFactoModel, NeuSFactoModelConfig
 from nerfstudio.utils import colormaps
 
-from reni_neus.illumination_fields.reni_field import RENIFieldConfig, RENIField
-from reni_neus.illumination_fields.base_illumination_field import IlluminationFieldConfig, IlluminationField
+from reni_neus.illumination_fields.base_illumination_field import IlluminationFieldConfig
 from reni_neus.model_components.renderers import RGBLambertianRendererWithVisibility
-from reni_neus.model_components.illumination_samplers import IlluminationSamplerConfig, IlluminationSampler
-from reni_neus.utils.utils import RENITestLossMask, get_directions, get_sineweight
+from reni_neus.model_components.illumination_samplers import IlluminationSamplerConfig
+from reni_neus.utils.utils import RENITestLossMask, get_directions
 from reni_neus.reni_neus_fieldheadnames import RENINeuSFieldHeadNames
-
-from rich.progress import BarColumn, Console, Progress, TextColumn, TimeRemainingColumn
 
 CONSOLE = Console(width=120)
 
@@ -324,10 +309,6 @@ class RENINeuSFactoModel(NeuSFactoModel):
 
         opt = torch.optim.Adam(self.illumination_field_eval.parameters(), lr=learning_rate)
 
-        # reni_test_loss = RENITestLoss(
-        #     alpha=self.config.reni_prior_loss_weight, beta=self.config.reni_cosine_loss_weight
-        # )
-
         with Progress(
             TextColumn("[progress.description]{task.description}"),
             BarColumn(),
@@ -410,9 +391,6 @@ class RENINeuSFactoModel(NeuSFactoModel):
                     opt.step()
 
                 progress.update(task, advance=1, extra=f"{epoch_loss:.4f}")
-
-        if gt_source in ["envmap"]:
-            self.illumination_field_eval.set_no_grad()  # We no longer need to optimise latent codes as done prior to start of training
 
         # No longer using eval RENI
         self.fitting_eval_latents = False

@@ -14,3 +14,5 @@ include = ["reni_neus*"]
 
 [project.entry-points.'nerfstudio.method_configs']
 reni_neus = 'reni_neus.reni_neus_config:RENINeuS'
+neus_facto_nerfosr = 'reni_neus.reni_neus_config:NeuSFactoNeRFOSR'
+nerfacto_nerfosr = 'reni_neus.reni_neus_config:NeRFFactoNeRFOSR'
