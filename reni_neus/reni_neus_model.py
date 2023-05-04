@@ -318,7 +318,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
                 TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
                 TimeRemainingColumn(),
             ) as progress:
-                task = progress.add_task("[green]Generating output for camera...", total=num_rays, extra="")
+                task = progress.add_task("[green]Generating eval images...", total=num_rays, extra="")
                 for i in range(0, num_rays, num_rays_per_chunk):
                     start_idx = i
                     end_idx = i + num_rays_per_chunk
@@ -348,15 +348,6 @@ class RENINeuSFactoModel(NeuSFactoModel):
 
     def fit_latent_codes_for_eval(self, datamanager, gt_source, epochs, learning_rate):
         """Fit evaluation latent codes to session envmaps so that illumination is correct."""
-        source = (
-            "environment maps"
-            if gt_source == "envmap"
-            else "left image halves"
-            if gt_source == "image_half"
-            else "full eval image"
-        )
-        CONSOLE.print(f"Optimising evaluation latent codes to {source}:")
-
         opt = torch.optim.Adam(self.illumination_field_eval.parameters(), lr=learning_rate)
 
         with Progress(
@@ -366,7 +357,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
             TimeRemainingColumn(),
             TextColumn("[blue]Loss: {task.fields[extra]}"),
         ) as progress:
-            task = progress.add_task("[green]Optimising... ", total=epochs, extra="")
+            task = progress.add_task("[green]Optimising eval latents... ", total=epochs, extra="")
 
             # Reset latents to zeros for fitting
             self.illumination_field_eval.reset_latents()
@@ -404,8 +395,8 @@ class RENINeuSFactoModel(NeuSFactoModel):
                         )  # [H * W//divisor, N]
 
                         if "mask" in batch:
-                            mask = batch["mask"].to(self.device)  # [H, W, 3]
-                            mask = mask[:, : mask.shape[1] // divisor, 0:1]  # [H, W//divisor, 1]
+                            mask = batch["mask"].to(self.device)  # [H, W]
+                            mask = mask[:, : mask.shape[1] // divisor].unsqueeze(-1)  # [H, W//divisor]
                             mask = mask.reshape(-1, 1)  # [H*W, 1]
                             nonzero_indices = torch.nonzero(mask[..., 0], as_tuple=False)
                             chosen_indices = random.sample(range(len(nonzero_indices)), k=256)

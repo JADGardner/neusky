@@ -33,7 +33,7 @@ from reni_neus.fields.sdf_albedo_field import SDFAlbedoFieldConfig
 RENINeuS = MethodSpecification(
     config=TrainerConfig(
         method_name="reni-neus",
-        steps_per_eval_image=5000,
+        steps_per_eval_image=500,
         steps_per_eval_batch=100000,
         steps_per_save=20000,
         steps_per_eval_all_images=1000000,  # set to a very large model so we don't eval with all images
@@ -167,14 +167,14 @@ NeuSFactoNeRFOSR = MethodSpecification(
 NeRFFactoNeRFOSR = MethodSpecification(
     config=TrainerConfig(
         method_name="nerfacto-nerfosr",
-        steps_per_eval_batch=500,
+        steps_per_eval_batch=2000,
         steps_per_save=2000,
         max_num_iterations=30000,
         mixed_precision=True,
         pipeline=VanillaPipelineConfig(
             datamanager=RENINeuSDataManagerConfig(
                 dataparser=NeRFOSRCityScapesDataParserConfig(
-                    scene="lk2",
+                    scene="lk2", auto_scale_poses=True, mask_source="cityscapes"
                 ),
                 train_num_rays_per_batch=4096,
                 eval_num_rays_per_batch=4096,

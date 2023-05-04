@@ -24,7 +24,8 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Tuple, Type
-
+from torchvision.transforms import InterpolationMode, Resize, ToTensor
+from PIL import Image
 import numpy as np
 import torch
 from rich.console import Console
@@ -192,9 +193,9 @@ class NeRFOSRCityScapes(DataParser):
             camera_to_worlds = camera_to_worlds[n_train + n_val :]
             intrinsics = intrinsics[n_train + n_val :]
 
-        c2w_colmap = camera_to_worlds.detach().clone()
-        # convert to COLMAP/OpenCV convention from NeRFStudio
-        c2w_colmap[:, 0:3, 1:3] *= -1
+        # c2w_colmap = camera_to_worlds.detach().clone()
+        # # convert to COLMAP/OpenCV convention from NeRFStudio
+        # c2w_colmap[:, 0:3, 1:3] *= -1
 
         cameras = Cameras(
             camera_to_worlds=camera_to_worlds[:, :3, :4],
@@ -233,25 +234,32 @@ class NeRFOSRCityScapes(DataParser):
                 filenames=segmentation_filenames,
                 classes=classes,
                 colors=colors,
-                mask_classes=[
-                    "person",
-                    "rider",
-                    "car",
-                    "truck",
-                    "bus",
-                    "train",
-                    "motorcycle",
-                    "bicycle",
-                ],  # dynamic classes
             )
+            masks = []
+            fg_masks = []
+            for i, _ in enumerate(segmentation_filenames):
+                mask = self.get_mask_from_semantics(
+                    idx=i,
+                    semantics=semantics,
+                    mask_classes=["person", "rider", "car", "truck", "bus", "train", "motorcycle", "bicycle"],
+                )
+                # mask shape is (H, W) we want H, W
+                mask = (~mask).float()
+
+                # handle foreground mask
+                fg_mask = self.get_mask_from_semantics(idx=i, semantics=semantics, mask_classes=["sky"])
+                fg_mask = fg_mask.unsqueeze(-1).float()
+
+                masks.append(mask)
+                fg_masks.append(fg_mask)
 
         metadata = {
-            "semantics": semantics,
-            "transform": transform,
-            "c2w_colmap": c2w_colmap,
-            "depth_filenames": None,
-            "normal_filenames": None,
-            "include_mono_prior": False,
+            "semantics": None,
+            # "depth_filenames": None,
+            # "normal_filenames": None,
+            # "include_mono_prior": False,
+            "mask": masks,
+            "fg_mask": fg_masks,
         }
 
         dataparser_outputs = DataparserOutputs(
@@ -263,3 +271,20 @@ class NeRFOSRCityScapes(DataParser):
             dataparser_scale=self.config.scale_factor,
         )
         return dataparser_outputs
+
+    def get_mask_from_semantics(self, idx, semantics, mask_classes):
+        """function to get mask from semantics"""
+        filepath = semantics.filenames[idx]
+        pil_image = Image.open(filepath)
+        semantic_img = torch.from_numpy(np.array(pil_image, dtype="int32"))
+        mask = torch.zeros_like(semantic_img[:, :, 0])
+        combined_mask = torch.zeros_like(semantic_img[:, :, 0])
+
+        for mask_class in mask_classes:
+            class_colour = semantics.colors[semantics.classes.index(mask_class)].type_as(semantic_img)
+            class_mask = torch.where(
+                torch.all(torch.eq(semantic_img, class_colour), dim=2), torch.ones_like(mask), mask
+            )
+            combined_mask += class_mask
+        combined_mask = combined_mask.bool()
+        return combined_mask

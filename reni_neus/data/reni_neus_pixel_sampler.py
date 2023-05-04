@@ -45,7 +45,7 @@ class RENINeuSPixelSampler(PixelSampler):
             mask: mask of possible pixels in an image to sample from.
         """
         if isinstance(mask, torch.Tensor):
-            nonzero_indices = torch.nonzero(mask[..., 0], as_tuple=False)
+            nonzero_indices = torch.nonzero(mask, as_tuple=False)
             chosen_indices = torch.randint(0, len(nonzero_indices), (batch_size,))
             height_width_indices = nonzero_indices[chosen_indices]  # shape (batch_size, 2)
             image_index = torch.zeros(batch_size, 1, dtype=torch.long, device=device)  # shape (batch_size, 1)
@@ -120,18 +120,9 @@ class RENINeuSPixelSampler(PixelSampler):
         indices = torch.cat(all_indices, dim=0)
 
         c, y, x = (i.flatten() for i in torch.split(indices, 1, dim=-1))
+        exclude_keys = {"image_idx", "image", "mask", "fg_mask", "semantic", "normal", "depth", "sparse_pts"}
         collated_batch = {
-            key: value[c, y, x]
-            for key, value in batch.items()
-            if key != "image_idx"
-            and key != "image"
-            and key != "mask"
-            and key != "fg_mask"
-            and key != "semantic"
-            and key != "normal"
-            and key != "depth"
-            and key != "sparse_pts"
-            and value is not None
+            key: value[c, y, x] for key, value in batch.items() if key not in exclude_keys and value is not None
         }
 
         collated_batch["image"] = torch.cat(all_images, dim=0)
