@@ -17,7 +17,8 @@ Code for sampling pixels.
 """
 
 import torch
-from typing import Dict
+from typing import Dict, Optional, Union
+from torchtyping import TensorType
 
 from nerfstudio.data.pixel_samplers import PixelSampler
 
@@ -25,6 +26,37 @@ from nerfstudio.data.pixel_samplers import PixelSampler
 class RENINeuSPixelSampler(PixelSampler):
     def __init__(self, num_rays_per_batch: int, keep_full_image: bool = False, **kwargs) -> None:
         super().__init__(num_rays_per_batch=num_rays_per_batch, keep_full_image=keep_full_image, **kwargs)
+
+    def sample_method(  # pylint: disable=no-self-use
+        self,
+        batch_size: int,
+        num_images: int,
+        image_height: int,
+        image_width: int,
+        mask: Optional[TensorType] = None,
+        device: Union[torch.device, str] = "cpu",
+    ) -> TensorType["batch_size", 3]:
+        """
+        Naive pixel sampler, uniformly samples across all possible pixels of all possible images.
+
+        Args:
+            batch_size: number of samples in a batch
+            num_images: number of images to sample over
+            mask: mask of possible pixels in an image to sample from.
+        """
+        if isinstance(mask, torch.Tensor):
+            nonzero_indices = torch.nonzero(mask[..., 0], as_tuple=False)
+            chosen_indices = torch.randint(0, len(nonzero_indices), (batch_size,))
+            height_width_indices = nonzero_indices[chosen_indices]  # shape (batch_size, 2)
+            image_index = torch.zeros(batch_size, 1, dtype=torch.long, device=device)  # shape (batch_size, 1)
+            indices = torch.cat((image_index, height_width_indices), dim=1)  # shape (batch_size, 3)
+        else:
+            indices = torch.floor(
+                torch.rand((batch_size, 3), device=device)
+                * torch.tensor([num_images, image_height, image_width], device=device)
+            ).long()
+
+        return indices
 
     def collate_image_dataset_batch_list(self, batch: Dict, num_rays_per_batch: int, keep_full_image: bool = False):
         """
@@ -63,7 +95,7 @@ class RENINeuSPixelSampler(PixelSampler):
                     num_rays_in_batch, 1, image_height, image_width, mask=batch["mask"][i], device=device
                 )
 
-                indices = torch.cat([torch.full((num_rays_in_batch, 1), i, device=device), indices], dim=-1)
+                indices[:, 0] = i
                 all_indices.append(indices)
                 all_images.append(batch["image"][i][indices[:, 1], indices[:, 2]])
 

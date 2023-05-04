@@ -46,6 +46,7 @@ RENINeuS = MethodSpecification(
             datamanager=RENINeuSDataManagerConfig(
                 dataparser=NeRFOSRCityScapesDataParserConfig(
                     scene="lk2",
+                    auto_scale_poses=False,
                 ),
                 train_num_rays_per_batch=256,
                 eval_num_rays_per_batch=256,

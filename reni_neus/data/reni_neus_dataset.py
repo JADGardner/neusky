@@ -21,6 +21,8 @@ from typing import Dict
 
 import numpy as np
 import torch
+from PIL import Image
+
 
 from nerfstudio.data.dataparsers.base_dataparser import DataparserOutputs, Semantics
 from nerfstudio.data.datasets.base_dataset import InputDataset
@@ -69,26 +71,19 @@ class RENINeuSDataset(InputDataset):
             metadata["normal"] = normal_image
 
         # handle mask
-        filepath = self.semantics.filenames[data["image_idx"]]
-        semantic_label, mask = get_semantics_and_mask_tensors_from_path(
-            filepath=filepath, mask_indices=self.mask_indices, scale_factor=self.scale_factor
+        mask = self.get_mask_from_semantics(
+            idx=data["image_idx"], semantics=self.semantics, mask_classes=self.semantics.mask_classes
         )
-        # mask shape is (H, W, 3, 1) we want H, W, 3
-        mask = mask.squeeze(-1).float()
-
-        if "mask" in data.keys():
-            mask = mask & data["mask"]
+        # mask shape is (H, W) we want H, W, 3
+        mask = (~mask).unsqueeze(-1).repeat(1, 1, 3).float()
 
         metadata["mask"] = mask
-        metadata["semantics"] = semantic_label
+        # metadata["semantics"] = semantic_label
 
         # handle foreground mask
-        _, fg_mask = get_semantics_and_mask_tensors_from_path(
-            filepath=filepath, mask_indices=self.fg_mask_indices, scale_factor=self.scale_factor
-        )
+        fg_mask = self.get_mask_from_semantics(idx=data["image_idx"], semantics=self.semantics, mask_classes=["sky"])
+        fg_mask = fg_mask.unsqueeze(-1).float()
 
-        fg_mask = (~fg_mask).squeeze()
-        fg_mask = fg_mask[:, :, 0:1]
         metadata["fg_mask"] = fg_mask
 
         return metadata
@@ -127,28 +122,19 @@ class RENINeuSDataset(InputDataset):
 
         return depth, normal
 
+    def get_mask_from_semantics(self, idx, semantics, mask_classes):
+        """function to get mask from semantics"""
+        filepath = semantics.filenames[idx]
+        pil_image = Image.open(filepath)
+        semantic_img = torch.from_numpy(np.array(pil_image, dtype="int32"))
+        mask = torch.zeros_like(semantic_img[:, :, 0])
+        combined_mask = torch.zeros_like(semantic_img[:, :, 0])
 
-class SemanticDataset(InputDataset):
-    """Dataset that returns images and semantics and masks.
-
-    Args:
-        dataparser_outputs: description of where and how to read input images.
-    """
-
-    def __init__(self, dataparser_outputs: DataparserOutputs, scale_factor: float = 1.0):
-        super().__init__(dataparser_outputs, scale_factor)
-        assert "semantics" in dataparser_outputs.metadata.keys() and isinstance(self.metadata["semantics"], Semantics)
-        self.semantics = self.metadata["semantics"]
-        self.mask_indices = torch.tensor(
-            [self.semantics.classes.index(mask_class) for mask_class in self.semantics.mask_classes]
-        ).view(1, 1, -1)
-
-    def get_metadata(self, data: Dict) -> Dict:
-        # handle mask
-        filepath = self.semantics.filenames[data["image_idx"]]
-        semantic_label, mask = get_semantics_and_mask_tensors_from_path(
-            filepath=filepath, mask_indices=self.mask_indices, scale_factor=self.scale_factor
-        )
-        if "mask" in data.keys():
-            mask = mask & data["mask"]
-        return {"mask": mask, "semantics": semantic_label}
+        for mask_class in mask_classes:
+            class_colour = semantics.colors[semantics.classes.index(mask_class)].type_as(semantic_img)
+            class_mask = torch.where(
+                torch.all(torch.eq(semantic_img, class_colour), dim=2), torch.ones_like(mask), mask
+            )
+            combined_mask += class_mask
+        combined_mask = combined_mask.bool()
+        return combined_mask

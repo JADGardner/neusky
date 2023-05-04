@@ -225,7 +225,7 @@ class NeRFOSRCityScapes(DataParser):
         elif self.config.mask_source == "cityscapes":
             panoptic_classes = load_from_json(Path(data) / "cityscapes_classes.json")
             classes = panoptic_classes["classes"]
-            colors = torch.tensor(panoptic_classes["colours"], dtype=torch.float32) / 255.0
+            colors = torch.tensor(panoptic_classes["colours"], dtype=torch.uint8)
             segmentation_filenames = _find_files(
                 f"{split_dir}/cityscapes_mask", exts=["*.png", "*.jpg", "*.JPG", "*.PNG"]
             )
