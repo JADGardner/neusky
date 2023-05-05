@@ -238,26 +238,28 @@ class NeRFOSRCityScapes(DataParser):
             masks = []
             fg_masks = []
             for i, _ in enumerate(segmentation_filenames):
+                # get mask for transients
                 mask = self.get_mask_from_semantics(
                     idx=i,
                     semantics=semantics,
                     mask_classes=["person", "rider", "car", "truck", "bus", "train", "motorcycle", "bicycle"],
                 )
                 # mask shape is (H, W) we want H, W
-                mask = (~mask).float()
+                mask = (~mask).float()  # 1 is static, 0 is transient
 
-                # handle foreground mask
+                # get_foreground_mask
                 fg_mask = self.get_mask_from_semantics(idx=i, semantics=semantics, mask_classes=["sky"])
-                fg_mask = fg_mask.unsqueeze(-1).float()
+                fg_mask = (~fg_mask).unsqueeze(-1).float()  # 1 is foreground, 0 is background
 
                 masks.append(mask)
                 fg_masks.append(fg_mask)
 
         metadata = {
             "semantics": None,
-            # "depth_filenames": None,
-            # "normal_filenames": None,
-            # "include_mono_prior": False,
+            "depth_filenames": None,
+            "normal_filenames": None,
+            "include_mono_prior": False,
+            "c2w_colmap": None,
             "mask": masks,
             "fg_mask": fg_masks,
         }

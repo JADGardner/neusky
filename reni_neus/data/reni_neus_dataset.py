@@ -41,10 +41,10 @@ class RENINeuSDataset(InputDataset):
         super().__init__(dataparser_outputs, scale_factor)
 
         # can be none if monoprior not included
-        # self.depth_filenames = self.metadata["depth_filenames"]
-        # self.normal_filenames = self.metadata["normal_filenames"]
-        # self.include_mono_prior = self.metadata["include_mono_prior"]
-        self.semantics = self.metadata["semantics"] if "semantics" in self.metadata else None
+        self.depth_filenames = self.metadata["depth_filenames"]
+        self.normal_filenames = self.metadata["normal_filenames"]
+        self.c2w_colmap = self.metadata["c2w_colmap"]
+        self.include_mono_prior = self.metadata["include_mono_prior"]
 
     def get_metadata(self, data: Dict) -> Dict:
         # TODO supports foreground_masks
@@ -61,27 +61,8 @@ class RENINeuSDataset(InputDataset):
         #     metadata["depth"] = depth_image
         #     metadata["normal"] = normal_image
 
-        # handle mask
-        if self.semantics is not None:
-            mask = self.get_mask_from_semantics(
-                idx=data["image_idx"], semantics=self.semantics, mask_classes=self.semantics.mask_classes
-            )
-            # mask shape is (H, W) we want H, W, 3
-            mask = (~mask).unsqueeze(-1).repeat(1, 1, 3).float()
-
-            metadata["mask"] = mask
-            # metadata["semantics"] = semantic_label
-
-            # handle foreground mask
-            fg_mask = self.get_mask_from_semantics(
-                idx=data["image_idx"], semantics=self.semantics, mask_classes=["sky"]
-            )
-            fg_mask = fg_mask.unsqueeze(-1).float()
-
-            metadata["fg_mask"] = fg_mask
-        else:
-            metadata["mask"] = self.metadata["mask"][data["image_idx"]]
-            metadata["fg_mask"] = self.metadata["fg_mask"][data["image_idx"]]
+        metadata["mask"] = self.metadata["mask"][data["image_idx"]] if "mask" in self.metadata else None
+        metadata["fg_mask"] = self.metadata["fg_mask"][data["image_idx"]] if "fg_mask" in self.metadata else None
 
         return metadata
 
@@ -118,20 +99,3 @@ class RENINeuSDataset(InputDataset):
     #         normal = normal.permute(1, 0).reshape(h, w, 3)
 
     #     return depth, normal
-
-    def get_mask_from_semantics(self, idx, semantics, mask_classes):
-        """function to get mask from semantics"""
-        filepath = semantics.filenames[idx]
-        pil_image = Image.open(filepath)
-        semantic_img = torch.from_numpy(np.array(pil_image, dtype="int32"))
-        mask = torch.zeros_like(semantic_img[:, :, 0])
-        combined_mask = torch.zeros_like(semantic_img[:, :, 0])
-
-        for mask_class in mask_classes:
-            class_colour = semantics.colors[semantics.classes.index(mask_class)].type_as(semantic_img)
-            class_mask = torch.where(
-                torch.all(torch.eq(semantic_img, class_colour), dim=2), torch.ones_like(mask), mask
-            )
-            combined_mask += class_mask
-        combined_mask = combined_mask.bool()
-        return combined_mask

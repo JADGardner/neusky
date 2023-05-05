@@ -63,8 +63,6 @@ class RENINeuSFactoModelConfig(NeuSFactoModelConfig):
     """Weight for the reni loss"""
     visibility_loss_mse_multi: float = 0.01
     """Weight for the visibility mse loss"""
-    fg_mask_loss_multi: float = 0.01
-    """Weight for the fg mask loss"""
 
 
 class RENINeuSFactoModel(NeuSFactoModel):
@@ -258,11 +256,12 @@ class RENINeuSFactoModel(NeuSFactoModel):
         if self.training:
             if "fg_mask" in batch:
                 fg_label = batch["fg_mask"].float().to(self.device)
+                sky_label = 1 - fg_label
                 loss_dict["illumination_loss"] = (
                     self.direct_illumination_loss(
                         inputs=outputs["background_colours"],
                         targets=batch["image"].to(self.device),
-                        mask=fg_label,
+                        mask=sky_label,
                         Z=self.illumination_field_train.get_latents(),
                     )
                     * self.config.illumination_field_loss_weight

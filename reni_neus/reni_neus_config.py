@@ -33,9 +33,9 @@ from reni_neus.fields.sdf_albedo_field import SDFAlbedoFieldConfig
 RENINeuS = MethodSpecification(
     config=TrainerConfig(
         method_name="reni-neus",
-        steps_per_eval_image=500,
+        steps_per_eval_image=5000,
         steps_per_eval_batch=100000,
-        steps_per_save=20000,
+        steps_per_save=5000,
         steps_per_eval_all_images=1000000,  # set to a very large model so we don't eval with all images
         max_num_iterations=100001,
         mixed_precision=False,
@@ -48,8 +48,8 @@ RENINeuS = MethodSpecification(
                     scene="lk2",
                     auto_scale_poses=False,
                 ),
-                train_num_rays_per_batch=256,
-                eval_num_rays_per_batch=256,
+                train_num_rays_per_batch=512,
+                eval_num_rays_per_batch=512,
                 camera_optimizer=CameraOptimizerConfig(
                     mode="off", optimizer=AdamOptimizerConfig(lr=6e-4, eps=1e-8, weight_decay=1e-2)
                 ),
@@ -77,11 +77,11 @@ RENINeuS = MethodSpecification(
                     apply_random_rotation=True,
                     remove_lower_hemisphere=False,
                 ),
-                eval_num_rays_per_chunk=256,
+                eval_num_rays_per_chunk=512,
                 illumination_field_prior_loss_weight=1e-7,
                 illumination_field_cosine_loss_weight=1e-1,
                 illumination_field_loss_weight=1.0,
-                fg_mask_loss_multi=1.0,
+                fg_mask_loss_mult=1.0,
                 background_model="none",
                 use_average_appearance_embedding=False,
             ),
