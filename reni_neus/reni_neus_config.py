@@ -1,6 +1,7 @@
 """
 RENI-NeuS configuration file.
 """
+from pathlib import Path
 
 from nerfstudio.cameras.camera_optimizers import CameraOptimizerConfig
 from nerfstudio.configs.base_config import ViewerConfig
@@ -39,6 +40,8 @@ RENINeuS = MethodSpecification(
         steps_per_eval_all_images=1000000,  # set to a very large model so we don't eval with all images
         max_num_iterations=100001,
         mixed_precision=False,
+        load_dir=Path("/workspace/outputs/unnamed/reni-neus/2023-05-05_105353/nerfstudio_models/"),
+        load_step=30000,
         pipeline=RENINeuSPipelineConfig(
             eval_latent_optimisation_source="image_half",
             eval_latent_optimisation_epochs=50,

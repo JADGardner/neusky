@@ -158,3 +158,72 @@ def get_sineweight(sidelen):
     sineweight = torch.sin(phi)  # [sidelen/2*sidelen]
     sineweight = sineweight.unsqueeze(1).repeat(1, 3).unsqueeze(0)  # shape=[1, sidelen/2*sidelen, 3]
     return sineweight
+
+
+def random_points_on_unit_sphere(num_points, cartesian=True):
+    """
+    Generate a random set of points on a unit sphere.
+
+    :param num_points: number of points to generate
+    :param cartesian: if True, return points in cartesian coordinates
+    :return: (num_points, 2 or 3) tensor of points
+    """
+    # get random points in spherical coordinates
+    theta = 2 * torch.pi * torch.rand(num_points)
+    phi = torch.acos(2 * torch.rand(num_points) - 1)
+    if cartesian:
+        return torch.stack(sph2cart(theta, phi), dim=1)
+    return torch.stack([theta, phi], dim=1)
+
+
+def random_inward_facing_directions(num_directions, normals):
+    # num_directions = scalar
+    # normals = (N, 3)
+    # returns (N, num_directions, 3)
+
+    # For each normal get a random set of directions
+    directions = random_points_on_unit_sphere(num_directions * normals.shape[0], cartesian=True)
+    directions = directions.reshape(normals.shape[0], num_directions, 3)
+
+    # remove any directions that are not in the hemisphere of the associated normal
+    dot_products = torch.sum(normals.unsqueeze(1) * directions, dim=2)
+    mask = dot_products < 0
+
+    # negate the directions that are not in the hemisphere
+    directions[mask] = -directions[mask]
+
+    return directions
+
+
+def sph2cart(theta, phi):
+    x = torch.sin(phi) * torch.cos(theta)
+    y = torch.sin(phi) * torch.sin(theta)
+    z = torch.cos(phi)
+    return x, y, z
+
+
+def cart2sph(x, y, z):
+    r = torch.sqrt(x**2 + y**2 + z**2)
+    theta = torch.atan2(y, x)
+    phi = torch.acos(z / r)
+    return theta, phi
+
+
+def look_at_target(camera_position, target_position, up_vector=torch.tensor([0.0, 0.0, 1.0])):
+    def normalize(vector):
+        return vector / torch.norm(vector)
+
+    forward_vector = -normalize(target_position - camera_position)
+
+    right_vector = normalize(torch.cross(up_vector, forward_vector))
+
+    actual_up_vector = normalize(torch.cross(forward_vector, right_vector))
+
+    c2w_matrix = torch.zeros(4, 4)
+    c2w_matrix[:3, 0] = right_vector
+    c2w_matrix[:3, 1] = actual_up_vector
+    c2w_matrix[:3, 2] = forward_vector
+    c2w_matrix[:3, 3] = camera_position
+    c2w_matrix[3, 3] = 1.0
+
+    return c2w_matrix
