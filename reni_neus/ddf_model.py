@@ -95,7 +95,7 @@ class DDFModel(Model):
         reni_neus_config = Path(self.config.reni_neus_ckpt_path) / "config.yml"
         reni_neus_config = yaml.load(reni_neus_config.open(), Loader=yaml.Loader)
 
-        self.reni_neus = reni_neus_config.pipeline_config.model.setup(
+        self.reni_neus = reni_neus_config.pipeline.model.setup(
             scene_box=aabb, num_train_data=num_train_data, num_eval_data=num_eval_data
         )
         self.reni_neus.to(self.device)
