@@ -163,3 +163,12 @@ class DirectionalDistanceField(Field):
             outputs.update({RENINeuSFieldHeadNames.PROBABILITY_OF_HIT: probability_of_hit})
 
         return outputs
+
+    def forward(self, ray_samples: RaySamples, compute_normals: bool = False) -> Dict[FieldHeadNames, TensorType]:
+        """Evaluates the field at points along the ray.
+
+        Args:
+            ray_samples: Samples to evaluate field on.
+        """
+        field_outputs = self.get_outputs(ray_samples)
+        return field_outputs

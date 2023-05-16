@@ -8,6 +8,13 @@ from nerfstudio.configs.base_config import ViewerConfig
 from nerfstudio.engine.trainer import TrainerConfig
 from nerfstudio.plugins.types import MethodSpecification
 
+from nerfstudio.data.datamanagers.base_datamanager import (
+    VanillaDataManager,
+    VanillaDataManagerConfig,
+)
+
+from nerfstudio.data.dataparsers.nerfosr_dataparser import NeRFOSRDataParserConfig
+
 from nerfstudio.configs.base_config import ViewerConfig
 from nerfstudio.engine.optimizers import AdamOptimizerConfig
 from nerfstudio.engine.schedulers import (
@@ -29,6 +36,8 @@ from reni_neus.model_components.illumination_samplers import IcosahedronSamplerC
 from reni_neus.reni_neus_pipeline import RENINeuSPipelineConfig
 from reni_neus.data.reni_neus_datamanager import RENINeuSDataManagerConfig
 from reni_neus.fields.sdf_albedo_field import SDFAlbedoFieldConfig
+from reni_neus.ddf_model import DDFModelConfig
+from reni_neus.fields.directional_distance_field import DirectionalDistanceFieldConfig
 
 
 RENINeuS = MethodSpecification(
@@ -110,97 +119,50 @@ RENINeuS = MethodSpecification(
 )
 
 
-NeuSFactoNeRFOSR = MethodSpecification(
+DirectionalDistanceField = MethodSpecification(
     config=TrainerConfig(
-        method_name="neus-facto-nerfosr",
-        steps_per_eval_image=10000,
+        method_name="ddf",
+        steps_per_eval_image=100,
         steps_per_eval_batch=100000,
-        steps_per_save=20000,
+        steps_per_save=1000,
         steps_per_eval_all_images=1000000,  # set to a very large model so we don't eval with all images
-        max_num_iterations=100001,
+        max_num_iterations=10001,
         mixed_precision=False,
         pipeline=VanillaPipelineConfig(
-            datamanager=RENINeuSDataManagerConfig(
-                dataparser=NeRFOSRCityScapesDataParserConfig(
+            datamanager=VanillaDataManagerConfig(
+                dataparser=NeRFOSRDataParserConfig(
                     scene="lk2",
                 ),
                 train_num_rays_per_batch=256,
                 eval_num_rays_per_batch=256,
                 camera_optimizer=CameraOptimizerConfig(
-                    mode="SO3xR3", optimizer=AdamOptimizerConfig(lr=6e-4, eps=1e-8, weight_decay=1e-2)
+                    mode="off", optimizer=AdamOptimizerConfig(lr=6e-4, eps=1e-8, weight_decay=1e-2)
                 ),
             ),
-            model=NeuSFactoModelConfig(
-                # proposal network allows for signifanctly smaller sdf/color network
-                sdf_field=SDFFieldConfig(
-                    use_grid_feature=True,
-                    num_layers=2,
-                    num_layers_color=2,
-                    hidden_dim=256,
-                    bias=0.5,
-                    beta_init=0.8,
-                    use_appearance_embedding=True,
-                    inside_outside=False,
+            model=DDFModelConfig(
+                ddf_field=DirectionalDistanceFieldConfig(
+                    position_encoding_type="none",
+                    direction_encoding_type="none",
+                    network_type="siren",
+                    hidden_layers=5,
+                    hidden_features=256,
+                    predict_probability_of_hit=False,
                 ),
-                background_model="mlp",
-                eval_num_rays_per_chunk=2048,
+                eval_num_rays_per_chunk=256,
+                reni_neus_ckpt_path="/workspace/outputs/unnamed/reni-neus/2023-05-08_123628",
+                reni_neus_ckpt_step=95000,
+                num_sample_directions=256,
+                ddf_radius=1.0,
             ),
         ),
         optimizers={
-            "proposal_networks": {
-                "optimizer": AdamOptimizerConfig(lr=1e-2, eps=1e-15),
-                "scheduler": MultiStepSchedulerConfig(max_steps=20001, milestones=(10000, 1500, 18000)),
-            },
             "fields": {
-                "optimizer": AdamOptimizerConfig(lr=5e-4, eps=1e-15),
-                "scheduler": CosineDecaySchedulerConfig(warm_up_end=500, learning_rate_alpha=0.05, max_steps=20001),
-            },
-            "field_background": {
-                "optimizer": AdamOptimizerConfig(lr=5e-4, eps=1e-15),
-                "scheduler": CosineDecaySchedulerConfig(warm_up_end=500, learning_rate_alpha=0.05, max_steps=20001),
+                "optimizer": AdamOptimizerConfig(lr=1e-4, eps=1e-15),
+                "scheduler": CosineDecaySchedulerConfig(warm_up_end=500, learning_rate_alpha=0.05, max_steps=10001),
             },
         },
         viewer=ViewerConfig(num_rays_per_chunk=1 << 15),
-        vis="viewer",
-    ),
-    description="Base config for NeuS Facto NeRF-OSR.",
-)
-
-
-NeRFFactoNeRFOSR = MethodSpecification(
-    config=TrainerConfig(
-        method_name="nerfacto-nerfosr",
-        steps_per_eval_batch=2000,
-        steps_per_save=2000,
-        max_num_iterations=30000,
-        mixed_precision=True,
-        pipeline=VanillaPipelineConfig(
-            datamanager=RENINeuSDataManagerConfig(
-                dataparser=NeRFOSRCityScapesDataParserConfig(
-                    scene="lk2", auto_scale_poses=True, mask_source="cityscapes"
-                ),
-                train_num_rays_per_batch=4096,
-                eval_num_rays_per_batch=4096,
-                camera_optimizer=CameraOptimizerConfig(
-                    mode="SO3xR3",
-                    optimizer=AdamOptimizerConfig(lr=6e-4, eps=1e-8, weight_decay=1e-2),
-                    scheduler=ExponentialDecaySchedulerConfig(lr_final=6e-6, max_steps=200000),
-                ),
-            ),
-            model=NerfactoModelConfig(eval_num_rays_per_chunk=1 << 15),
-        ),
-        optimizers={
-            "proposal_networks": {
-                "optimizer": AdamOptimizerConfig(lr=1e-2, eps=1e-15),
-                "scheduler": ExponentialDecaySchedulerConfig(lr_final=0.0001, max_steps=200000),
-            },
-            "fields": {
-                "optimizer": AdamOptimizerConfig(lr=1e-2, eps=1e-15),
-                "scheduler": ExponentialDecaySchedulerConfig(lr_final=0.0001, max_steps=200000),
-            },
-        },
-        viewer=ViewerConfig(num_rays_per_chunk=1 << 15),
-        vis="viewer",
+        vis="wandb",
     ),
     description="Base config for NeuS Facto NeRF-OSR.",
 )
