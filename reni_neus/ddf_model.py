@@ -18,7 +18,7 @@ Implementation of mip-NeRF.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Tuple, Type
+from typing import Dict, List, Tuple, Type, Union, Literal
 from pathlib import Path
 import yaml
 from torch.utils.data import Dataset
@@ -66,7 +66,7 @@ class DDFModelConfig(ModelConfig):
     """Step of reni_neus checkpoint"""
     num_sample_directions: int = 32
     """Number of directions to sample"""
-    ddf_radius: float = 1.0
+    ddf_radius: Union[Literal["AABB"], float] = "AABB"
     """Radius of the DDF sphere"""
     accumulation_mask_threshold: float = 0.7
     """Threshold for accumulation mask"""
@@ -116,9 +116,15 @@ class DDFModel(Model):
         self.reni_neus.eval()
 
         # samplers
+        if self.config.ddf_radius == "AABB":
+            # get maximum inscribed sphere radius
+            radius = self.reni_neus.scene_box.aabb.min().abs().item()
+        else:
+            radius = self.config.ddf_radius
+
         self.sampler = DDFSDFSampler(
             num_samples=self.config.num_sample_directions,
-            ddf_sphere_radius=self.config.ddf_radius,
+            ddf_sphere_radius=radius,
             sdf_function=self.reni_neus,
         )
 

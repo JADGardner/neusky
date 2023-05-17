@@ -49,8 +49,8 @@ RENINeuS = MethodSpecification(
         steps_per_eval_all_images=1000000,  # set to a very large model so we don't eval with all images
         max_num_iterations=100001,
         mixed_precision=False,
-        load_dir=Path("/workspace/outputs/unnamed/reni-neus/2023-05-17_071604/nerfstudio_models/"),
-        load_step=5000,
+        # load_dir=Path("/workspace/outputs/unnamed/reni-neus/2023-05-17_074704/nerfstudio_models/"),
+        # load_step=30000,
         pipeline=RENINeuSPipelineConfig(
             eval_latent_optimisation_source="image_full",
             eval_latent_optimisation_epochs=50,
@@ -102,11 +102,11 @@ RENINeuS = MethodSpecification(
         optimizers={
             "proposal_networks": {
                 "optimizer": AdamOptimizerConfig(lr=1e-2, eps=1e-15),
-                "scheduler": CosineDecaySchedulerConfig(warm_up_end=500, learning_rate_alpha=1.0, max_steps=100001),
+                "scheduler": CosineDecaySchedulerConfig(warm_up_end=500, learning_rate_alpha=0.05, max_steps=100001),
             },
             "fields": {
                 "optimizer": AdamOptimizerConfig(lr=1e-3, eps=1e-15),
-                "scheduler": CosineDecaySchedulerConfig(warm_up_end=500, learning_rate_alpha=1.0, max_steps=100001),
+                "scheduler": CosineDecaySchedulerConfig(warm_up_end=500, learning_rate_alpha=0.05, max_steps=100001),
             },
             "illumination_field": {
                 "optimizer": AdamOptimizerConfig(lr=1e-2, eps=1e-15),
@@ -154,7 +154,7 @@ DirectionalDistanceField = MethodSpecification(
                 reni_neus_ckpt_path="/workspace/outputs/unnamed/reni-neus/2023-05-17_074704",
                 reni_neus_ckpt_step=30000,
                 num_sample_directions=256,
-                ddf_radius=1.0,
+                ddf_radius="AABB",
             ),
         ),
         optimizers={

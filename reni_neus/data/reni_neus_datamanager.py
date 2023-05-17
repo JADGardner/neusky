@@ -208,8 +208,12 @@ class RENINeuSDataManager(DataManager):  # pylint: disable=abstract-method
         )
 
     def create_eval_dataset(self) -> RENINeuSDataset:
+        test_outputs = self.dataparser.get_dataparser_outputs("test")
+        val_outputs = self.dataparser.get_dataparser_outputs("val")
+        self.num_test = len(test_outputs.image_filenames)
+        self.num_val = len(val_outputs.image_filenames)
         return RENINeuSDataset(
-            dataparser_outputs=self.dataparser.get_dataparser_outputs(split=self.test_split),
+            dataparser_outputs=test_outputs if self.test_mode == "test" else val_outputs,
             scale_factor=self.config.camera_res_scale_factor,
         )
 

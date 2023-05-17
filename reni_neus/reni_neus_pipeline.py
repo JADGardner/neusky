@@ -101,10 +101,15 @@ class RENINeuSPipeline(VanillaPipeline):
         if test_mode in ["val", "test"]:
             assert self.datamanager.eval_dataset is not None, "Missing validation dataset"
 
+        num_test_data = self.datamanager.num_test
+        num_val_data = self.datamanager.num_val
+
         self._model = config.model.setup(
             scene_box=self.datamanager.train_dataset.scene_box,
             num_train_data=len(self.datamanager.train_dataset),
-            num_eval_data=len(self.datamanager.eval_dataset),
+            num_val_data=num_val_data,
+            num_test_data=num_test_data,
+            test_mode=test_mode,
             metadata=self.datamanager.train_dataset.metadata,
         )
         self.model.to(device)

@@ -80,9 +80,18 @@ class RENINeuSFactoModel(NeuSFactoModel):
     config: RENINeuSFactoModelConfig
 
     def __init__(
-        self, config: ModelConfig, scene_box: SceneBox, num_train_data: int, num_eval_data: int, **kwargs
+        self,
+        config: ModelConfig,
+        scene_box: SceneBox,
+        num_train_data: int,
+        num_val_data: int,
+        num_test_data: int,
+        test_mode: str,
+        **kwargs,
     ) -> None:
-        self.num_eval_data = num_eval_data
+        self.num_val_data = num_val_data
+        self.num_test_data = num_test_data
+        self.test_mode = test_mode
         self.fitting_eval_latents = False
         super().__init__(config, scene_box, num_train_data, **kwargs)
 
@@ -91,7 +100,13 @@ class RENINeuSFactoModel(NeuSFactoModel):
         super().populate_modules()
 
         self.illumination_field_train = self.config.illumination_field.setup(num_latent_codes=self.num_train_data)
-        self.illumination_field_eval = self.config.illumination_field.setup(num_latent_codes=self.num_eval_data)
+        self.illumination_field_val = self.config.illumination_field.setup(num_latent_codes=self.num_val_data)
+        self.illumination_field_test = self.config.illumination_field.setup(num_latent_codes=self.num_test_data)
+
+        self.illumination_field_eval = (
+            self.illumination_field_test if self.test_mode == "test" else self.illumination_field_val
+        )
+
         self.illumination_sampler = self.config.illumination_sampler.setup()
 
         self.field_background = None
