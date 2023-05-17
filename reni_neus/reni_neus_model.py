@@ -63,6 +63,8 @@ class RENINeuSFactoModelConfig(NeuSFactoModelConfig):
     """Weight for the reni loss"""
     visibility_loss_mse_multi: float = 0.01
     """Weight for the visibility mse loss"""
+    render_only_albedo: bool = False
+    """Render only albedo"""
 
 
 class RENINeuSFactoModel(NeuSFactoModel):
@@ -164,24 +166,31 @@ class RENINeuSFactoModel(NeuSFactoModel):
             "background_colours": background_colours,
         }
 
+        albedo = self.albedo_renderer(rgb=field_outputs[RENINeuSFieldHeadNames.ALBEDO], weights=weights)
+
         # TODO Add visibility here?
 
-        rgb = self.lambertian_renderer(
-            albedos=field_outputs[RENINeuSFieldHeadNames.ALBEDO],
-            normals=field_outputs[FieldHeadNames.NORMALS],
-            light_directions=illumination_directions,
-            light_colors=hdr_illumination_colours,
-            visibility=None,
-            background_illumination=background_colours,
-            weights=weights,
-        )
-
-        p2p_dist = self.renderer_depth(weights=weights, ray_samples=ray_samples)
-        # the rendered depth is point-to-point distance and we should convert to depth
-        depth = p2p_dist / ray_bundle.metadata["directions_norm"]
-        normal = self.renderer_normal(semantics=field_outputs[FieldHeadNames.NORMALS], weights=weights)
-        accumulation = self.renderer_accumulation(weights=weights)
-        albedo = self.albedo_renderer(rgb=field_outputs[RENINeuSFieldHeadNames.ALBEDO], weights=weights)
+        if not self.config.render_only_albedo:
+            rgb = self.lambertian_renderer(
+                albedos=field_outputs[RENINeuSFieldHeadNames.ALBEDO],
+                normals=field_outputs[FieldHeadNames.NORMALS],
+                light_directions=illumination_directions,
+                light_colors=hdr_illumination_colours,
+                visibility=None,
+                background_illumination=background_colours,
+                weights=weights,
+            )
+            p2p_dist = self.renderer_depth(weights=weights, ray_samples=ray_samples)
+            # the rendered depth is point-to-point distance and we should convert to depth
+            depth = p2p_dist / ray_bundle.metadata["directions_norm"]
+            normal = self.renderer_normal(semantics=field_outputs[FieldHeadNames.NORMALS], weights=weights)
+            accumulation = self.renderer_accumulation(weights=weights)
+        else:
+            rgb = torch.zeros_like(albedo)
+            p2p_dist = torch.zeros_like(albedo)[..., 0]
+            depth = torch.zeros_like(albedo)[..., 0]
+            normal = torch.zeros_like(albedo)
+            accumulation = torch.zeros_like(albedo)[..., 0]
 
         samples_and_field_outputs["rgb"] = rgb
         samples_and_field_outputs["accumulation"] = accumulation

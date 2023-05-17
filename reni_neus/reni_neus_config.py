@@ -43,16 +43,16 @@ from reni_neus.fields.directional_distance_field import DirectionalDistanceField
 RENINeuS = MethodSpecification(
     config=TrainerConfig(
         method_name="reni-neus",
-        steps_per_eval_image=5000,
+        steps_per_eval_image=10000,
         steps_per_eval_batch=100000,
         steps_per_save=5000,
         steps_per_eval_all_images=1000000,  # set to a very large model so we don't eval with all images
         max_num_iterations=100001,
         mixed_precision=False,
-        load_dir=Path("/workspace/outputs/unnamed/reni-neus/2023-05-05_105353/nerfstudio_models/"),
-        load_step=30000,
+        load_dir=Path("/workspace/outputs/unnamed/reni-neus/2023-05-17_071604/nerfstudio_models/"),
+        load_step=5000,
         pipeline=RENINeuSPipelineConfig(
-            eval_latent_optimisation_source="image_half",
+            eval_latent_optimisation_source="image_full",
             eval_latent_optimisation_epochs=50,
             eval_latent_optimisation_lr=1e-2,
             datamanager=RENINeuSDataManagerConfig(
@@ -96,6 +96,7 @@ RENINeuS = MethodSpecification(
                 fg_mask_loss_mult=1.0,
                 background_model="none",
                 use_average_appearance_embedding=False,
+                render_only_albedo=False,
             ),
         ),
         optimizers={
@@ -129,9 +130,10 @@ DirectionalDistanceField = MethodSpecification(
         max_num_iterations=10001,
         mixed_precision=False,
         pipeline=VanillaPipelineConfig(
-            datamanager=VanillaDataManagerConfig(
-                dataparser=NeRFOSRDataParserConfig(
+            datamanager=RENINeuSDataManagerConfig(
+                dataparser=NeRFOSRCityScapesDataParserConfig(
                     scene="lk2",
+                    auto_scale_poses=False,
                 ),
                 train_num_rays_per_batch=256,
                 eval_num_rays_per_batch=256,
@@ -149,8 +151,8 @@ DirectionalDistanceField = MethodSpecification(
                     predict_probability_of_hit=False,
                 ),
                 eval_num_rays_per_chunk=256,
-                reni_neus_ckpt_path="/workspace/outputs/unnamed/reni-neus/2023-05-08_123628",
-                reni_neus_ckpt_step=95000,
+                reni_neus_ckpt_path="/workspace/outputs/unnamed/reni-neus/2023-05-17_074704",
+                reni_neus_ckpt_step=30000,
                 num_sample_directions=256,
                 ddf_radius=1.0,
             ),

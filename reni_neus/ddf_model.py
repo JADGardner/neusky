@@ -112,7 +112,6 @@ class DDFModel(Model):
             scene_box=self.scene_box, num_train_data=num_train_data, num_eval_data=num_eval_data
         )
 
-        # self.reni_neus.to(self.device)
         self.reni_neus.load_state_dict(model_dict)
         self.reni_neus.eval()
 
@@ -122,9 +121,6 @@ class DDFModel(Model):
             ddf_sphere_radius=self.config.ddf_radius,
             sdf_function=self.reni_neus,
         )
-
-        # self.sampler_uniform = UniformSampler(num_samples=self.config.num_coarse_samples)
-        # self.sampler_pdf = PDFSampler(num_samples=self.config.num_importance_samples, include_original=False)
 
         # renderers
         self.renderer_rgb = RGBRenderer(background_color=colors.WHITE)
@@ -157,7 +153,6 @@ class DDFModel(Model):
                 ray_bundle=ray_bundle, return_gt=True
             )
 
-        # Second pass:
         field_outputs = self.field.forward(ray_samples)
         expected_termination_dist = field_outputs[RENINeuSFieldHeadNames.TERMINATION_DISTANCE]
 
