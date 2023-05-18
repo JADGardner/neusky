@@ -50,6 +50,10 @@ class DirectionalDistanceFieldConfig(FieldConfig):
     """Type of encoding to use for direction"""
     network_type: Literal["fused_mlp", "siren"] = "siren"
     """Type of network to use"""
+    termination_output_activation: Literal["sigmoid", "tanh", "relu"] = "sigmoid"
+    """Activation function for termination network"""
+    probability_of_hit_output_activation: Literal["sigmoid", "tanh", "relu"] = "sigmoid"
+    """Activation function for probability of hit network"""
     hidden_layers: int = 8
     """Number of hidden layers for ddf network"""
     hidden_features: int = 256
@@ -100,6 +104,11 @@ class DirectionalDistanceField(Field):
                 },
             )
 
+        self.termination_output_activation = self._get_activation(self.config.termination_output_activation)
+        self.probability_of_hit_output_activation = self._get_activation(
+            self.config.probability_of_hit_output_activation
+        )
+
     def _setup_encoding(self):
         encoding_dim = 0
         self.position_encoding = None
@@ -133,6 +142,16 @@ class DirectionalDistanceField(Field):
 
         return encoding_dim
 
+    def _get_activation(self, activation: Literal["sigmoid", "tanh", "relu"]):
+        if activation == "sigmoid":
+            return torch.sigmoid
+        elif activation == "tanh":
+            return torch.tanh
+        elif activation == "relu":
+            return torch.relu
+        else:
+            raise NotImplementedError
+
     def get_density(self, ray_samples: RaySamples) -> Tuple[TensorType, TensorType]:
         raise NotImplementedError
 
@@ -154,12 +173,12 @@ class DirectionalDistanceField(Field):
 
         output = self.ddf(inputs)
 
-        expected_termination_dist = torch.relu(output[..., 0])  # [N] # Only want distances ahead of us
+        expected_termination_dist = self.termination_output_activation(output[..., 0])
 
         outputs.update({RENINeuSFieldHeadNames.TERMINATION_DISTANCE: expected_termination_dist})
 
         if self.config.predict_probability_of_hit:
-            probability_of_hit = torch.sigmoid(output[..., 1])  # We want a probability between 0 and 1 [N]
+            probability_of_hit = self.probability_of_hit_output_activation(output[..., 1])
             outputs.update({RENINeuSFieldHeadNames.PROBABILITY_OF_HIT: probability_of_hit})
 
         return outputs
