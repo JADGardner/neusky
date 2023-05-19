@@ -103,10 +103,6 @@ class RENINeuSFactoModel(NeuSFactoModel):
         self.illumination_field_val = self.config.illumination_field.setup(num_latent_codes=self.num_val_data)
         self.illumination_field_test = self.config.illumination_field.setup(num_latent_codes=self.num_test_data)
 
-        self.illumination_field_eval = (
-            self.illumination_field_test if self.test_mode == "test" else self.illumination_field_val
-        )
-
         self.illumination_sampler = self.config.illumination_sampler.setup()
 
         self.field_background = None
@@ -126,6 +122,14 @@ class RENINeuSFactoModel(NeuSFactoModel):
         param_groups["proposal_networks"] = list(self.proposal_networks.parameters())
         param_groups["illumination_field"] = list(self.illumination_field_train.parameters())
         return param_groups
+    
+    def get_illumination_field(self):
+        if self.training and not self.fitting_eval_latents:
+            illumination_field = self.illumination_field_train
+        else:
+            illumination_field = self.illumination_field_test if self.test_mode == "test" else self.illumination_field_val
+
+        return illumination_field
 
     def sample_and_forward_field(self, ray_bundle: RayBundle) -> Dict[str, Any]:
         """Sample rays using proposal networks and compute the corresponding field outputs."""
@@ -143,12 +147,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
         weights_list.append(weights)
         ray_samples_list.append(ray_samples)
 
-        if self.training:
-            illumination_field = (
-                self.illumination_field_train if not self.fitting_eval_latents else self.illumination_field_eval
-            )
-        else:
-            illumination_field = self.illumination_field_eval
+        illumination_field = self.get_illumination_field()
 
         illumination_directions = self.illumination_sampler()
         illumination_directions = illumination_directions.to(self.device)
@@ -298,6 +297,9 @@ class RENINeuSFactoModel(NeuSFactoModel):
     ) -> Tuple[Dict[str, float], Dict[str, torch.Tensor]]:
         """Compute image metrics and images, including the proposal depth for each iteration."""
         metrics_dict, images_dict = super().get_image_metrics_and_images(outputs, batch)
+
+        illumination_field = self.get_illumination_field()
+
         for i in range(self.config.num_proposal_iterations):
             key = f"prop_depth_{i}"
             prop_depth_i = colormaps.apply_depth_colormap(
@@ -314,7 +316,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
             W = 512
             H = W // 2
             D = get_directions(W).to(self.device)  # [B, H*W, 3]
-            envmap, _ = self.illumination_field_eval(idx, None, D, "envmap")
+            envmap, _ = illumination_field(idx, None, D, "envmap")
             envmap = envmap.reshape(1, H, W, 3).squeeze(0)
             images_dict["RENI"] = envmap
 
@@ -371,7 +373,17 @@ class RENINeuSFactoModel(NeuSFactoModel):
 
     def fit_latent_codes_for_eval(self, datamanager, gt_source, epochs, learning_rate):
         """Fit evaluation latent codes to session envmaps so that illumination is correct."""
-        opt = torch.optim.Adam(self.illumination_field_eval.parameters(), lr=learning_rate)
+
+        # Make sure we are using eval RENI
+        self.fitting_eval_latents = True
+
+        # get the correct illumination field
+        illumination_field = self.get_illumination_field()
+
+        # Reset latents to zeros for fitting
+        illumination_field.reset_latents()
+        
+        opt = torch.optim.Adam(illumination_field.parameters(), lr=learning_rate)
 
         with Progress(
             TextColumn("[progress.description]{task.description}"),
@@ -381,11 +393,6 @@ class RENINeuSFactoModel(NeuSFactoModel):
             TextColumn("[blue]Loss: {task.fields[extra]}"),
         ) as progress:
             task = progress.add_task("[green]Optimising eval latents... ", total=epochs, extra="")
-
-            # Reset latents to zeros for fitting
-            self.illumination_field_eval.reset_latents()
-            # Make sure we are using eval RENI
-            self.fitting_eval_latents = True
 
             # Fit latents
             for _ in range(epochs):
@@ -448,7 +455,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
                         loss = (
                             self.rgb_loss(rgb, model_output)
                             + self.config.illumination_field_prior_loss_weight
-                            * torch.pow(self.illumination_field_eval.get_latents(), 2).sum()
+                            * torch.pow(illumination_field.get_latents(), 2).sum()
                         )
                     epoch_loss += loss.item()
                     loss.backward()
