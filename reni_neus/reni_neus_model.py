@@ -25,6 +25,7 @@ from collections import defaultdict
 import random
 from rich.progress import BarColumn, Console, Progress, TextColumn, TimeRemainingColumn
 
+import nerfacc
 import torch
 from torch.nn import Parameter
 
@@ -42,6 +43,7 @@ from reni_neus.model_components.renderers import RGBLambertianRendererWithVisibi
 from reni_neus.model_components.illumination_samplers import IlluminationSamplerConfig
 from reni_neus.utils.utils import RENITestLossMask, get_directions
 from reni_neus.reni_neus_fieldheadnames import RENINeuSFieldHeadNames
+from nerfstudio.model_components.ray_samplers import VolumetricSampler
 
 CONSOLE = Console(width=120)
 
@@ -65,6 +67,14 @@ class RENINeuSFactoModelConfig(NeuSFactoModelConfig):
     """Weight for the visibility mse loss"""
     render_only_albedo: bool = False
     """Render only albedo"""
+    include_occupancy_network: bool = False
+    """Include occupancy network in the model"""
+    occupancy_grid_resolution: int = 64
+    """Resolution of the occupancy grid"""
+    occupancy_grid_levels: int = 4
+    """Levels of the occupancy grid"""
+    hashgrid_density_loss_weight: float = 0.0
+    """Weight for the hashgrid density loss"""
 
 
 class RENINeuSFactoModel(NeuSFactoModel):
@@ -107,6 +117,19 @@ class RENINeuSFactoModel(NeuSFactoModel):
 
         self.field_background = None
 
+        if self.config.include_occupancy_network:
+            # Occupancy Grid.
+            self.occupancy_grid = nerfacc.OccGridEstimator(
+                roi_aabb=self.scene_box.aabb,
+                resolution=self.config.occupancy_grid_resolution,
+                levels=self.config.occupancy_grid_levels,
+            )
+            # Volumetric sampler.
+            self.volumetric_sampler = VolumetricSampler(
+                occupancy_grid=self.occupancy_grid,
+                density_fn=self.field.density_fn,
+            )
+
         self.albedo_renderer = RGBRenderer(background_color=torch.tensor([1.0, 1.0, 1.0]))
         self.lambertian_renderer = RGBLambertianRendererWithVisibility()
 
@@ -122,12 +145,14 @@ class RENINeuSFactoModel(NeuSFactoModel):
         param_groups["proposal_networks"] = list(self.proposal_networks.parameters())
         param_groups["illumination_field"] = list(self.illumination_field_train.parameters())
         return param_groups
-    
+
     def get_illumination_field(self):
         if self.training and not self.fitting_eval_latents:
             illumination_field = self.illumination_field_train
         else:
-            illumination_field = self.illumination_field_test if self.test_mode == "test" else self.illumination_field_val
+            illumination_field = (
+                self.illumination_field_test if self.test_mode == "test" else self.illumination_field_val
+            )
 
         return illumination_field
 
@@ -382,7 +407,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
 
         # Reset latents to zeros for fitting
         illumination_field.reset_latents()
-        
+
         opt = torch.optim.Adam(illumination_field.parameters(), lr=learning_rate)
 
         with Progress(
