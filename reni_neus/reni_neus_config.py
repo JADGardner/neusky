@@ -16,7 +16,7 @@ from nerfstudio.data.datamanagers.base_datamanager import (
 from nerfstudio.data.dataparsers.nerfosr_dataparser import NeRFOSRDataParserConfig
 
 from nerfstudio.configs.base_config import ViewerConfig
-from nerfstudio.engine.optimizers import AdamOptimizerConfig
+from nerfstudio.engine.optimizers import AdamOptimizerConfig, RAdamOptimizerConfig
 from nerfstudio.engine.schedulers import (
     CosineDecaySchedulerConfig,
     MultiStepSchedulerConfig,
@@ -169,4 +169,109 @@ DirectionalDistanceField = MethodSpecification(
         vis="wandb",
     ),
     description="Base config for NeuS Facto NeRF-OSR.",
+)
+
+
+NeRFactoNeRFOSR = MethodSpecification(
+    config=TrainerConfig(
+        method_name="nerfacto-nerfosr",
+        steps_per_eval_batch=500,
+        steps_per_save=2000,
+        max_num_iterations=100000,
+        mixed_precision=True,
+        pipeline=VanillaPipelineConfig(
+            datamanager=RENINeuSDataManagerConfig(
+                dataparser=NeRFOSRCityScapesDataParserConfig(
+                    scene="lk2",
+                    auto_scale_poses=False,
+                ),
+                train_num_rays_per_batch=4096,
+                eval_num_rays_per_batch=4096,
+                camera_optimizer=CameraOptimizerConfig(
+                    mode="SO3xR3", optimizer=RAdamOptimizerConfig(lr=6e-4, eps=1e-8, weight_decay=1e-3)
+                ),
+            ),
+            model=NerfactoModelConfig(
+                eval_num_rays_per_chunk=1 << 15,
+                num_nerf_samples_per_ray=128,
+                num_proposal_samples_per_ray=(512, 256),
+                hidden_dim=128,
+                hidden_dim_color=128,
+                hidden_dim_transient=128,
+                max_res=3000,
+                proposal_weights_anneal_max_num_iters=5000,
+                log2_hashmap_size=21,
+            ),
+        ),
+        optimizers={
+            "proposal_networks": {
+                "optimizer": RAdamOptimizerConfig(lr=1e-2, eps=1e-15),
+                "scheduler": None,
+            },
+            "fields": {
+                "optimizer": RAdamOptimizerConfig(lr=1e-2, eps=1e-15),
+                "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-4, max_steps=100000),
+            },
+        },
+        viewer=ViewerConfig(num_rays_per_chunk=1 << 15),
+        vis="viewer",
+    ),
+    description="Base config for Nerfacto NeRF-OSR.",
+)
+
+
+NeusFactoNeRFOSR = MethodSpecification(
+    config=TrainerConfig(
+        method_name="neus-facto-nerfosr",
+        steps_per_eval_image=5000,
+        steps_per_eval_batch=5000,
+        steps_per_save=2000,
+        steps_per_eval_all_images=1000000,  # set to a very large model so we don't eval with all images
+        max_num_iterations=20001,
+        mixed_precision=False,
+        pipeline=VanillaPipelineConfig(
+            datamanager=RENINeuSDataManagerConfig(
+                dataparser=NeRFOSRCityScapesDataParserConfig(
+                    scene="lk2",
+                    auto_scale_poses=False,
+                ),
+                train_num_rays_per_batch=2048,
+                eval_num_rays_per_batch=2048,
+                camera_optimizer=CameraOptimizerConfig(
+                    mode="SO3xR3", optimizer=AdamOptimizerConfig(lr=6e-4, eps=1e-8, weight_decay=1e-2)
+                ),
+            ),
+            model=NeuSFactoModelConfig(
+                # proposal network allows for signifanctly smaller sdf/color network
+                sdf_field=SDFFieldConfig(
+                    use_grid_feature=True,
+                    num_layers=2,
+                    num_layers_color=2,
+                    hidden_dim=256,
+                    bias=0.5,
+                    beta_init=0.8,
+                    use_appearance_embedding=False,
+                ),
+                background_model="mlp",
+                eval_num_rays_per_chunk=2048,
+            ),
+        ),
+        optimizers={
+            "proposal_networks": {
+                "optimizer": AdamOptimizerConfig(lr=1e-2, eps=1e-15),
+                "scheduler": MultiStepSchedulerConfig(max_steps=20001, milestones=(10000, 1500, 18000)),
+            },
+            "fields": {
+                "optimizer": AdamOptimizerConfig(lr=5e-4, eps=1e-15),
+                "scheduler": CosineDecaySchedulerConfig(warm_up_end=500, learning_rate_alpha=0.05, max_steps=20001),
+            },
+            "field_background": {
+                "optimizer": AdamOptimizerConfig(lr=5e-4, eps=1e-15),
+                "scheduler": CosineDecaySchedulerConfig(warm_up_end=500, learning_rate_alpha=0.05, max_steps=20001),
+            },
+        },
+        viewer=ViewerConfig(num_rays_per_chunk=1 << 15),
+        vis="viewer",
+    ),
+    description="Base config for Neusfacto nerfosr.",
 )
