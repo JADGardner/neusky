@@ -19,6 +19,7 @@ Code for sampling pixels.
 import torch
 from typing import Dict, Optional, Union
 from torchtyping import TensorType
+import random
 
 from nerfstudio.data.pixel_samplers import PixelSampler
 
@@ -45,11 +46,16 @@ class RENINeuSPixelSampler(PixelSampler):
             mask: mask of possible pixels in an image to sample from.
         """
         if isinstance(mask, torch.Tensor):
-            nonzero_indices = torch.nonzero(mask, as_tuple=False)
-            chosen_indices = torch.randint(0, len(nonzero_indices), (batch_size,))
-            height_width_indices = nonzero_indices[chosen_indices]  # shape (batch_size, 2)
-            image_index = torch.zeros(batch_size, 1, dtype=torch.long, device=device)  # shape (batch_size, 1)
-            indices = torch.cat((image_index, height_width_indices), dim=1)  # shape (batch_size, 3)
+            # nonzero_indices = torch.nonzero(mask, as_tuple=False)
+            # chosen_indices = torch.randint(0, len(nonzero_indices), (batch_size,))
+            # height_width_indices = nonzero_indices[chosen_indices]  # shape (batch_size, 2)
+            # image_index = torch.zeros(batch_size, 1, dtype=torch.long).to(
+            #     height_width_indices.device
+            # )  # shape (batch_size, 1)
+            # indices = torch.cat((image_index, height_width_indices), dim=1)  # shape (batch_size, 3)
+            nonzero_indices = torch.nonzero(mask[..., 0], as_tuple=False)
+            chosen_indices = random.sample(range(len(nonzero_indices)), k=batch_size)
+            indices = nonzero_indices[chosen_indices]
         else:
             indices = torch.floor(
                 torch.rand((batch_size, 3), device=device)

@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Dict
 
 import numpy as np
+import numpy.typing as npt
 import torch
 from PIL import Image
 
@@ -45,6 +46,37 @@ class RENINeuSDataset(InputDataset):
         self.normal_filenames = self.metadata["normal_filenames"]
         self.c2w_colmap = self.metadata["c2w_colmap"]
         self.include_mono_prior = self.metadata["include_mono_prior"]
+        self.crop_to_equal_size = self.metadata["crop_to_equal_size"]
+        self.min_width = self.metadata["min_wh"][0]
+        self.min_height = self.metadata["min_wh"][1]
+
+    def get_numpy_image(self, image_idx: int) -> npt.NDArray[np.uint8]:
+        """Returns the image of shape (H, W, 3 or 4).
+
+        Args:
+            image_idx: The image index in the dataset.
+        """
+        image_filename = self._dataparser_outputs.image_filenames[image_idx]
+        pil_image = Image.open(image_filename)
+        if self.crop_to_equal_size:
+            # Crop the image to the new size around the center point
+            width, height = pil_image.size
+            left = max((width - self.min_width) // 2, 0)
+            top = max((height - self.min_height) // 2, 0)
+            right = min((width + self.min_width) // 2, width)
+            bottom = min((height + self.min_height) // 2, height)
+            pil_image = pil_image.crop((left, top, right, bottom))
+        if self.scale_factor != 1.0:
+            width, height = pil_image.size
+            newsize = (int(width * self.scale_factor), int(height * self.scale_factor))
+            pil_image = pil_image.resize(newsize, resample=Image.BILINEAR)
+        image = np.array(pil_image, dtype="uint8")  # shape is (h, w) or (h, w, 3 or 4)
+        if len(image.shape) == 2:
+            image = image[:, :, None].repeat(3, axis=2)
+        assert len(image.shape) == 3
+        assert image.dtype == np.uint8
+        assert image.shape[2] in [3, 4], f"Image shape of {image.shape} is in correct."
+        return image
 
     def get_metadata(self, data: Dict) -> Dict:
         # TODO supports foreground_masks

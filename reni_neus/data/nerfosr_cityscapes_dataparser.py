@@ -128,6 +128,8 @@ class NeRFOSRCityScapesDataParserConfig(NeRFOSRDataParserConfig):
     """target class to instantiate"""
     mask_source: Literal["none", "original", "cityscapes"] = "cityscapes"
     """Source of masks, can be none, cityscapes not provided in original dataset."""
+    crop_to_equal_size: bool = False
+    """Crop images to equal size"""
 
 
 @dataclass
@@ -164,6 +166,15 @@ class NeRFOSRCityScapes(DataParser):
 
         # combine all cam params
         intrinsics = torch.cat([intrinsics_train, intrinsics_val, intrinsics_test], dim=0)
+
+        self.min_wh = []
+        if self.config.crop_to_equal_size:
+            min_cx = torch.min(intrinsics[:, 0, 2])
+            min_cy = torch.min(intrinsics[:, 1, 2])
+            self.min_wh = [int(min_cx.item() * 2), int(min_cy.item() * 2)]
+            intrinsics[:, 0, 2] = min_cx
+            intrinsics[:, 1, 2] = min_cy
+
         camera_to_worlds = torch.cat([camera_to_worlds_train, camera_to_worlds_val, camera_to_worlds_test], dim=0)
 
         camera_to_worlds, transform = camera_utils.auto_orient_and_center_poses(
@@ -244,8 +255,8 @@ class NeRFOSRCityScapes(DataParser):
                     semantics=semantics,
                     mask_classes=["person", "rider", "car", "truck", "bus", "train", "motorcycle", "bicycle"],
                 )
-                # mask shape is (H, W) we want H, W
-                mask = (~mask).float()  # 1 is static, 0 is transient
+
+                mask = (~mask).unsqueeze(-1).float()  # 1 is static, 0 is transient
 
                 # get_foreground_mask
                 fg_mask = self.get_mask_from_semantics(idx=i, semantics=semantics, mask_classes=["sky"])
@@ -262,6 +273,8 @@ class NeRFOSRCityScapes(DataParser):
             "c2w_colmap": None,
             "mask": masks,
             "fg_mask": fg_masks,
+            "crop_to_equal_size": self.config.crop_to_equal_size,
+            "min_wh": self.min_wh,
         }
 
         dataparser_outputs = DataparserOutputs(
@@ -278,7 +291,19 @@ class NeRFOSRCityScapes(DataParser):
         """function to get mask from semantics"""
         filepath = semantics.filenames[idx]
         pil_image = Image.open(filepath)
+
+        if self.config.crop_to_equal_size:
+            min_width = self.min_wh[0]
+            min_height = self.min_wh[1]
+            width, height = pil_image.size
+            left = max((width - min_width) // 2, 0)
+            top = max((height - min_height) // 2, 0)
+            right = min((width + min_width) // 2, width)
+            bottom = min((height + min_height) // 2, height)
+            pil_image = pil_image.crop((left, top, right, bottom))
+
         semantic_img = torch.from_numpy(np.array(pil_image, dtype="int32"))
+
         mask = torch.zeros_like(semantic_img[:, :, 0])
         combined_mask = torch.zeros_like(semantic_img[:, :, 0])
 

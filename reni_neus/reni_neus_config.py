@@ -49,8 +49,8 @@ RENINeuS = MethodSpecification(
         steps_per_eval_all_images=1000000,  # set to a very large model so we don't eval with all images
         max_num_iterations=100001,
         mixed_precision=False,
-        load_dir=Path("/workspace/outputs/unnamed/reni-neus/2023-05-19_083705/nerfstudio_models/"),
-        load_step=20000,
+        # load_dir=Path("/workspace/outputs/unnamed/reni-neus/2023-05-19_083705/nerfstudio_models/"),
+        # load_step=20000,
         pipeline=RENINeuSPipelineConfig(
             eval_latent_optimisation_source="image_full",
             eval_latent_optimisation_epochs=50,
@@ -58,7 +58,8 @@ RENINeuS = MethodSpecification(
             datamanager=RENINeuSDataManagerConfig(
                 dataparser=NeRFOSRCityScapesDataParserConfig(
                     scene="lk2",
-                    auto_scale_poses=False,
+                    auto_scale_poses=True,
+                    crop_to_equal_size=True,
                 ),
                 train_num_rays_per_batch=512,
                 eval_num_rays_per_batch=512,
@@ -70,12 +71,12 @@ RENINeuS = MethodSpecification(
                 # proposal network allows for signifanctly smaller sdf/color network
                 sdf_field=SDFAlbedoFieldConfig(
                     use_grid_feature=True,
-                    num_layers=5,
+                    num_layers=2,
                     hidden_dim=256,
-                    num_layers_color=5,
+                    num_layers_color=2,
                     hidden_dim_color=256,
-                    bias=0.5,
-                    beta_init=0.3,
+                    bias=0.1,
+                    beta_init=0.1,
                     use_appearance_embedding=False,
                     inside_outside=False,
                 ),
