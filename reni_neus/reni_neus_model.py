@@ -205,6 +205,11 @@ class RENINeuSFactoModel(NeuSFactoModel):
             "background_colours": background_colours,
         }
 
+        if self.config.hashgrid_density_loss_weight > 0.0:
+            pass
+            # generate a set of uniform samples in the scene within the aabb of the scene
+            # and compute the density at those points
+
         albedo = self.albedo_renderer(rgb=field_outputs[RENINeuSFieldHeadNames.ALBEDO], weights=weights)
 
         # TODO Add visibility here?
