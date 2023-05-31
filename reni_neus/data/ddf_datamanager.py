@@ -25,6 +25,7 @@ from typing import Any, Dict, List, Optional, Tuple, Type, Union
 import torch
 from rich.progress import Console
 from torch.nn import Parameter
+from torch.utils.data import Dataset
 from typing_extensions import Literal
 
 from nerfstudio.cameras.camera_optimizers import CameraOptimizerConfig
@@ -50,48 +51,34 @@ from nerfstudio.data.datamanagers.base_datamanager import DataManagerConfig, Dat
 
 from reni_neus.data.reni_neus_pixel_sampler import RENINeuSPixelSampler
 from reni_neus.data.reni_neus_dataset import RENINeuSDataset
+from reni_neus.data.ddf_dataset import DDFDataset
 
 CONSOLE = Console(width=120)
 
 
 @dataclass
-class RENINeuSDataManagerConfig(DataManagerConfig):
+class DDFDataManagerConfig(DataManagerConfig):
     """A basic data manager"""
 
-    _target: Type = field(default_factory=lambda: RENINeuSDataManager)
+    _target: Type = field(default_factory=lambda: DDFDataManager)
     """Target class to instantiate."""
     dataparser: AnnotatedDataParserUnion = BlenderDataParserConfig()
     """Specifies the dataparser used to unpack the data."""
     train_num_rays_per_batch: int = 1024
     """Number of rays per batch to use per training iteration."""
-    train_num_images_to_sample_from: int = -1
-    """Number of images to sample during training iteration."""
-    train_num_times_to_repeat_images: int = -1
-    """When not training on all images, number of iterations before picking new
-    images. If -1, never pick new images."""
     eval_num_rays_per_batch: int = 1024
     """Number of rays per batch to use per eval iteration."""
-    eval_num_images_to_sample_from: int = -1
-    """Number of images to sample during eval iteration."""
-    eval_num_times_to_repeat_images: int = -1
-    """When not evaluating on all images, number of iterations before picking
-    new images. If -1, never pick new images."""
-    eval_image_indices: Optional[Tuple[int, ...]] = (0,)
-    """Specifies the image indices to use during eval; if None, uses all."""
-    camera_optimizer: CameraOptimizerConfig = CameraOptimizerConfig()
-    """Specifies the camera pose optimizer used during training. Helpful if poses are noisy, such as for data from
-    Record3D."""
-    collate_fn = staticmethod(nerfstudio_collate)
-    """Specifies the collate function to use for the train and eval dataloaders."""
-    camera_res_scale_factor: float = 1.0
-    """The scale factor for scaling spatial data such as images, mask, semantics
-    along with relevant information about camera intrinsics
-    """
-    patch_size: int = 1
-    """Size of patch to sample from. If >1, patch-based sampling will be used."""
+    reni_neus_ckpt_path: str = ""
+    """Path to reni_neus checkpoint"""
+    reni_neus_ckpt_step: int = 10000
+    """Step of reni_neus checkpoint"""
+    num_test_images_to_generate: int = 1
+    """Number of test images to generate"""
+    test_image_cache_dir: Path = Path("test_images")
+    """Directory to cache test images"""
 
 
-class RENINeuSDataManager(DataManager):  # pylint: disable=abstract-method
+class DDFDataManager(DataManager):  # pylint: disable=abstract-method
     """Basic stored data manager implementation.
 
     This is pretty much a port over from our old dataloading utilities, and is a little jank
@@ -104,16 +91,13 @@ class RENINeuSDataManager(DataManager):  # pylint: disable=abstract-method
         config: the DataManagerConfig used to instantiate class
     """
 
-    config: RENINeuSDataManagerConfig
-    train_dataset: InputDataset
-    eval_dataset: InputDataset
-    train_dataparser_outputs: DataparserOutputs
-    train_pixel_sampler: Optional[PixelSampler] = None
-    eval_pixel_sampler: Optional[PixelSampler] = None
+    config: DDFDataManagerConfig
+    train_dataset: Dataset
+    eval_dataset: Dataset
 
     def __init__(
         self,
-        config: RENINeuSDataManagerConfig,
+        config: DDFDataManagerConfig,
         device: Union[torch.device, str] = "cpu",
         test_mode: Literal["test", "val", "inference"] = "val",
         world_size: int = 1,
@@ -127,44 +111,27 @@ class RENINeuSDataManager(DataManager):  # pylint: disable=abstract-method
         self.sampler = None
         self.test_mode = test_mode
         self.test_split = "test" if test_mode in ["test", "inference"] else "val"
-        self.dataparser_config = self.config.dataparser
-        if self.config.data is not None:
-            self.config.dataparser.data = Path(self.config.data)
-        else:
-            self.config.data = self.config.dataparser.data
-        self.dataparser = self.dataparser_config.setup()
-        self.includes_time = self.dataparser.includes_time
-        self.train_dataparser_outputs = self.dataparser.get_dataparser_outputs(split="train")
-
         self.train_dataset = self.create_train_dataset()
         self.eval_dataset = self.create_eval_dataset()
 
-        if self.train_dataparser_outputs is not None:
-            cameras = self.train_dataparser_outputs.cameras
-            if len(cameras) > 1:
-                for i in range(1, len(cameras)):
-                    if cameras[0].width != cameras[i].width or cameras[0].height != cameras[i].height:
-                        CONSOLE.print("Variable resolution, using variable_res_collate")
-                        self.config.collate_fn = semantic_variable_res_collate
-                        break
-
         super().__init__()
 
-    def create_train_dataset(self) -> RENINeuSDataset:
-        self.train_dataparser_outputs = self.dataparser.get_dataparser_outputs(split="train")
-        return RENINeuSDataset(
-            dataparser_outputs=self.train_dataparser_outputs,
-            scale_factor=self.config.camera_res_scale_factor,
+    def create_train_dataset(self) -> DDFDataset:
+        return DDFDataset(
+            reni_neus_ckpt_path=self.config.reni_neus_ckpt_path,
+            reni_neus_ckpt_step=self.config.reni_neus_ckpt_step,
+            test_mode="train",
+            num_generated_imgs=0,
+            cache_dir=None,
         )
 
-    def create_eval_dataset(self) -> RENINeuSDataset:
-        test_outputs = self.dataparser.get_dataparser_outputs("test")
-        val_outputs = self.dataparser.get_dataparser_outputs("val")
-        self.num_test = len(test_outputs.image_filenames)
-        self.num_val = len(val_outputs.image_filenames)
-        return RENINeuSDataset(
-            dataparser_outputs=test_outputs if self.test_mode == "test" else val_outputs,
-            scale_factor=self.config.camera_res_scale_factor,
+    def create_eval_dataset(self) -> DDFDataset:
+        return DDFDataset(
+            reni_neus_ckpt_path=self.config.reni_neus_ckpt_path,
+            reni_neus_ckpt_step=self.config.reni_neus_ckpt_step,
+            test_mode=self.test_mode,
+            num_generated_imgs=self.config.num_test_images_to_generate,
+            cache_dir=self.config.test_image_cache_dir,
         )
 
     def _get_pixel_sampler(  # pylint: disable=no-self-use
@@ -291,74 +258,3 @@ class RENINeuSDataManager(DataManager):  # pylint: disable=abstract-method
             assert len(camera_opt_params) == 0
 
         return param_groups
-
-
-from abc import abstractmethod
-from typing import Callable, List, Optional, Tuple, Union
-
-import torch
-from nerfacc import OccGridEstimator
-from torch import nn
-from torchtyping import TensorType
-
-from nerfstudio.cameras.rays import Frustums, RayBundle, RaySamples
-from nerfstudio.model_components.ray_samplers import Sampler
-
-from reni_neus.utils.utils import random_points_on_unit_sphere, random_inward_facing_directions
-
-
-class DDFSDFSampler(Sampler):
-    def __init__(self, num_samples, ddf_sphere_radius, sdf_function):
-        super().__init__(num_samples=num_samples)
-        self.sdf_function = sdf_function
-        self.ddf_sphere_radius = ddf_sphere_radius
-
-    def generate_ray_samples(
-        self,
-        ray_bundle: Optional[RayBundle] = None,
-        num_samples: Optional[int] = None,
-        return_gt: bool = True,
-    ):
-        device = self.sdf_function.device
-        if ray_bundle is None:
-            num_samples = num_samples or self.num_samples
-
-            positions = random_points_on_unit_sphere(1, cartesian=True)  # (1, 3)
-            directions = random_inward_facing_directions(num_samples, normals=-positions)  # (1, num_directions, 3)
-
-            positions = positions * self.ddf_sphere_radius
-
-            pos_ray = positions.repeat(num_samples, 1).to(device)
-            dir_ray = directions.reshape(-1, 3).to(device)
-            pixel_area = torch.ones(num_samples, 1, device=device)
-            camera_indices = torch.zeros(num_samples, 1, device=device, dtype=torch.int64)
-            metadata = {"directions_norm": torch.ones(num_samples, 1, device=device)}
-
-            ray_bundle = RayBundle(
-                origins=pos_ray,
-                directions=dir_ray,
-                pixel_area=pixel_area,
-                camera_indices=camera_indices,
-                metadata=metadata,
-            )
-
-        accumulations = None
-        termination_dist = None
-        normals = None
-        if return_gt:
-            field_outputs = self.sdf_function(ray_bundle)
-            accumulations = field_outputs["accumulation"].reshape(-1, 1).squeeze()
-            termination_dist = field_outputs["p2p_dist"].reshape(-1, 1).squeeze()
-            normals = field_outputs["normal"].reshape(-1, 3).squeeze()
-
-        ray_samples = RaySamples(
-            frustums=Frustums(
-                origins=ray_bundle.origins.reshape(-1, 3),
-                directions=ray_bundle.directions.reshape(-1, 3),
-                starts=torch.zeros_like(ray_bundle.origins),
-                ends=torch.zeros_like(ray_bundle.origins),
-                pixel_area=torch.ones_like(ray_bundle.origins),
-            ),
-        )
-
-        return ray_samples, accumulations, termination_dist, normals
