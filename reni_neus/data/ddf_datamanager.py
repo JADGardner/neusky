@@ -76,6 +76,10 @@ class DDFDataManagerConfig(DataManagerConfig):
     """Number of test images to generate"""
     test_image_cache_dir: Path = Path("test_images")
     """Directory to cache test images"""
+    ddf_radius: Union[Literal["AABB"], float] = "AABB"
+    """Radius of the DDF sphere"""
+    accumulation_mask_threshold: float = 0.7
+    """Threshold for accumulation mask"""
 
 
 class DDFDataManager(DataManager):  # pylint: disable=abstract-method
@@ -123,6 +127,9 @@ class DDFDataManager(DataManager):  # pylint: disable=abstract-method
             test_mode="train",
             num_generated_imgs=0,
             cache_dir=None,
+            num_rays_per_batch=self.config.train_num_rays_per_batch,
+            ddf_sphere_radius=self.config.ddf_radius,
+            device=self.device,
         )
 
     def create_eval_dataset(self) -> DDFDataset:
@@ -132,6 +139,9 @@ class DDFDataManager(DataManager):  # pylint: disable=abstract-method
             test_mode=self.test_mode,
             num_generated_imgs=self.config.num_test_images_to_generate,
             cache_dir=self.config.test_image_cache_dir,
+            num_rays_per_batch=self.config.eval_num_rays_per_batch,
+            ddf_sphere_radius=self.config.ddf_radius,
+            device=self.device,
         )
 
     def _get_pixel_sampler(  # pylint: disable=no-self-use
