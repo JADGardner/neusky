@@ -60,16 +60,6 @@ class DDFModelConfig(ModelConfig):
     _target: Type = field(default_factory=lambda: DDFModel)
     ddf_field: DirectionalDistanceFieldConfig = DirectionalDistanceFieldConfig()
     """DDF field configuration"""
-    reni_neus_ckpt_path: str = ""
-    """Path to reni_neus checkpoint"""
-    reni_neus_ckpt_step: int = 10000
-    """Step of reni_neus checkpoint"""
-    num_sample_directions: int = 32
-    """Number of directions to sample"""
-    ddf_radius: Union[Literal["AABB"], float] = "AABB"
-    """Radius of the DDF sphere"""
-    accumulation_mask_threshold: float = 0.7
-    """Threshold for accumulation mask"""
 
 
 class DDFModel(Model):
@@ -86,47 +76,6 @@ class DDFModel(Model):
 
     def populate_modules(self):
         """Set the fields and modules"""
-
-        # setting up fields
-        self.field = self.config.ddf_field.setup()
-
-        # setting up reni_neus for pseudo ground truth
-        ckpt = torch.load(
-            self.config.reni_neus_ckpt_path
-            + "/nerfstudio_models"
-            + f"/step-{self.config.reni_neus_ckpt_step:09d}.ckpt",
-        )
-        model_dict = {}
-        for key in ckpt["pipeline"].keys():
-            if key.startswith("_model."):
-                model_dict[key[7:]] = ckpt["pipeline"][key]
-
-        num_train_data = model_dict["illumination_field_train.reni.mu"].shape[0]
-        num_eval_data = model_dict["illumination_field_eval.reni.mu"].shape[0]
-
-        # load yaml checkpoint config
-        reni_neus_config = Path(self.config.reni_neus_ckpt_path) / "config.yml"
-        reni_neus_config = yaml.load(reni_neus_config.open(), Loader=yaml.Loader)
-
-        self.reni_neus = reni_neus_config.pipeline.model.setup(
-            scene_box=self.scene_box, num_train_data=num_train_data, num_eval_data=num_eval_data
-        )
-
-        self.reni_neus.load_state_dict(model_dict)
-        self.reni_neus.eval()
-
-        # samplers
-        if self.config.ddf_radius == "AABB":
-            # get maximum inscribed sphere radius
-            radius = self.reni_neus.scene_box.aabb.min().abs().item()
-        else:
-            radius = self.config.ddf_radius
-
-        self.sampler = DDFSDFSampler(
-            num_samples=self.config.num_sample_directions,
-            ddf_sphere_radius=radius,
-            sdf_function=self.reni_neus,
-        )
 
         # renderers
         self.renderer_rgb = RGBRenderer(background_color=colors.WHITE)

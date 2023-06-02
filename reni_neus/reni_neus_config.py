@@ -38,6 +38,8 @@ from reni_neus.data.reni_neus_datamanager import RENINeuSDataManagerConfig
 from reni_neus.fields.sdf_albedo_field import SDFAlbedoFieldConfig
 from reni_neus.ddf_model import DDFModelConfig
 from reni_neus.fields.directional_distance_field import DirectionalDistanceFieldConfig
+from reni_neus.ddf_pipeline import DDFPipelineConfig
+from reni_neus.data.ddf_datamanager import DDFDataManagerConfig
 
 
 RENINeuS = MethodSpecification(
@@ -130,17 +132,16 @@ DirectionalDistanceField = MethodSpecification(
         steps_per_eval_all_images=1000000,  # set to a very large model so we don't eval with all images
         max_num_iterations=10001,
         mixed_precision=False,
-        pipeline=VanillaPipelineConfig(
-            datamanager=RENINeuSDataManagerConfig(
-                dataparser=NeRFOSRCityScapesDataParserConfig(
-                    scene="lk2",
-                    auto_scale_poses=False,
-                ),
+        pipeline=DDFPipelineConfig(
+            datamanager=DDFDataManagerConfig(
                 train_num_rays_per_batch=256,
                 eval_num_rays_per_batch=256,
-                camera_optimizer=CameraOptimizerConfig(
-                    mode="off", optimizer=AdamOptimizerConfig(lr=6e-4, eps=1e-8, weight_decay=1e-2)
-                ),
+                reni_neus_ckpt_path=Path("/workspace/outputs/unnamed/reni-neus/2023-05-23_191641"),
+                reni_neus_ckpt_step=30000,
+                num_test_images_to_generate=5,
+                test_image_cache_dir=Path("/workspace/outputs/ddf/cache/"),
+                ddf_radius="AABB",
+                accumulation_mask_threshold=0.7,
             ),
             model=DDFModelConfig(
                 ddf_field=DirectionalDistanceFieldConfig(
@@ -153,11 +154,6 @@ DirectionalDistanceField = MethodSpecification(
                     hidden_features=256,
                     predict_probability_of_hit=False,
                 ),
-                eval_num_rays_per_chunk=256,
-                reni_neus_ckpt_path="/workspace/outputs/unnamed/reni-neus/2023-05-17_121729",
-                reni_neus_ckpt_step=30000,
-                num_sample_directions=256,
-                ddf_radius="AABB",
             ),
         ),
         optimizers={
@@ -169,7 +165,7 @@ DirectionalDistanceField = MethodSpecification(
         viewer=ViewerConfig(num_rays_per_chunk=1 << 15),
         vis="wandb",
     ),
-    description="Base config for NeuS Facto NeRF-OSR.",
+    description="Base config for Directional Distance Field.",
 )
 
 

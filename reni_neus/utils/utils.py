@@ -209,21 +209,21 @@ def cart2sph(x, y, z):
     return theta, phi
 
 
-def look_at_target(camera_position, target_position, up_vector=torch.tensor([0.0, 0.0, 1.0])):
-    def normalize(vector):
-        return vector / torch.norm(vector)
+def look_at_target(camera_positions, target_positions, up_vector=torch.tensor([0.0, 0.0, 1.0])):
+    def normalize(vectors):
+        return vectors / torch.norm(vectors, dim=-1, keepdim=True)
 
-    forward_vector = -normalize(target_position - camera_position)
+    forward_vectors = -normalize(target_positions - camera_positions)
 
-    right_vector = normalize(torch.cross(up_vector, forward_vector))
+    right_vectors = normalize(torch.cross(up_vector[None, :], forward_vectors))
 
-    actual_up_vector = normalize(torch.cross(forward_vector, right_vector))
+    actual_up_vectors = normalize(torch.cross(forward_vectors, right_vectors))
 
-    c2w_matrix = torch.zeros(4, 4)
-    c2w_matrix[:3, 0] = right_vector
-    c2w_matrix[:3, 1] = actual_up_vector
-    c2w_matrix[:3, 2] = forward_vector
-    c2w_matrix[:3, 3] = camera_position
-    c2w_matrix[3, 3] = 1.0
+    c2w_matrices = torch.zeros(*camera_positions.shape[:-1], 4, 4).to(camera_positions.device)
+    c2w_matrices[..., :3, 0] = right_vectors
+    c2w_matrices[..., :3, 1] = actual_up_vectors
+    c2w_matrices[..., :3, 2] = forward_vectors
+    c2w_matrices[..., :3, 3] = camera_positions
+    c2w_matrices[..., 3, 3] = 1.0
 
-    return c2w_matrix
+    return c2w_matrices
