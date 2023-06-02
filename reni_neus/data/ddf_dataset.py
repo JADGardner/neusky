@@ -59,6 +59,7 @@ class DDFDataset(Dataset):
     def __init__(
         self,
         reni_neus: RENINeuSFactoModel,
+        reni_neus_ckpt_path: Path,
         test_mode: Literal["train", "test", "val"] = "train",
         num_generated_imgs: int = 10,
         cache_dir: Path = Path("path_to_img_cache"),
@@ -69,6 +70,7 @@ class DDFDataset(Dataset):
     ):
         super().__init__()
         self.reni_neus = reni_neus
+        self.reni_neus_ckpt_path = reni_neus_ckpt_path
         self.test_mode = test_mode
         self.num_generated_imgs = num_generated_imgs
         self.cache_dir = cache_dir
@@ -77,13 +79,16 @@ class DDFDataset(Dataset):
         self.device = device
 
         # self._setup_reni()
+        
+        if self.test_mode in ["test", "val"]:
+          self._setup_previous_datamanager()
 
-        data_file = str(self.cache_dir / f"{self.old_datamanager.dataparser.scene}_data.pt")
+          data_file = str(self.cache_dir / f"{self.old_datamanager.dataparser.config.scene}_data.pt")
 
-        if os.path.exists(data_file):
-            self.cached_images = torch.load(data_file)
-        else:
-            self.cached_images = self._generate_images()
+          if os.path.exists(data_file):
+              self.cached_images = torch.load(data_file)
+          else:
+              self.cached_images = self._generate_images()
 
     def __len__(self):
         return self.num_generated_imgs
@@ -133,9 +138,6 @@ class DDFDataset(Dataset):
         )
 
     def _generate_images(self):
-        if self.old_datamanager is None:
-            self._setup_previous_datamanager()
-
         original_data_c2w = self.old_datamanager.eval_dataloader.cameras.camera_to_worlds
         min_x = torch.min(original_data_c2w[:, 0, 3])
         max_x = torch.max(original_data_c2w[:, 0, 3])

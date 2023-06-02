@@ -93,11 +93,12 @@ class DDFDataManager(DataManager):  # pylint: disable=abstract-method
     config: DDFDataManagerConfig
     train_dataset: Dataset
     eval_dataset: Dataset
-    reni_neus: RENINeuSFactoModel
 
     def __init__(
         self,
         config: DDFDataManagerConfig,
+        reni_neus: RENINeuSFactoModel,
+        reni_neus_ckpt_path: Path,
         device: Union[torch.device, str] = "cpu",
         test_mode: Literal["test", "val", "inference"] = "val",
         world_size: int = 1,
@@ -111,14 +112,17 @@ class DDFDataManager(DataManager):  # pylint: disable=abstract-method
         self.sampler = None
         self.test_mode = test_mode
         self.test_split = "test" if test_mode in ["test", "inference"] else "val"
-        self.train_dataset = self.create_train_dataset()
-        self.eval_dataset = self.create_eval_dataset()
 
         super().__init__()
+        self.reni_neus = reni_neus
+        self.reni_neus_ckpt_path = reni_neus_ckpt_path
+        self.train_dataset = self.create_train_dataset()
+        self.eval_dataset = self.create_eval_dataset()
 
     def create_train_dataset(self) -> DDFDataset:
         return DDFDataset(
             reni_neus=self.reni_neus,
+            reni_neus_ckpt_path=self.reni_neus_ckpt_path,
             test_mode="train",
             num_generated_imgs=0,
             cache_dir=None,
@@ -131,6 +135,7 @@ class DDFDataManager(DataManager):  # pylint: disable=abstract-method
     def create_eval_dataset(self) -> DDFDataset:
         return DDFDataset(
             reni_neus=self.reni_neus,
+            reni_neus_ckpt_path=self.reni_neus_ckpt_path,
             test_mode=self.test_mode,
             num_generated_imgs=self.config.num_test_images_to_generate,
             cache_dir=self.config.test_image_cache_dir,

@@ -104,7 +104,7 @@ class DDFPipeline(VanillaPipeline):
         self._setup_reni()
 
         self.datamanager: DDFDataManager = config.datamanager.setup(
-            device=device, test_mode=test_mode, world_size=world_size, local_rank=local_rank, reni_neus=self.reni_neus
+            device=device, test_mode=test_mode, world_size=world_size, local_rank=local_rank, reni_neus=self.reni_neus, reni_neus_ckpt_path=self.config.reni_neus_ckpt_path,
         )
         self.datamanager.to(device)
         assert self.datamanager.train_dataset is not None, "Missing input dataset"
@@ -126,7 +126,7 @@ class DDFPipeline(VanillaPipeline):
 
     def _setup_reni(self):
         # setting up reni_neus for pseudo ground truth
-        ckpt_path = self.reni_neus_ckpt_path / "nerfstudio_models" / f"step-{self.reni_neus_ckpt_step:09d}.ckpt"
+        ckpt_path = self.config.reni_neus_ckpt_path / "nerfstudio_models" / f"step-{self.config.reni_neus_ckpt_step:09d}.ckpt"
         ckpt = torch.load(str(ckpt_path))
 
         model_dict = {}
@@ -134,13 +134,13 @@ class DDFPipeline(VanillaPipeline):
             if key.startswith("_model."):
                 model_dict[key[7:]] = ckpt["pipeline"][key]
 
-        scene_box = SceneBox(aabb=model_dict["aabb"])
+        scene_box = SceneBox(aabb=model_dict["field.aabb"])
         num_train_data = model_dict["illumination_field_train.reni.mu"].shape[0]
         num_val_data = model_dict["illumination_field_val.reni.mu"].shape[0]
         num_test_data = model_dict["illumination_field_test.reni.mu"].shape[0]
 
         # load yaml checkpoint config
-        reni_neus_config = Path(self.reni_neus_ckpt_path) / "config.yml"
+        reni_neus_config = Path(self.config.reni_neus_ckpt_path) / "config.yml"
         reni_neus_config = yaml.load(reni_neus_config.open(), Loader=yaml.Loader)
 
         self.reni_neus = reni_neus_config.pipeline.model.setup(
