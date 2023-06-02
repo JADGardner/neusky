@@ -18,16 +18,18 @@ DDF dataset from trained RENI-NeuS.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict, List, Union, Literal
+from typing import Dict, List, Union, Literal, Tuple
 
 import numpy as np
 import numpy.typing as npt
 import torch
 from PIL import Image
 import yaml
+from pathlib import Path
 
 from torch import Tensor
 from torch.utils.data import Dataset
+import torch.nn.functional as F
 
 from nerfstudio.cameras.rays import RayBundle, RaySamples, Frustums
 from nerfstudio.cameras.cameras import Cameras
@@ -35,8 +37,9 @@ from nerfstudio.data.dataparsers.base_dataparser import DataparserOutputs, Seman
 from nerfstudio.data.datasets.base_dataset import InputDataset
 from nerfstudio.data.utils.data_utils import get_semantics_and_mask_tensors_from_path
 from nerfstudio.data.scene_box import SceneBox
+from nerfstudio.data.datamanagers.base_datamanager import VanillaDataManager
 
-from reni_neus.utils.utils import random_points_on_unit_sphere, random_inward_facing_directions
+from reni_neus.utils.utils import random_points_on_unit_sphere, random_inward_facing_directions, look_at_target
 
 
 class DDFDataset(Dataset):
@@ -53,14 +56,14 @@ class DDFDataset(Dataset):
 
     def __init__(
         self,
-        reni_neus_ckpt_path,
-        reni_neus_ckpt_step: int,
+        reni_neus_ckpt_path: Path = Path("path_to_reni_neus_checkpoint"),
+        reni_neus_ckpt_step: int = 10000,
         test_mode: Literal["train", "test", "val"] = "train",
         num_generated_imgs: int = 10,
-        cache_dir: Union[Path, None] = Path.home() / ".nerfstudio" / "cache",
+        cache_dir: Path = Path("path_to_img_cache"),
         num_rays_per_batch: int = 1024,
         ddf_sphere_radius: Union[Literal["AABB"], float] = "AABB",
-        device: str = "cpu",
+        device: Union[torch.device, str] = "cpu",
     ):
         super().__init__()
         self.reni_neus_ckpt_path = reni_neus_ckpt_path
@@ -74,14 +77,26 @@ class DDFDataset(Dataset):
 
         self._setup_reni()
 
+        data_file = str(self.cache_dir / f"{self.old_datamanager.dataparser.scene}_data.pt")
+
+        if os.path.exists(data_file):
+            self.cached_data = torch.load(data_file)
+        else:
+            # Generate images and save them as self.cached_data
+            # ...
+            # Your code to generate the images and assign them to self.cached_data
+
+            # Save self.cached_data as a file
+            torch.save(self.cached_data, data_file)
+
     def __len__(self):
         return self.num_generated_imgs
 
     def _setup_reni(self):
         # setting up reni_neus for pseudo ground truth
-        ckpt = torch.load(
-            self.reni_neus_ckpt_path + "/nerfstudio_models" + f"/step-{self.reni_neus_ckpt_step:09d}.ckpt",
-        )
+        ckpt_path = self.reni_neus_ckpt_path / "nerfstudio_models" / f"step-{self.reni_neus_ckpt_step:09d}.ckpt"
+        ckpt = torch.load(str(ckpt_path))
+
         model_dict = {}
         for key in ckpt["pipeline"].keys():
             if key.startswith("_model."):
@@ -107,8 +122,94 @@ class DDFDataset(Dataset):
         self.reni_neus.load_state_dict(model_dict)
         self.reni_neus.eval()
 
+    def _setup_previous_datamanager(self):
+        # load config.yaml
+        config = Path(self.reni_neus_ckpt_path) / "config.yml"
+        config = yaml.load(config.open(), Loader=yaml.Loader)
+
+        pipeline_config = config.pipeline
+
+        self.old_datamanager: VanillaDataManager = pipeline_config.datamanager.setup(
+            device=self.device,
+            test_mode="test",
+            world_size=1,
+            local_rank=1,
+        )
+
     def _generate_images(self):
-        pass
+        if self.old_datamanager is None:
+            self._setup_previous_datamanager()
+
+        original_data_c2w = self.old_datamanager.eval_dataloader.cameras.camera_to_worlds
+        min_x = torch.min(original_data_c2w[:, 0, 3])
+        max_x = torch.max(original_data_c2w[:, 0, 3])
+        min_y = torch.min(original_data_c2w[:, 1, 3])
+        max_y = torch.max(original_data_c2w[:, 1, 3])
+
+        batch_list = []
+
+        for _ in range(self.num_generated_imgs):
+            # generate random camera positions between min and max x and y and z > 0
+            random_x = torch.rand(1) * (max_x - min_x) + min_x
+            random_y = torch.rand(1) * (max_y - min_y) + min_y
+            random_z = torch.rand(1)  # positive z so in upper hemisphere
+
+            # combine x, y, z into a single tensor
+            random_position = torch.stack([random_x, random_y, random_z], dim=1)
+
+            # normalize the positions
+            position = F.normalize(random_position, p=2, dim=1)
+
+            # generate c2w looking at the origin
+            c2w = look_at_target(position, torch.zeros_like(position))[..., :3, :4]  # (3, 4)
+
+            # update c2w in dataloader.cameras use index 0
+            original_data_c2w[0] = c2w
+
+            # use index 0 (new c2w) to generate new camera ray bundle
+            camera_ray_bundle, _ = self.old_datamanager.eval_dataloader.get_data_from_image_idx(0)
+
+            outputs = self.reni_neus.get_outputs_for_camera_ray_bundle(camera_ray_bundle, show_progress=True)
+
+            H, W = camera_ray_bundle.origins.shape[:2]
+            positions = position.unsqueeze(0).unsqueeze(0).unsqueeze(0).repeat(H, W, 1, 1)  # [H, W, 1, 3]
+            positions = positions.reshape(-1, 3)  # [N, 3]
+            directions = camera_ray_bundle.directions  # [H, W, 1, 3]
+            directions = directions.reshape(-1, 3)  # [N, 3]
+            accumulations = outputs["accumulation"].reshape(-1, 1).squeeze()  # [N]
+            termination_dist = outputs["p2p_dist"].reshape(-1, 1).squeeze()  # [N]
+            normals = outputs["normal"].reshape(-1, 3).squeeze()  # [N, 3]
+
+            ray_bundle = RayBundle(
+                origins=positions,
+                directions=directions,
+                pixel_area=camera_ray_bundle.pixel_area,
+                camera_indices=camera_ray_bundle.camera_indices,
+                metadata=camera_ray_bundle.metadata,
+            )
+
+            ray_samples = RaySamples(
+                frustums=Frustums(
+                    origins=ray_bundle.origins.reshape(-1, 3),
+                    directions=ray_bundle.directions.reshape(-1, 3),
+                    starts=torch.zeros_like(ray_bundle.origins),
+                    ends=torch.zeros_like(ray_bundle.origins),
+                    pixel_area=camera_ray_bundle.pixel_area,
+                ),
+            )
+
+            data = {
+                "ray_bundle": ray_bundle,
+                "ray_samples": ray_samples,
+                "accumulations": accumulations,
+                "termination_dist": termination_dist,
+                "normals": normals,
+            }
+
+            batch_list.append(data)
+
+        # save data to cache
+        torch.save(batch_list, str(self.cache_dir / f"{self.old_datamanager.dataparser.scene}_data.pt"))
 
     def _ddf_rays(self):
         num_samples = self.num_rays_per_batch
@@ -152,36 +253,37 @@ class DDFDataset(Dataset):
         )
 
         data = {
-            "ray_bundle": ray_bundle,
             "ray_samples": ray_samples,
             "accumulations": accumulations,
             "termination_dist": termination_dist,
             "normals": normals,
         }
 
-        return data
+        return ray_bundle, data
 
     def _get_generated_image(self, image_idx: int):
         if self.cached_images is None:
             self.cached_images = self._generate_images()
         else:
-            return self.cached_images[image_idx]
+            data = self.cached_images[image_idx]
+            ray_bundle = data["ray_bundle"]
+            return ray_bundle, data
 
-    def get_data(self, image_idx: int) -> Dict:
+    def get_data(self, image_idx: int) -> Tuple[RayBundle, Dict]:
         """Returns the ImageDataset data as a dictionary.
 
         Args:
             image_idx: The image index in the dataset.
         """
         if self.test_mode == "train":
-            data = self._ddf_rays()
+            ray_bundle, data = self._ddf_rays()
         else:
-            data = self._get_generated_image(image_idx)
-        return data
+            ray_bundle, data = self._get_generated_image(image_idx)
+        return ray_bundle, data
 
-    def __getitem__(self, image_idx: int) -> Dict:
-        data = self.get_data(image_idx)
-        return data
+    def __getitem__(self, image_idx: int) -> Tuple[RayBundle, Dict]:
+        ray_bundle, data = self.get_data(image_idx)
+        return ray_bundle, data
 
 
 # class DDFSDFSampler(Sampler):
