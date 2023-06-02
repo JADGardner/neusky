@@ -101,7 +101,7 @@ class DDFPipeline(VanillaPipeline):
         self.config = config
         self.test_mode = test_mode
 
-        self._setup_reni()
+        self._setup_reni(device)
 
         self.datamanager: DDFDataManager = config.datamanager.setup(
             device=device, test_mode=test_mode, world_size=world_size, local_rank=local_rank, reni_neus=self.reni_neus, reni_neus_ckpt_path=self.config.reni_neus_ckpt_path,
@@ -124,7 +124,7 @@ class DDFPipeline(VanillaPipeline):
             self._model = typing.cast(Model, DDP(self._model, device_ids=[local_rank], find_unused_parameters=True))
             dist.barrier(device_ids=[local_rank])
 
-    def _setup_reni(self):
+    def _setup_reni(self, device):
         # setting up reni_neus for pseudo ground truth
         ckpt_path = self.config.reni_neus_ckpt_path / "nerfstudio_models" / f"step-{self.config.reni_neus_ckpt_step:09d}.ckpt"
         ckpt = torch.load(str(ckpt_path))
@@ -153,6 +153,7 @@ class DDFPipeline(VanillaPipeline):
 
         self.reni_neus.load_state_dict(model_dict)
         self.reni_neus.eval()
+        self.reni_neus.to(device)
 
     @profiler.time_function
     def get_eval_loss_dict(self, step: int):

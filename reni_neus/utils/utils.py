@@ -212,6 +212,9 @@ def cart2sph(x, y, z):
 def look_at_target(camera_positions, target_positions, up_vector=torch.tensor([0.0, 0.0, 1.0])):
     def normalize(vectors):
         return vectors / torch.norm(vectors, dim=-1, keepdim=True)
+    
+    # make sure up vector is same device
+    up_vector = up_vector.type_as(camera_positions)
 
     forward_vectors = -normalize(target_positions - camera_positions)
 

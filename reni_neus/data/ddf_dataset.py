@@ -148,9 +148,9 @@ class DDFDataset(Dataset):
 
         for _ in range(self.num_generated_imgs):
             # generate random camera positions between min and max x and y and z > 0
-            random_x = torch.rand(1) * (max_x - min_x) + min_x
-            random_y = torch.rand(1) * (max_y - min_y) + min_y
-            random_z = torch.rand(1)  # positive z so in upper hemisphere
+            random_x = torch.rand(1).type_as(min_x) * (max_x - min_x) + min_x
+            random_y = torch.rand(1).type_as(min_y) * (max_y - min_y) + min_y
+            random_z = torch.rand(1).type_as(min_x)  # positive z so in upper hemisphere
 
             # combine x, y, z into a single tensor
             random_position = torch.stack([random_x, random_y, random_z], dim=1)
@@ -159,7 +159,7 @@ class DDFDataset(Dataset):
             position = F.normalize(random_position, p=2, dim=1)
 
             # generate c2w looking at the origin
-            c2w = look_at_target(position, torch.zeros_like(position))[..., :3, :4]  # (3, 4)
+            c2w = look_at_target(position, torch.zeros_like(position).type_as(position))[..., :3, :4]  # (3, 4)
 
             # update c2w in dataloader.cameras use index 0
             original_data_c2w[0] = c2w
