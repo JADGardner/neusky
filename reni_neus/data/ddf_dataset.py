@@ -26,6 +26,7 @@ import torch
 from PIL import Image
 import yaml
 from pathlib import Path
+import os
 
 from torch import Tensor
 from torch.utils.data import Dataset
@@ -40,6 +41,7 @@ from nerfstudio.data.scene_box import SceneBox
 from nerfstudio.data.datamanagers.base_datamanager import VanillaDataManager
 
 from reni_neus.utils.utils import random_points_on_unit_sphere, random_inward_facing_directions, look_at_target
+from reni_neus.reni_neus_model import RENINeuSFactoModel
 
 
 class DDFDataset(Dataset):
@@ -56,18 +58,17 @@ class DDFDataset(Dataset):
 
     def __init__(
         self,
-        reni_neus_ckpt_path: Path = Path("path_to_reni_neus_checkpoint"),
-        reni_neus_ckpt_step: int = 10000,
+        reni_neus: RENINeuSFactoModel,
         test_mode: Literal["train", "test", "val"] = "train",
         num_generated_imgs: int = 10,
         cache_dir: Path = Path("path_to_img_cache"),
         num_rays_per_batch: int = 1024,
         ddf_sphere_radius: Union[Literal["AABB"], float] = "AABB",
+        accumulation_mask_threshold: float = 0.7,
         device: Union[torch.device, str] = "cpu",
     ):
         super().__init__()
-        self.reni_neus_ckpt_path = reni_neus_ckpt_path
-        self.reni_neus_ckpt_step = reni_neus_ckpt_step
+        self.reni_neus = reni_neus
         self.test_mode = test_mode
         self.num_generated_imgs = num_generated_imgs
         self.cache_dir = cache_dir
@@ -75,52 +76,47 @@ class DDFDataset(Dataset):
         self.ddf_sphere_radius = ddf_sphere_radius
         self.device = device
 
-        self._setup_reni()
+        # self._setup_reni()
 
         data_file = str(self.cache_dir / f"{self.old_datamanager.dataparser.scene}_data.pt")
 
         if os.path.exists(data_file):
-            self.cached_data = torch.load(data_file)
+            self.cached_images = torch.load(data_file)
         else:
-            # Generate images and save them as self.cached_data
-            # ...
-            # Your code to generate the images and assign them to self.cached_data
-
-            # Save self.cached_data as a file
-            torch.save(self.cached_data, data_file)
+            self.cached_images = self._generate_images()
 
     def __len__(self):
         return self.num_generated_imgs
 
-    def _setup_reni(self):
-        # setting up reni_neus for pseudo ground truth
-        ckpt_path = self.reni_neus_ckpt_path / "nerfstudio_models" / f"step-{self.reni_neus_ckpt_step:09d}.ckpt"
-        ckpt = torch.load(str(ckpt_path))
+    # def _setup_reni(self):
+    #     # setting up reni_neus for pseudo ground truth
+    #     ckpt_path = self.reni_neus_ckpt_path / "nerfstudio_models" / f"step-{self.reni_neus_ckpt_step:09d}.ckpt"
+    #     ckpt = torch.load(str(ckpt_path))
 
-        model_dict = {}
-        for key in ckpt["pipeline"].keys():
-            if key.startswith("_model."):
-                model_dict[key[7:]] = ckpt["pipeline"][key]
+    #     model_dict = {}
+    #     for key in ckpt["pipeline"].keys():
+    #         if key.startswith("_model."):
+    #             model_dict[key[7:]] = ckpt["pipeline"][key]
 
-        scene_box = SceneBox(aabb=model_dict["aabb"])
-        num_train_data = model_dict["illumination_field_train.reni.mu"].shape[0]
-        num_val_data = model_dict["illumination_field_val.reni.mu"].shape[0]
-        num_test_data = model_dict["illumination_field_test.reni.mu"].shape[0]
+    #     scene_box = SceneBox(aabb=model_dict["aabb"])
+    #     num_train_data = model_dict["illumination_field_train.reni.mu"].shape[0]
+    #     num_val_data = model_dict["illumination_field_val.reni.mu"].shape[0]
+    #     num_test_data = model_dict["illumination_field_test.reni.mu"].shape[0]
 
-        # load yaml checkpoint config
-        reni_neus_config = Path(self.reni_neus_ckpt_path) / "config.yml"
-        reni_neus_config = yaml.load(reni_neus_config.open(), Loader=yaml.Loader)
+    #     # load yaml checkpoint config
+    #     reni_neus_config = Path(self.reni_neus_ckpt_path) / "config.yml"
+    #     reni_neus_config = yaml.load(reni_neus_config.open(), Loader=yaml.Loader)
 
-        self.reni_neus = reni_neus_config.pipeline.model.setup(
-            scene_box=scene_box,
-            num_train_data=num_train_data,
-            num_val_data=num_val_data,
-            num_test_data=num_test_data,
-            test_mode="train",
-        )
+    #     self.reni_neus = reni_neus_config.pipeline.model.setup(
+    #         scene_box=scene_box,
+    #         num_train_data=num_train_data,
+    #         num_val_data=num_val_data,
+    #         num_test_data=num_test_data,
+    #         test_mode="train",
+    #     )
 
-        self.reni_neus.load_state_dict(model_dict)
-        self.reni_neus.eval()
+    #     self.reni_neus.load_state_dict(model_dict)
+    #     self.reni_neus.eval()
 
     def _setup_previous_datamanager(self):
         # load config.yaml
@@ -179,6 +175,7 @@ class DDFDataset(Dataset):
             accumulations = outputs["accumulation"].reshape(-1, 1).squeeze()  # [N]
             termination_dist = outputs["p2p_dist"].reshape(-1, 1).squeeze()  # [N]
             normals = outputs["normal"].reshape(-1, 3).squeeze()  # [N, 3]
+            mask = (accumulations > self.accumulation_mask_threshold).float()
 
             ray_bundle = RayBundle(
                 origins=positions,
@@ -188,20 +185,10 @@ class DDFDataset(Dataset):
                 metadata=camera_ray_bundle.metadata,
             )
 
-            ray_samples = RaySamples(
-                frustums=Frustums(
-                    origins=ray_bundle.origins.reshape(-1, 3),
-                    directions=ray_bundle.directions.reshape(-1, 3),
-                    starts=torch.zeros_like(ray_bundle.origins),
-                    ends=torch.zeros_like(ray_bundle.origins),
-                    pixel_area=camera_ray_bundle.pixel_area,
-                ),
-            )
-
             data = {
                 "ray_bundle": ray_bundle,
-                "ray_samples": ray_samples,
                 "accumulations": accumulations,
+                "mask": mask,
                 "termination_dist": termination_dist,
                 "normals": normals,
             }
@@ -210,6 +197,7 @@ class DDFDataset(Dataset):
 
         # save data to cache
         torch.save(batch_list, str(self.cache_dir / f"{self.old_datamanager.dataparser.scene}_data.pt"))
+        return batch_list
 
     def _ddf_rays(self):
         num_samples = self.num_rays_per_batch
@@ -241,20 +229,11 @@ class DDFDataset(Dataset):
         accumulations = field_outputs["accumulation"].reshape(-1, 1).squeeze()
         termination_dist = field_outputs["p2p_dist"].reshape(-1, 1).squeeze()
         normals = field_outputs["normal"].reshape(-1, 3).squeeze()
-
-        ray_samples = RaySamples(
-            frustums=Frustums(
-                origins=ray_bundle.origins.reshape(-1, 3),
-                directions=ray_bundle.directions.reshape(-1, 3),
-                starts=torch.zeros_like(ray_bundle.origins),
-                ends=torch.zeros_like(ray_bundle.origins),
-                pixel_area=torch.ones_like(ray_bundle.origins),
-            ),
-        )
+        mask = (accumulations > self.accumulation_mask_threshold).float()
 
         data = {
-            "ray_samples": ray_samples,
             "accumulations": accumulations,
+            "mask": mask,
             "termination_dist": termination_dist,
             "normals": normals,
         }
@@ -284,60 +263,3 @@ class DDFDataset(Dataset):
     def __getitem__(self, image_idx: int) -> Tuple[RayBundle, Dict]:
         ray_bundle, data = self.get_data(image_idx)
         return ray_bundle, data
-
-
-# class DDFSDFSampler(Sampler):
-#     def __init__(self, num_samples, ddf_sphere_radius, sdf_function):
-#         super().__init__(num_samples=num_samples)
-#         self.sdf_function = sdf_function
-#         self.ddf_sphere_radius = ddf_sphere_radius
-
-#     def generate_ray_samples(
-#         self,
-#         ray_bundle: Optional[RayBundle] = None,
-#         num_samples: Optional[int] = None,
-#         return_gt: bool = True,
-#     ):
-#         device = self.sdf_function.device
-#         if ray_bundle is None:
-#             num_samples = num_samples or self.num_samples
-
-#             positions = random_points_on_unit_sphere(1, cartesian=True)  # (1, 3)
-#             directions = random_inward_facing_directions(num_samples, normals=-positions)  # (1, num_directions, 3)
-
-#             positions = positions * self.ddf_sphere_radius
-
-#             pos_ray = positions.repeat(num_samples, 1).to(device)
-#             dir_ray = directions.reshape(-1, 3).to(device)
-#             pixel_area = torch.ones(num_samples, 1, device=device)
-#             camera_indices = torch.zeros(num_samples, 1, device=device, dtype=torch.int64)
-#             metadata = {"directions_norm": torch.ones(num_samples, 1, device=device)}
-
-#             ray_bundle = RayBundle(
-#                 origins=pos_ray,
-#                 directions=dir_ray,
-#                 pixel_area=pixel_area,
-#                 camera_indices=camera_indices,
-#                 metadata=metadata,
-#             )
-
-#         accumulations = None
-#         termination_dist = None
-#         normals = None
-#         if return_gt:
-#             field_outputs = self.sdf_function(ray_bundle)
-#             accumulations = field_outputs["accumulation"].reshape(-1, 1).squeeze()
-#             termination_dist = field_outputs["p2p_dist"].reshape(-1, 1).squeeze()
-#             normals = field_outputs["normal"].reshape(-1, 3).squeeze()
-
-#         ray_samples = RaySamples(
-#             frustums=Frustums(
-#                 origins=ray_bundle.origins.reshape(-1, 3),
-#                 directions=ray_bundle.directions.reshape(-1, 3),
-#                 starts=torch.zeros_like(ray_bundle.origins),
-#                 ends=torch.zeros_like(ray_bundle.origins),
-#                 pixel_area=torch.ones_like(ray_bundle.origins),
-#             ),
-#         )
-
-#         return ray_samples, accumulations, termination_dist, normals

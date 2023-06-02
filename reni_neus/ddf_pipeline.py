@@ -21,6 +21,8 @@ import typing
 from dataclasses import dataclass, field
 from time import time
 from typing import Optional, Type
+import yaml
+from pathlib import Path
 
 import torch
 import torch.distributed as dist
@@ -41,6 +43,7 @@ from nerfstudio.data.datamanagers.base_datamanager import (
 from nerfstudio.models.base_model import Model, ModelConfig
 from nerfstudio.utils import profiler
 from nerfstudio.pipelines.base_pipeline import VanillaPipelineConfig, VanillaPipeline
+from nerfstudio.data.scene_box import SceneBox
 
 from reni_neus.data.reni_neus_datamanager import RENINeuSDataManagerConfig, RENINeuSDataManager
 from reni_neus.data.ddf_datamanager import DDFDataManagerConfig, DDFDataManager
@@ -62,6 +65,10 @@ class DDFPipelineConfig(VanillaPipelineConfig):
     """Number of epochs to optimise latent during eval"""
     eval_latent_optimisation_lr: float = 0.1
     """Learning rate for latent optimisation during eval"""
+    reni_neus_ckpt_path: Path = Path("path_to_reni_neus_checkpoint")
+    """Path to reni_neus checkpoint"""
+    reni_neus_ckpt_step: int = 10000
+    """Step of reni_neus checkpoint"""
 
 
 class DDFPipeline(VanillaPipeline):
@@ -93,8 +100,11 @@ class DDFPipeline(VanillaPipeline):
         super(VanillaPipeline, self).__init__()  # Call grandparent class constructor ignoring parent class
         self.config = config
         self.test_mode = test_mode
+
+        self._setup_reni()
+
         self.datamanager: DDFDataManager = config.datamanager.setup(
-            device=device, test_mode=test_mode, world_size=world_size, local_rank=local_rank
+            device=device, test_mode=test_mode, world_size=world_size, local_rank=local_rank, reni_neus=self.reni_neus
         )
         self.datamanager.to(device)
         assert self.datamanager.train_dataset is not None, "Missing input dataset"
@@ -105,6 +115,7 @@ class DDFPipeline(VanillaPipeline):
         self._model = config.model.setup(
             scene_box=self.datamanager.train_dataset.scene_box,
             metadata=self.datamanager.train_dataset.metadata,
+            reni_neus=self.reni_neus,
         )
         self.model.to(device)
 
@@ -112,6 +123,36 @@ class DDFPipeline(VanillaPipeline):
         if world_size > 1:
             self._model = typing.cast(Model, DDP(self._model, device_ids=[local_rank], find_unused_parameters=True))
             dist.barrier(device_ids=[local_rank])
+
+    def _setup_reni(self):
+        # setting up reni_neus for pseudo ground truth
+        ckpt_path = self.reni_neus_ckpt_path / "nerfstudio_models" / f"step-{self.reni_neus_ckpt_step:09d}.ckpt"
+        ckpt = torch.load(str(ckpt_path))
+
+        model_dict = {}
+        for key in ckpt["pipeline"].keys():
+            if key.startswith("_model."):
+                model_dict[key[7:]] = ckpt["pipeline"][key]
+
+        scene_box = SceneBox(aabb=model_dict["aabb"])
+        num_train_data = model_dict["illumination_field_train.reni.mu"].shape[0]
+        num_val_data = model_dict["illumination_field_val.reni.mu"].shape[0]
+        num_test_data = model_dict["illumination_field_test.reni.mu"].shape[0]
+
+        # load yaml checkpoint config
+        reni_neus_config = Path(self.reni_neus_ckpt_path) / "config.yml"
+        reni_neus_config = yaml.load(reni_neus_config.open(), Loader=yaml.Loader)
+
+        self.reni_neus = reni_neus_config.pipeline.model.setup(
+            scene_box=scene_box,
+            num_train_data=num_train_data,
+            num_val_data=num_val_data,
+            num_test_data=num_test_data,
+            test_mode="train",
+        )
+
+        self.reni_neus.load_state_dict(model_dict)
+        self.reni_neus.eval()
 
     @profiler.time_function
     def get_eval_loss_dict(self, step: int):

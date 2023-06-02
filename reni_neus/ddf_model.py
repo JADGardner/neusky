@@ -31,7 +31,7 @@ from torchmetrics import PeakSignalNoiseRatio
 from torchmetrics.functional import structural_similarity_index_measure
 from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
 
-from nerfstudio.cameras.rays import RayBundle
+from nerfstudio.cameras.rays import RayBundle, RaySamples, Frustums
 from nerfstudio.field_components.encodings import NeRFEncoding
 from nerfstudio.field_components.field_heads import FieldHeadNames
 from nerfstudio.fields.vanilla_nerf_field import NeRFField
@@ -44,11 +44,13 @@ from nerfstudio.model_components.renderers import (
 )
 from nerfstudio.models.base_model import Model, ModelConfig
 from nerfstudio.utils import colormaps, colors, misc
+from nerfstudio.model_components.scene_colliders import SphereCollider
 
 from reni_neus.fields.directional_distance_field import DirectionalDistanceField, DirectionalDistanceFieldConfig
 from reni_neus.utils.utils import random_points_on_unit_sphere, random_inward_facing_directions
 from reni_neus.model_components.ddf_sdf_sampler import DDFSDFSampler
 from reni_neus.reni_neus_fieldheadnames import RENINeuSFieldHeadNames
+from reni_neus.reni_neus_model import RENINeuSFactoModel
 
 CONSOLE = Console(width=120)
 
@@ -70,12 +72,15 @@ class DDFModel(Model):
     """
 
     config: DDFModelConfig
+    reni_neus: RENINeuSFactoModel
 
     def __init__(self, config: DDFModelConfig, **kwargs) -> None:
         super().__init__(config=config, **kwargs)
 
     def populate_modules(self):
         """Set the fields and modules"""
+
+        self.collider = SphereCollider(center=torch.tensor([0.0, 0.0, 0.0]), radius=1.0)
 
         # renderers
         self.renderer_rgb = RGBRenderer(background_color=colors.WHITE)
@@ -101,18 +106,21 @@ class DDFModel(Model):
         if self.field is None:
             raise ValueError("populate_fields() must be called before get_outputs")
 
-        if self.training:
-            ray_samples, gt_accumulations, gt_termination_dist, gt_normals = self.sampler()
-        else:
-            ray_samples, gt_accumulations, gt_termination_dist, gt_normals = self.sampler(
-                ray_bundle=ray_bundle, return_gt=True
-            )
+        ray_samples = RaySamples(
+            frustums=Frustums(
+                origins=ray_bundle.origins.reshape(-1, 3),
+                directions=ray_bundle.directions.reshape(-1, 3),
+                starts=torch.zeros_like(ray_bundle.origins),
+                ends=torch.zeros_like(ray_bundle.origins),
+                pixel_area=ray_bundle.pixel_area,
+            ),
+        )
 
         field_outputs = self.field.forward(ray_samples)
         expected_termination_dist = field_outputs[RENINeuSFieldHeadNames.TERMINATION_DISTANCE]
 
         # mask on gt_accumulations
-        mask = (gt_accumulations > self.config.accumulation_mask_threshold).float()
+        # mask = (gt_accumulations > self.config.accumulation_mask_threshold).float()
 
         # get sdf at expected termination distance
         termination_points = (
@@ -121,11 +129,8 @@ class DDFModel(Model):
         sdf_at_termination = self.reni_neus.field.get_sdf_at_pos(termination_points)
 
         outputs = {
-            "gt_accumulations": gt_accumulations,
-            "gt_termination_dist": gt_termination_dist,
-            "gt_normals": gt_normals,
             "sdf_at_termination": sdf_at_termination,
-            "mask": mask,
+            # "mask": mask,
             "field_outputs": field_outputs,
             "expected_termination_dist": expected_termination_dist,
         }
@@ -137,8 +142,8 @@ class DDFModel(Model):
 
     def get_loss_dict(self, outputs, batch, metrics_dict=None):
         minimum_distance_loss = self.minimum_distance_loss(
-            outputs["sdf_at_termination"] * outputs["mask"],
-            torch.zeros_like(outputs["sdf_at_termination"]) * outputs["mask"],
+            outputs["sdf_at_termination"] * batch["mask"],
+            torch.zeros_like(outputs["sdf_at_termination"]) * batch["mask"],
         )
         loss_dict = {"minimum_distance_loss": minimum_distance_loss}
         loss_dict = misc.scale_dict(loss_dict, self.config.loss_coefficients)

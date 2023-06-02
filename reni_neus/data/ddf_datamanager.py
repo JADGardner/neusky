@@ -52,6 +52,7 @@ from nerfstudio.data.datamanagers.base_datamanager import DataManagerConfig, Dat
 from reni_neus.data.reni_neus_pixel_sampler import RENINeuSPixelSampler
 from reni_neus.data.reni_neus_dataset import RENINeuSDataset
 from reni_neus.data.ddf_dataset import DDFDataset
+from reni_neus.reni_neus_model import RENINeuSFactoModel
 
 CONSOLE = Console(width=120)
 
@@ -66,10 +67,6 @@ class DDFDataManagerConfig(DataManagerConfig):
     """Number of rays per batch to use per training iteration."""
     eval_num_rays_per_batch: int = 1024
     """Number of rays per batch to use per eval iteration."""
-    reni_neus_ckpt_path: Path = Path("path_to_reni_neus_checkpoint")
-    """Path to reni_neus checkpoint"""
-    reni_neus_ckpt_step: int = 10000
-    """Step of reni_neus checkpoint"""
     num_test_images_to_generate: int = 1
     """Number of test images to generate"""
     test_image_cache_dir: Path = Path("test_images")
@@ -96,6 +93,7 @@ class DDFDataManager(DataManager):  # pylint: disable=abstract-method
     config: DDFDataManagerConfig
     train_dataset: Dataset
     eval_dataset: Dataset
+    reni_neus: RENINeuSFactoModel
 
     def __init__(
         self,
@@ -120,25 +118,25 @@ class DDFDataManager(DataManager):  # pylint: disable=abstract-method
 
     def create_train_dataset(self) -> DDFDataset:
         return DDFDataset(
-            reni_neus_ckpt_path=self.config.reni_neus_ckpt_path,
-            reni_neus_ckpt_step=self.config.reni_neus_ckpt_step,
+            reni_neus=self.reni_neus,
             test_mode="train",
             num_generated_imgs=0,
             cache_dir=None,
             num_rays_per_batch=self.config.train_num_rays_per_batch,
             ddf_sphere_radius=self.config.ddf_radius,
+            accumulation_mask_threshold=self.config.accumulation_mask_threshold,
             device=self.device,
         )
 
     def create_eval_dataset(self) -> DDFDataset:
         return DDFDataset(
-            reni_neus_ckpt_path=self.config.reni_neus_ckpt_path,
-            reni_neus_ckpt_step=self.config.reni_neus_ckpt_step,
+            reni_neus=self.reni_neus,
             test_mode=self.test_mode,
             num_generated_imgs=self.config.num_test_images_to_generate,
             cache_dir=self.config.test_image_cache_dir,
             num_rays_per_batch=self.config.eval_num_rays_per_batch,
             ddf_sphere_radius=self.config.ddf_radius,
+            accumulation_mask_threshold=self.config.accumulation_mask_threshold,
             device=self.device,
         )
 
