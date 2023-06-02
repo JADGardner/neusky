@@ -101,10 +101,10 @@ class DDFPipeline(VanillaPipeline):
         self.config = config
         self.test_mode = test_mode
 
-        self._setup_reni(device)
+        scene_box = self._setup_reni(device)
 
         self.datamanager: DDFDataManager = config.datamanager.setup(
-            device=device, test_mode=test_mode, world_size=world_size, local_rank=local_rank, reni_neus=self.reni_neus, reni_neus_ckpt_path=self.config.reni_neus_ckpt_path,
+            device=device, test_mode=test_mode, world_size=world_size, local_rank=local_rank, reni_neus=self.reni_neus, reni_neus_ckpt_path=self.config.reni_neus_ckpt_path, scene_box=scene_box
         )
         self.datamanager.to(device)
         assert self.datamanager.train_dataset is not None, "Missing input dataset"
@@ -113,9 +113,10 @@ class DDFPipeline(VanillaPipeline):
             assert self.datamanager.eval_dataset is not None, "Missing validation dataset"
 
         self._model = config.model.setup(
-            scene_box=self.datamanager.train_dataset.scene_box,
+            scene_box=scene_box,
             metadata=self.datamanager.train_dataset.metadata,
             reni_neus=self.reni_neus,
+            num_train_data=-1,
         )
         self.model.to(device)
 
@@ -154,6 +155,8 @@ class DDFPipeline(VanillaPipeline):
         self.reni_neus.load_state_dict(model_dict)
         self.reni_neus.eval()
         self.reni_neus.to(device)
+
+        return scene_box
 
     @profiler.time_function
     def get_eval_loss_dict(self, step: int):

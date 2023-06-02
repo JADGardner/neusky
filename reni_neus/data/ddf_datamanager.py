@@ -99,6 +99,7 @@ class DDFDataManager(DataManager):  # pylint: disable=abstract-method
         config: DDFDataManagerConfig,
         reni_neus: RENINeuSFactoModel,
         reni_neus_ckpt_path: Path,
+        scene_box,
         device: Union[torch.device, str] = "cpu",
         test_mode: Literal["test", "val", "inference"] = "val",
         world_size: int = 1,
@@ -116,18 +117,27 @@ class DDFDataManager(DataManager):  # pylint: disable=abstract-method
         super().__init__()
         self.reni_neus = reni_neus
         self.reni_neus_ckpt_path = reni_neus_ckpt_path
+
+        if self.config.ddf_radius == "AABB":
+            self.ddf_radius = torch.abs(scene_box.aabb[0])
+        else:
+            self.ddf_radius = self.config.ddf_radius
+        
         self.train_dataset = self.create_train_dataset()
         self.eval_dataset = self.create_eval_dataset()
+
+        # not used just to get rid of error
+        self.train_dataparser_outputs = self.eval_dataset.old_datamanager.train_dataparser_outputs
 
     def create_train_dataset(self) -> DDFDataset:
         return DDFDataset(
             reni_neus=self.reni_neus,
             reni_neus_ckpt_path=self.reni_neus_ckpt_path,
             test_mode="train",
-            num_generated_imgs=0,
+            num_generated_imgs=1,
             cache_dir=None,
             num_rays_per_batch=self.config.train_num_rays_per_batch,
-            ddf_sphere_radius=self.config.ddf_radius,
+            ddf_sphere_radius=self.ddf_radius,
             accumulation_mask_threshold=self.config.accumulation_mask_threshold,
             device=self.device,
         )
@@ -140,7 +150,7 @@ class DDFDataManager(DataManager):  # pylint: disable=abstract-method
             num_generated_imgs=self.config.num_test_images_to_generate,
             cache_dir=self.config.test_image_cache_dir,
             num_rays_per_batch=self.config.eval_num_rays_per_batch,
-            ddf_sphere_radius=self.config.ddf_radius,
+            ddf_sphere_radius=self.ddf_radius,
             accumulation_mask_threshold=self.config.accumulation_mask_threshold,
             device=self.device,
         )
@@ -164,14 +174,16 @@ class DDFDataManager(DataManager):  # pylint: disable=abstract-method
     def next_train(self, step: int) -> Tuple[RayBundle, Dict]:
         """Returns the next batch of data from the train dataloader."""
         self.train_count += 1
-        ray_bundle, batch = self.train_dataset[0]
+        batch = self.train_dataset[len(self.train_dataset) + 1] # idx + 1 larger than len as flag, viewer needs img and will use actual idx
+        ray_bundle = batch["ray_bundle"]
         return ray_bundle, batch
 
     def next_eval(self, step: int) -> Tuple[RayBundle, Dict]:
         """Returns the next batch of data from the eval dataloader."""
         self.eval_count += 1
         idx = self.eval_count % self.config.num_test_images_to_generate
-        ray_bundle, batch = self.eval_dataset[idx]
+        batch = self.eval_dataset[idx]
+        ray_bundle = batch["ray_bundle"]
         return ray_bundle, batch
 
     def next_eval_image(self, step: int) -> Tuple[int, RayBundle, Dict]:
@@ -196,12 +208,5 @@ class DDFDataManager(DataManager):  # pylint: disable=abstract-method
             A list of dictionaries containing the data manager's param groups.
         """
         param_groups = {}
-
-        camera_opt_params = list(self.train_camera_optimizer.parameters())
-        if self.config.camera_optimizer.mode != "off":
-            assert len(camera_opt_params) > 0
-            param_groups[self.config.camera_optimizer.param_group] = camera_opt_params
-        else:
-            assert len(camera_opt_params) == 0
 
         return param_groups

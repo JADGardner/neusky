@@ -136,7 +136,7 @@ DirectionalDistanceField = MethodSpecification(
             datamanager=DDFDataManagerConfig(
                 train_num_rays_per_batch=256,
                 eval_num_rays_per_batch=256,
-                num_test_images_to_generate=5,
+                num_test_images_to_generate=1,
                 test_image_cache_dir=Path("/workspace/outputs/ddf/cache/"),
                 ddf_radius="AABB",
                 accumulation_mask_threshold=0.7,
@@ -163,7 +163,7 @@ DirectionalDistanceField = MethodSpecification(
             },
         },
         viewer=ViewerConfig(num_rays_per_chunk=1 << 15),
-        vis="wandb",
+        vis="viewer",
     ),
     description="Base config for Directional Distance Field.",
 )

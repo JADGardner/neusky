@@ -82,6 +82,8 @@ class DDFModel(Model):
 
         self.collider = SphereCollider(center=torch.tensor([0.0, 0.0, 0.0]), radius=1.0)
 
+        self.field = self.config.ddf_field.setup()
+
         # renderers
         self.renderer_rgb = RGBRenderer(background_color=colors.WHITE)
         self.renderer_accumulation = AccumulationRenderer()

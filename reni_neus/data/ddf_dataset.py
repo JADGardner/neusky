@@ -76,7 +76,9 @@ class DDFDataset(Dataset):
         self.cache_dir = cache_dir
         self.num_rays_per_batch = num_rays_per_batch
         self.ddf_sphere_radius = ddf_sphere_radius
+        self.accumulation_mask_threshold = accumulation_mask_threshold
         self.device = device
+        self.metadata = {}
 
         # self._setup_reni()
         
@@ -89,6 +91,10 @@ class DDFDataset(Dataset):
               self.cached_images = torch.load(data_file)
           else:
               self.cached_images = self._generate_images()
+              # save data to cache
+              # make sure cache dir exists
+              os.makedirs(self.cache_dir, exist_ok=True)
+              torch.save(self.cached_images, str(self.cache_dir / f"{self.old_datamanager.dataparser.config.scene}_data.pt"))
 
     def __len__(self):
         return self.num_generated_imgs
@@ -148,9 +154,9 @@ class DDFDataset(Dataset):
 
         for _ in range(self.num_generated_imgs):
             # generate random camera positions between min and max x and y and z > 0
-            random_x = torch.rand(1).type_as(min_x) * (max_x - min_x) + min_x
-            random_y = torch.rand(1).type_as(min_y) * (max_y - min_y) + min_y
-            random_z = torch.rand(1).type_as(min_x)  # positive z so in upper hemisphere
+            random_x = torch.empty(1).uniform_(min_x, max_x).type_as(min_x)
+            random_y = torch.empty(1).uniform_(min_y, max_y).type_as(min_x)
+            random_z = torch.empty(1).uniform_(0.1, 0.3).type_as(min_x)
 
             # combine x, y, z into a single tensor
             random_position = torch.stack([random_x, random_y, random_z], dim=1)
@@ -170,7 +176,7 @@ class DDFDataset(Dataset):
             outputs = self.reni_neus.get_outputs_for_camera_ray_bundle(camera_ray_bundle, show_progress=True)
 
             H, W = camera_ray_bundle.origins.shape[:2]
-            positions = position.unsqueeze(0).unsqueeze(0).unsqueeze(0).repeat(H, W, 1, 1)  # [H, W, 1, 3]
+            positions = position.unsqueeze(0).unsqueeze(0).repeat(H, W, 1, 1)  # [H, W, 1, 3]
             positions = positions.reshape(-1, 3)  # [N, 3]
             directions = camera_ray_bundle.directions  # [H, W, 1, 3]
             directions = directions.reshape(-1, 3)  # [N, 3]
@@ -178,27 +184,32 @@ class DDFDataset(Dataset):
             termination_dist = outputs["p2p_dist"].reshape(-1, 1).squeeze()  # [N]
             normals = outputs["normal"].reshape(-1, 3).squeeze()  # [N, 3]
             mask = (accumulations > self.accumulation_mask_threshold).float()
+            pixel_area = camera_ray_bundle.pixel_area.reshape(-1, 1).squeeze()  # [N]
+            metadata = camera_ray_bundle.metadata
+            metadata["directions_norm"] = metadata["directions_norm"].reshape(-1, 1).squeeze()  # [N]
+            
 
             ray_bundle = RayBundle(
                 origins=positions,
                 directions=directions,
-                pixel_area=camera_ray_bundle.pixel_area,
-                camera_indices=camera_ray_bundle.camera_indices,
-                metadata=camera_ray_bundle.metadata,
+                pixel_area=pixel_area,
+                camera_indices=torch.zeros_like(pixel_area),
+                metadata=metadata,
             )
 
             data = {
+                "image": outputs["rgb"],
                 "ray_bundle": ray_bundle,
                 "accumulations": accumulations,
                 "mask": mask,
                 "termination_dist": termination_dist,
                 "normals": normals,
+                "H": H,
+                "W": W,
             }
 
             batch_list.append(data)
 
-        # save data to cache
-        torch.save(batch_list, str(self.cache_dir / f"{self.old_datamanager.dataparser.scene}_data.pt"))
         return batch_list
 
     def _ddf_rays(self):
@@ -207,7 +218,7 @@ class DDFDataset(Dataset):
         positions = random_points_on_unit_sphere(1, cartesian=True)  # (1, 3)
         directions = random_inward_facing_directions(num_samples, normals=-positions)  # (1, num_directions, 3)
 
-        positions = positions * self.ddf_sphere_radius
+        positions = positions * self.ddf_sphere_radius.type_as(positions)
 
         pos_ray = positions.repeat(num_samples, 1).to(self.device)
         dir_ray = directions.reshape(-1, 3).to(self.device)
@@ -227,41 +238,44 @@ class DDFDataset(Dataset):
         termination_dist = None
         normals = None
 
-        field_outputs = self.reni_neus.field(ray_bundle)
+        field_outputs = self.reni_neus(ray_bundle)
         accumulations = field_outputs["accumulation"].reshape(-1, 1).squeeze()
         termination_dist = field_outputs["p2p_dist"].reshape(-1, 1).squeeze()
         normals = field_outputs["normal"].reshape(-1, 3).squeeze()
         mask = (accumulations > self.accumulation_mask_threshold).float()
 
         data = {
+            "ray_bundle": ray_bundle,
             "accumulations": accumulations,
             "mask": mask,
             "termination_dist": termination_dist,
             "normals": normals,
         }
 
-        return ray_bundle, data
+        return data
 
     def _get_generated_image(self, image_idx: int):
         if self.cached_images is None:
             self.cached_images = self._generate_images()
         else:
             data = self.cached_images[image_idx]
-            ray_bundle = data["ray_bundle"]
-            return ray_bundle, data
+            return data
 
-    def get_data(self, image_idx: int) -> Tuple[RayBundle, Dict]:
+    def get_data(self, image_idx: int) -> Dict:
         """Returns the ImageDataset data as a dictionary.
 
         Args:
             image_idx: The image index in the dataset.
         """
         if self.test_mode == "train":
-            ray_bundle, data = self._ddf_rays()
+            if image_idx == len(self) + 1:
+                data = self._ddf_rays()
+            else:
+                data = self._get_generated_image(image_idx)
         else:
-            ray_bundle, data = self._get_generated_image(image_idx)
-        return ray_bundle, data
+            data = self._get_generated_image(image_idx)
+        return data
 
-    def __getitem__(self, image_idx: int) -> Tuple[RayBundle, Dict]:
-        ray_bundle, data = self.get_data(image_idx)
-        return ray_bundle, data
+    def __getitem__(self, image_idx: int) -> Dict:
+        data = self.get_data(image_idx)
+        return data
