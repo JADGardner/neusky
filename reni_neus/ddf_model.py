@@ -72,10 +72,10 @@ class DDFModel(Model):
     """
 
     config: DDFModelConfig
-    reni_neus: RENINeuSFactoModel
 
-    def __init__(self, config: DDFModelConfig, **kwargs) -> None:
+    def __init__(self, config: DDFModelConfig, reni_neus, **kwargs) -> None:
         super().__init__(config=config, **kwargs)
+        self.reni_neus = reni_neus
 
     def populate_modules(self):
         """Set the fields and modules"""

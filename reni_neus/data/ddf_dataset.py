@@ -33,7 +33,7 @@ from torch.utils.data import Dataset
 import torch.nn.functional as F
 
 from nerfstudio.cameras.rays import RayBundle, RaySamples, Frustums
-from nerfstudio.cameras.cameras import Cameras
+from nerfstudio.cameras.cameras import Cameras, CameraType
 from nerfstudio.data.dataparsers.base_dataparser import DataparserOutputs, Semantics
 from nerfstudio.data.datasets.base_dataset import InputDataset
 from nerfstudio.data.utils.data_utils import get_semantics_and_mask_tensors_from_path
@@ -60,6 +60,7 @@ class DDFDataset(Dataset):
         self,
         reni_neus: RENINeuSFactoModel,
         reni_neus_ckpt_path: Path,
+        scene_box: SceneBox,
         test_mode: Literal["train", "test", "val"] = "train",
         num_generated_imgs: int = 10,
         cache_dir: Path = Path("path_to_img_cache"),
@@ -79,61 +80,43 @@ class DDFDataset(Dataset):
         self.accumulation_mask_threshold = accumulation_mask_threshold
         self.device = device
         self.metadata = {}
+        self.scale_factor = 1.0
+        self.scene_box = scene_box
+        self.old_datamanager = None
 
-        # self._setup_reni()
-        
-        if self.test_mode in ["test", "val"]:
-          self._setup_previous_datamanager()
+        config = Path(self.reni_neus_ckpt_path) / "config.yml"
+        config = yaml.load(config.open(), Loader=yaml.Loader)
+        scene_name = config.pipeline.datamanager.dataparser.scene
 
-          data_file = str(self.cache_dir / f"{self.old_datamanager.dataparser.config.scene}_data.pt")
+        data_file = str(self.cache_dir / f"{scene_name}_data.pt")
 
-          if os.path.exists(data_file):
-              self.cached_images = torch.load(data_file)
-          else:
-              self.cached_images = self._generate_images()
-              # save data to cache
-              # make sure cache dir exists
-              os.makedirs(self.cache_dir, exist_ok=True)
-              torch.save(self.cached_images, str(self.cache_dir / f"{self.old_datamanager.dataparser.config.scene}_data.pt"))
+        if os.path.exists(data_file):
+            self.cached_images = torch.load(data_file)
+        else:
+            self._setup_previous_datamanager(config)
+            self.cached_images = self._generate_images()
+            os.makedirs(self.cache_dir, exist_ok=True)
+            torch.save(self.cached_images, str(self.cache_dir / f"{self.old_datamanager.dataparser.config.scene}_data.pt"))
+
+        camera_to_worlds = self.cached_images[0]["c2w"].unsqueeze(0)
+        intrinsics = self.cached_images[0]["intrinsics"]
+
+        self.cameras = Cameras(
+            camera_to_worlds=camera_to_worlds[:, :3, :4],
+            fx=intrinsics[:, 0, 0],
+            fy=intrinsics[:, 1, 1],
+            cx=intrinsics[:, 0, 2],
+            cy=intrinsics[:, 1, 2],
+            camera_type=CameraType.PERSPECTIVE,
+        )
+
+        if self.test_mode in ["test", "val"] and self.old_datamanager is None:
+            self._setup_previous_datamanager(config)
 
     def __len__(self):
         return self.num_generated_imgs
 
-    # def _setup_reni(self):
-    #     # setting up reni_neus for pseudo ground truth
-    #     ckpt_path = self.reni_neus_ckpt_path / "nerfstudio_models" / f"step-{self.reni_neus_ckpt_step:09d}.ckpt"
-    #     ckpt = torch.load(str(ckpt_path))
-
-    #     model_dict = {}
-    #     for key in ckpt["pipeline"].keys():
-    #         if key.startswith("_model."):
-    #             model_dict[key[7:]] = ckpt["pipeline"][key]
-
-    #     scene_box = SceneBox(aabb=model_dict["aabb"])
-    #     num_train_data = model_dict["illumination_field_train.reni.mu"].shape[0]
-    #     num_val_data = model_dict["illumination_field_val.reni.mu"].shape[0]
-    #     num_test_data = model_dict["illumination_field_test.reni.mu"].shape[0]
-
-    #     # load yaml checkpoint config
-    #     reni_neus_config = Path(self.reni_neus_ckpt_path) / "config.yml"
-    #     reni_neus_config = yaml.load(reni_neus_config.open(), Loader=yaml.Loader)
-
-    #     self.reni_neus = reni_neus_config.pipeline.model.setup(
-    #         scene_box=scene_box,
-    #         num_train_data=num_train_data,
-    #         num_val_data=num_val_data,
-    #         num_test_data=num_test_data,
-    #         test_mode="train",
-    #     )
-
-    #     self.reni_neus.load_state_dict(model_dict)
-    #     self.reni_neus.eval()
-
-    def _setup_previous_datamanager(self):
-        # load config.yaml
-        config = Path(self.reni_neus_ckpt_path) / "config.yml"
-        config = yaml.load(config.open(), Loader=yaml.Loader)
-
+    def _setup_previous_datamanager(self, config):
         pipeline_config = config.pipeline
 
         self.old_datamanager: VanillaDataManager = pipeline_config.datamanager.setup(
@@ -144,7 +127,14 @@ class DDFDataset(Dataset):
         )
 
     def _generate_images(self):
+        # setup old data
         original_data_c2w = self.old_datamanager.eval_dataloader.cameras.camera_to_worlds
+        intrinsics = torch.zeros((1, 3, 3), device=self.device)
+        intrinsics[0, 0, 0] = self.old_datamanager.eval_dataloader.cameras.fx[0]
+        intrinsics[0, 1, 1] = self.old_datamanager.eval_dataloader.cameras.fy[0]
+        intrinsics[0, 0, 2] = self.old_datamanager.eval_dataloader.cameras.cx[0]
+        intrinsics[0, 1, 2] = self.old_datamanager.eval_dataloader.cameras.cy[0]
+
         min_x = torch.min(original_data_c2w[:, 0, 3])
         max_x = torch.max(original_data_c2w[:, 0, 3])
         min_y = torch.min(original_data_c2w[:, 1, 3])
@@ -198,6 +188,8 @@ class DDFDataset(Dataset):
             )
 
             data = {
+                "c2w": c2w,
+                "intrinsics": intrinsics,
                 "image": outputs["rgb"],
                 "ray_bundle": ray_bundle,
                 "accumulations": accumulations,
@@ -255,11 +247,8 @@ class DDFDataset(Dataset):
         return data
 
     def _get_generated_image(self, image_idx: int):
-        if self.cached_images is None:
-            self.cached_images = self._generate_images()
-        else:
-            data = self.cached_images[image_idx]
-            return data
+        data = self.cached_images[image_idx]
+        return data
 
     def get_data(self, image_idx: int) -> Dict:
         """Returns the ImageDataset data as a dictionary.

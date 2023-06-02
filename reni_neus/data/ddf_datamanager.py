@@ -117,6 +117,7 @@ class DDFDataManager(DataManager):  # pylint: disable=abstract-method
         super().__init__()
         self.reni_neus = reni_neus
         self.reni_neus_ckpt_path = reni_neus_ckpt_path
+        self.scene_box = scene_box
 
         if self.config.ddf_radius == "AABB":
             self.ddf_radius = torch.abs(scene_box.aabb[0])
@@ -134,8 +135,9 @@ class DDFDataManager(DataManager):  # pylint: disable=abstract-method
             reni_neus=self.reni_neus,
             reni_neus_ckpt_path=self.reni_neus_ckpt_path,
             test_mode="train",
+            scene_box=self.scene_box,
             num_generated_imgs=1,
-            cache_dir=None,
+            cache_dir=self.config.test_image_cache_dir,
             num_rays_per_batch=self.config.train_num_rays_per_batch,
             ddf_sphere_radius=self.ddf_radius,
             accumulation_mask_threshold=self.config.accumulation_mask_threshold,
@@ -147,6 +149,7 @@ class DDFDataManager(DataManager):  # pylint: disable=abstract-method
             reni_neus=self.reni_neus,
             reni_neus_ckpt_path=self.reni_neus_ckpt_path,
             test_mode=self.test_mode,
+            scene_box=self.scene_box,
             num_generated_imgs=self.config.num_test_images_to_generate,
             cache_dir=self.config.test_image_cache_dir,
             num_rays_per_batch=self.config.eval_num_rays_per_batch,
