@@ -108,13 +108,18 @@ class DDFModel(Model):
         if self.field is None:
             raise ValueError("populate_fields() must be called before get_outputs")
 
+        # get H, W from ray_bundle if it's shape is (H, W, 1, 3) and not (N, 3)
+        H, W = None, None
+        if len(ray_bundle.origins.shape) == 4:
+            H, W = ray_bundle.origins.shape[:2]
+
         ray_samples = RaySamples(
             frustums=Frustums(
                 origins=ray_bundle.origins.reshape(-1, 3),
                 directions=ray_bundle.directions.reshape(-1, 3),
                 starts=torch.zeros_like(ray_bundle.origins),
                 ends=torch.zeros_like(ray_bundle.origins),
-                pixel_area=ray_bundle.pixel_area,
+                pixel_area=ray_bundle.pixel_area.reshape(-1, 1),
             ),
         )
 
@@ -129,12 +134,15 @@ class DDFModel(Model):
 
         outputs = {
             "sdf_at_termination": sdf_at_termination,
-            "field_outputs": field_outputs,
             "expected_termination_dist": expected_termination_dist,
         }
 
         if RENINeuSFieldHeadNames.PROBABILITY_OF_HIT in field_outputs:
             outputs["expected_probability_of_hit"] = field_outputs[RENINeuSFieldHeadNames.PROBABILITY_OF_HIT]
+
+        for key, value in outputs.items():
+            if H is not None and W is not None:
+                outputs[key] = value.reshape(H, W, 1, -1)
 
         return outputs
 
@@ -199,9 +207,10 @@ class DDFModel(Model):
     def get_image_metrics_and_images(
         self, outputs: Dict[str, torch.Tensor], batch: Dict[str, torch.Tensor]
     ) -> Tuple[Dict[str, float], Dict[str, torch.Tensor]]:
-        gt_accumulations = outputs["gt_accumulations"]
-        gt_termination_dist = outputs["gt_termination_dist"]
-        gt_normals = outputs["gt_normals"]
+        gt_accumulations = batch["accumulations"]
+        gt_termination_dist = batch["termination_dist"]
+        gt_normals = batch["normals"]
+
         expected_termination_dist = outputs["expected_termination_dist"]
 
         if RENINeuSFieldHeadNames.PROBABILITY_OF_HIT in outputs:
@@ -210,15 +219,15 @@ class DDFModel(Model):
         gt_depth = colormaps.apply_depth_colormap(
             gt_termination_dist,
             accumulation=gt_accumulations,
-            near_plane=self.config.collider_params["near_plane"],
-            far_plane=self.config.collider_params["far_plane"],
+            near_plane=self.collider.near_plane,
+            far_plane=self.collider.radius * 2,
         )
 
         depth = colormaps.apply_depth_colormap(
             expected_termination_dist,
             accumulation=gt_accumulations,
-            near_plane=self.config.collider_params["near_plane"],
-            far_plane=self.config.collider_params["far_plane"],
+            near_plane=self.collider.near_plane,
+            far_plane=self.collider.radius * 2,
         )
 
         combined_depth = torch.cat([gt_depth, depth], dim=1)

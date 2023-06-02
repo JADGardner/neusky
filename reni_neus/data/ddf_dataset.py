@@ -96,7 +96,9 @@ class DDFDataset(Dataset):
             self._setup_previous_datamanager(config)
             self.cached_images = self._generate_images()
             os.makedirs(self.cache_dir, exist_ok=True)
-            torch.save(self.cached_images, str(self.cache_dir / f"{self.old_datamanager.dataparser.config.scene}_data.pt"))
+            torch.save(
+                self.cached_images, str(self.cache_dir / f"{self.old_datamanager.dataparser.config.scene}_data.pt")
+            )
 
         camera_to_worlds = self.cached_images[0]["c2w"].unsqueeze(0)
         intrinsics = self.cached_images[0]["intrinsics"]
@@ -167,17 +169,20 @@ class DDFDataset(Dataset):
 
             H, W = camera_ray_bundle.origins.shape[:2]
             positions = position.unsqueeze(0).unsqueeze(0).repeat(H, W, 1, 1)  # [H, W, 1, 3]
-            positions = positions.reshape(-1, 3)  # [N, 3]
+            # positions = positions.reshape(-1, 3)  # [N, 3]
             directions = camera_ray_bundle.directions  # [H, W, 1, 3]
-            directions = directions.reshape(-1, 3)  # [N, 3]
-            accumulations = outputs["accumulation"].reshape(-1, 1).squeeze()  # [N]
-            termination_dist = outputs["p2p_dist"].reshape(-1, 1).squeeze()  # [N]
-            normals = outputs["normal"].reshape(-1, 3).squeeze()  # [N, 3]
+            # directions = directions.reshape(-1, 3)  # [N, 3]
+            # accumulations = outputs["accumulation"].reshape(-1, 1).squeeze()  # [N]
+            accumulations = outputs["accumulation"]  # [H, W, 1, 1]
+            # termination_dist = outputs["p2p_dist"].reshape(-1, 1).squeeze()  # [N]
+            termination_dist = outputs["p2p_dist"]  # [H, W, 1, 1]
+            # normals = outputs["normal"].reshape(-1, 3).squeeze()  # [N, 3]
+            normals = outputs["normal"]  # [H, W, 1, 3]
             mask = (accumulations > self.accumulation_mask_threshold).float()
-            pixel_area = camera_ray_bundle.pixel_area.reshape(-1, 1).squeeze()  # [N]
+            # pixel_area = camera_ray_bundle.pixel_area.reshape(-1, 1).squeeze()  # [N]
+            pixel_area = camera_ray_bundle.pixel_area  # [H, W, 1, 1]
             metadata = camera_ray_bundle.metadata
-            metadata["directions_norm"] = metadata["directions_norm"].reshape(-1, 1).squeeze()  # [N]
-            
+            # metadata["directions_norm"] = metadata["directions_norm"].reshape(-1, 1).squeeze()  # [N]
 
             ray_bundle = RayBundle(
                 origins=positions,
