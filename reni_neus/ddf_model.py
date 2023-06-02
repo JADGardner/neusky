@@ -119,9 +119,6 @@ class DDFModel(Model):
         field_outputs = self.field.forward(ray_samples)
         expected_termination_dist = field_outputs[RENINeuSFieldHeadNames.TERMINATION_DISTANCE]
 
-        # mask on gt_accumulations
-        # mask = (gt_accumulations > self.config.accumulation_mask_threshold).float()
-
         # get sdf at expected termination distance
         termination_points = (
             ray_samples.frustums.origins + ray_samples.frustums.directions * expected_termination_dist.unsqueeze(-1)
@@ -130,7 +127,6 @@ class DDFModel(Model):
 
         outputs = {
             "sdf_at_termination": sdf_at_termination,
-            # "mask": mask,
             "field_outputs": field_outputs,
             "expected_termination_dist": expected_termination_dist,
         }

@@ -136,8 +136,6 @@ DirectionalDistanceField = MethodSpecification(
             datamanager=DDFDataManagerConfig(
                 train_num_rays_per_batch=256,
                 eval_num_rays_per_batch=256,
-                reni_neus_ckpt_path=Path("/workspace/outputs/unnamed/reni-neus/2023-05-23_191641"),
-                reni_neus_ckpt_step=30000,
                 num_test_images_to_generate=5,
                 test_image_cache_dir=Path("/workspace/outputs/ddf/cache/"),
                 ddf_radius="AABB",
@@ -155,6 +153,8 @@ DirectionalDistanceField = MethodSpecification(
                     predict_probability_of_hit=False,
                 ),
             ),
+            reni_neus_ckpt_path=Path("/workspace/outputs/unnamed/reni-neus/2023-05-23_191641"),
+            reni_neus_ckpt_step=70000,
         ),
         optimizers={
             "fields": {
