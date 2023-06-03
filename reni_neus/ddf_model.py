@@ -179,8 +179,9 @@ class DDFModel(Model):
             batch["termination_dist"] * batch["mask"],
         )
 
-        loss_dict = {"sdf_loss": sdf_loss, "depth_loss": depth_loss}
-        loss_dict = misc.scale_dict(loss_dict, self.config.loss_coefficients)
+        loss_dict = {"sdf_loss": sdf_loss * self.config.sdf_loss_mult, 
+                     "depth_loss": depth_loss * self.config.depth_loss_mult}
+        
         return loss_dict
 
     @torch.no_grad()

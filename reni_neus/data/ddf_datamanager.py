@@ -198,10 +198,10 @@ class DDFDataManager(DataManager):  # pylint: disable=abstract-method
         return ray_bundle, batch
 
     def next_eval_image(self, step: int) -> Tuple[int, RayBundle, Dict]:
-        for camera_ray_bundle, batch in self.eval_dataloader:
-            assert camera_ray_bundle.camera_indices is not None
-            image_idx = int(camera_ray_bundle.camera_indices[0, 0, 0])
-            return image_idx, camera_ray_bundle, batch
+        """Returns the next batch of data from the eval dataloader."""
+        for idx, batch in enumerate(self.eval_dataset):
+            ray_bundle = batch["ray_bundle"]
+            return idx, ray_bundle, batch       
         raise ValueError("No more eval images")
 
     def get_train_rays_per_batch(self) -> int:
