@@ -63,7 +63,14 @@ class DDFModelConfig(ModelConfig):
     _target: Type = field(default_factory=lambda: DDFModel)
     ddf_field: DirectionalDistanceFieldConfig = DirectionalDistanceFieldConfig()
     """DDF field configuration"""
-
+    sdf_loss_mult: float = 1.0
+    """Multiplier for the sdf loss"""
+    depth_loss_mult: float = 1.0
+    """Multiplier for the depth loss"""
+    prob_hit_loss_mult: float = 1.0
+    """Multiplier for the probability of hit loss"""
+    normal_loss_mult: float = 1.0
+    """Multiplier for the normal loss"""
 
 
 class DDFModel(Model):
@@ -100,7 +107,8 @@ class DDFModel(Model):
         self.renderer_depth = DepthRenderer()
 
         # losses
-        self.minimum_distance_loss = MSELoss()
+        self.sdf_loss = MSELoss()
+        self.depth_loss = MSELoss()
 
         # metrics
         self.psnr = PeakSignalNoiseRatio(data_range=1.0)
@@ -157,11 +165,21 @@ class DDFModel(Model):
         return outputs
 
     def get_loss_dict(self, outputs, batch, metrics_dict=None):
-        minimum_distance_loss = self.minimum_distance_loss(
+        
+        # the sdf value at the predicted termination distance
+        # should be zero
+        sdf_loss = self.sdf_loss(
             outputs["sdf_at_termination"] * batch["mask"],
             torch.zeros_like(outputs["sdf_at_termination"]) * batch["mask"],
         )
-        loss_dict = {"minimum_distance_loss": minimum_distance_loss}
+
+        # match the depth of the sdf model
+        depth_loss = self.depth_loss(
+            outputs["expected_termination_dist"] * batch["mask"],
+            batch["termination_dist"] * batch["mask"],
+        )
+
+        loss_dict = {"sdf_loss": sdf_loss, "depth_loss": depth_loss}
         loss_dict = misc.scale_dict(loss_dict, self.config.loss_coefficients)
         return loss_dict
 

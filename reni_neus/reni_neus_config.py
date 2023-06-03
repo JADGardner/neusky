@@ -140,7 +140,7 @@ DirectionalDistanceField = MethodSpecification(
                 test_image_cache_dir=Path("/workspace/outputs/ddf/cache/"),
                 ddf_radius="AABB",
                 accumulation_mask_threshold=0.7,
-                train_data="single_camera",
+                train_data="rand_pnts_on_sphere", # "rand_pnts_on_sphere, single_camera"
             ),
             model=DDFModelConfig(
                 ddf_field=DirectionalDistanceFieldConfig(
