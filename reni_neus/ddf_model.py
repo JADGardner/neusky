@@ -78,12 +78,14 @@ class DDFModel(Model):
     def __init__(self, config: DDFModelConfig, reni_neus, **kwargs) -> None:
         super().__init__(config=config, **kwargs)
         self.reni_neus = reni_neus
-        # self.viewer_control = ViewerControl()  # no arguments
+        self.viewer_control = ViewerControl()  # no arguments
 
-        #   def set_cam_btn_cb(button):
-        #     pass
+        def on_sphere_look_at_origin(button):
+            # instant=False means the camera smoothly animates
+            # instant=True means the camera jumps instantly to the pose
+            self.viewer_control.set_pose(position=(0, 1, 0), look_at=(0,0,0), instant=False)
         
-        # self.viewer_button = ViewerButton(name="Camera on Sphere",cb_hook=set_cam_btn_cb)
+        self.viewer_button = ViewerButton(name="Camera on DDF",cb_hook=on_sphere_look_at_origin)
 
     def populate_modules(self):
         """Set the fields and modules"""
