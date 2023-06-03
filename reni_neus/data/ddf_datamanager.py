@@ -75,6 +75,8 @@ class DDFDataManagerConfig(DataManagerConfig):
     """Radius of the DDF sphere"""
     accumulation_mask_threshold: float = 0.7
     """Threshold for accumulation mask"""
+    train_data: Literal["rand_pnts_on_sphere", "single_camera"] = "rand_pnts_on_sphere"
+    """Type of training data to use"""
 
 
 class DDFDataManager(DataManager):  # pylint: disable=abstract-method
@@ -131,10 +133,16 @@ class DDFDataManager(DataManager):  # pylint: disable=abstract-method
         self.train_dataparser_outputs = self.eval_dataset.old_datamanager.train_dataparser_outputs
 
     def create_train_dataset(self) -> DDFDataset:
+        # This is used for fitting to a single image for debugging
+        if self.config.train_data == "rand_pnts_on_sphere":
+          test_mode = "train"
+        else:
+          test_mode = "val"
+
         return DDFDataset(
             reni_neus=self.reni_neus,
             reni_neus_ckpt_path=self.reni_neus_ckpt_path,
-            test_mode="train",
+            test_mode=test_mode,
             scene_box=self.scene_box,
             num_generated_imgs=1,
             cache_dir=self.config.test_image_cache_dir,

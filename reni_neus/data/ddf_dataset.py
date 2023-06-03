@@ -168,19 +168,19 @@ class DDFDataset(Dataset):
             outputs = self.reni_neus.get_outputs_for_camera_ray_bundle(camera_ray_bundle, show_progress=True)
 
             H, W = camera_ray_bundle.origins.shape[:2]
-            positions = position.unsqueeze(0).unsqueeze(0).repeat(H, W, 1, 1)  # [H, W, 1, 3]
+            positions = position.unsqueeze(0).repeat(H, W, 1)  # [H, W, 3]
             # positions = positions.reshape(-1, 3)  # [N, 3]
-            directions = camera_ray_bundle.directions  # [H, W, 1, 3]
+            directions = camera_ray_bundle.directions  # [H, W, 3]
             # directions = directions.reshape(-1, 3)  # [N, 3]
             # accumulations = outputs["accumulation"].reshape(-1, 1).squeeze()  # [N]
-            accumulations = outputs["accumulation"]  # [H, W, 1, 1]
+            accumulations = outputs["accumulation"]  # [H, W, 1]
             # termination_dist = outputs["p2p_dist"].reshape(-1, 1).squeeze()  # [N]
-            termination_dist = outputs["p2p_dist"]  # [H, W, 1, 1]
+            termination_dist = outputs["p2p_dist"]  # [H, W, 1]
             # normals = outputs["normal"].reshape(-1, 3).squeeze()  # [N, 3]
             normals = outputs["normal"]  # [H, W, 1, 3]
             mask = (accumulations > self.accumulation_mask_threshold).float()
             # pixel_area = camera_ray_bundle.pixel_area.reshape(-1, 1).squeeze()  # [N]
-            pixel_area = camera_ray_bundle.pixel_area  # [H, W, 1, 1]
+            pixel_area = camera_ray_bundle.pixel_area  # [H, W, 1]
             metadata = camera_ray_bundle.metadata
             # metadata["directions_norm"] = metadata["directions_norm"].reshape(-1, 1).squeeze()  # [N]
 

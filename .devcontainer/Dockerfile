@@ -1,4 +1,4 @@
-FROM dromni/nerfstudio:0.2.1
+FROM dromni/nerfstudio:0.3.0
 
 USER root
 
@@ -15,7 +15,7 @@ RUN mkdir -p /home/user/.ssh && \
 # remove nerfstudio from /home/user/nerfstudio
 RUN rm -rf /home/user/nerfstudio
 
-USER 1000
+USER user
 
 # update pip 
 RUN pip install -U pylint
@@ -24,3 +24,17 @@ RUN pip install -U yacs
 RUN pip install -U icosphere
 RUN pip install -U tqdm
 RUN pip install -U wget
+RUN pip install -U trimesh
+RUN pip install -U ipykernel
+RUN pip install -U jupyterlab
+RUN pip install -U ipywidgets
+RUN pip install -U torch-tb-profiler
+RUN pip install -U pytest
+RUN pip install -U pip-system-certs
+RUN pip install -U wandb --upgrade
+RUN pip install -U open_clip_torch
+RUN pip install -U timm
+RUN pip install -U ftfy
+RUN pip install -U regex
+RUN pip install -U clip@git+https://github.com/openai/CLIP.git
+RUN pip install -U --upgrade jupyter-server

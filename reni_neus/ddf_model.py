@@ -45,6 +45,7 @@ from nerfstudio.model_components.renderers import (
 from nerfstudio.models.base_model import Model, ModelConfig
 from nerfstudio.utils import colormaps, colors, misc
 from nerfstudio.model_components.scene_colliders import SphereCollider
+from nerfstudio.viewer.server.viewer_elements import ViewerControl, ViewerButton
 
 from reni_neus.fields.directional_distance_field import DirectionalDistanceField, DirectionalDistanceFieldConfig
 from reni_neus.utils.utils import random_points_on_unit_sphere, random_inward_facing_directions
@@ -64,6 +65,7 @@ class DDFModelConfig(ModelConfig):
     """DDF field configuration"""
 
 
+
 class DDFModel(Model):
     """Directional Distance Field model
 
@@ -76,6 +78,12 @@ class DDFModel(Model):
     def __init__(self, config: DDFModelConfig, reni_neus, **kwargs) -> None:
         super().__init__(config=config, **kwargs)
         self.reni_neus = reni_neus
+        # self.viewer_control = ViewerControl()  # no arguments
+
+        #   def set_cam_btn_cb(button):
+        #     pass
+        
+        # self.viewer_button = ViewerButton(name="Camera on Sphere",cb_hook=set_cam_btn_cb)
 
     def populate_modules(self):
         """Set the fields and modules"""
@@ -108,9 +116,9 @@ class DDFModel(Model):
         if self.field is None:
             raise ValueError("populate_fields() must be called before get_outputs")
 
-        # get H, W from ray_bundle if it's shape is (H, W, 1, 3) and not (N, 3)
+        # get H, W from ray_bundle if it's shape is (H, W, 3) and not (N, 3)
         H, W = None, None
-        if len(ray_bundle.origins.shape) == 4:
+        if len(ray_bundle.origins.shape) in [3, 4]:
             H, W = ray_bundle.origins.shape[:2]
 
         ray_samples = RaySamples(
@@ -126,7 +134,7 @@ class DDFModel(Model):
         field_outputs = self.field.forward(ray_samples)
         expected_termination_dist = field_outputs[RENINeuSFieldHeadNames.TERMINATION_DISTANCE]
 
-        # get sdf at expected termination distance
+        # get sdf at expected termination distance for loss
         termination_points = (
             ray_samples.frustums.origins + ray_samples.frustums.directions * expected_termination_dist.unsqueeze(-1)
         )
