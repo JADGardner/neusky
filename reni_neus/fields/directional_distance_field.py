@@ -24,6 +24,8 @@ import torch
 from torchtyping import TensorType
 from typing_extensions import Literal
 
+import numpy as np
+
 from nerfstudio.cameras.rays import RaySamples
 from nerfstudio.field_components.encodings import NeRFEncoding, SHEncoding
 from nerfstudio.field_components.field_heads import FieldHeadNames
@@ -75,9 +77,11 @@ class DirectionalDistanceField(Field):
     def __init__(
         self,
         config: DirectionalDistanceFieldConfig,
+        ddf_radius: float = 1.0,
     ) -> None:
         super().__init__()
         self.config = config
+        self.ddf_radius = ddf_radius
 
         encoding_dim = self._setup_encoding()
 
@@ -117,8 +121,37 @@ class DirectionalDistanceField(Field):
         position_encoding_type = self.config.position_encoding_type
         direction_encoding_type = self.config.direction_encoding_type
 
-        if position_encoding_type == "hash" or direction_encoding_type == "hash":
-            raise NotImplementedError
+        if position_encoding_type == "hash":
+            num_levels: int = 16
+            base_res: int = 16
+            features_per_level: int = 2
+            log2_hashmap_size: int = 19
+            max_res: int = 2048
+            growth_factor = np.exp((np.log(max_res) - np.log(base_res)) / (num_levels - 1))
+            self.position_encoding = tcnn.Encoding(n_input_dims=3, 
+                                                   encoding_config={"otype": "HashGrid",
+                                                                    "n_levels": num_levels,
+                                                                    "n_features_per_level": features_per_level,
+                                                                    "log2_hashmap_size": log2_hashmap_size,
+                                                                    "base_resolution": base_res,
+                                                                    "per_level_scale": growth_factor}
+            )
+
+        if direction_encoding_type == "hash":
+            num_levels: int = 16
+            base_res: int = 16
+            features_per_level: int = 2
+            log2_hashmap_size: int = 19
+            max_res: int = 2048
+            growth_factor = np.exp((np.log(max_res) - np.log(base_res)) / (num_levels - 1))
+            self.direction_encoding = tcnn.Encoding(n_input_dims=3, 
+                                                   encoding_config={"otype": "HashGrid",
+                                                                    "n_levels": num_levels,
+                                                                    "n_features_per_level": features_per_level,
+                                                                    "log2_hashmap_size": log2_hashmap_size,
+                                                                    "base_resolution": base_res,
+                                                                    "per_level_scale": growth_factor}
+            )
 
         if position_encoding_type == "nerf":
             self.position_encoding = NeRFEncoding(
@@ -163,6 +196,7 @@ class DirectionalDistanceField(Field):
         origins = ray_samples.frustums.origins
         directions = ray_samples.frustums.directions
 
+        # TODO I think SH would need to be scaled between 0 and 1
         if self.position_encoding is not None:
             origins = torch.cat([origins, self.position_encoding(origins)], dim=-1)
 
@@ -174,6 +208,8 @@ class DirectionalDistanceField(Field):
         output = self.ddf(inputs)
 
         expected_termination_dist = self.termination_output_activation(output[..., 0])
+
+        expected_termination_dist = expected_termination_dist * (2 * self.ddf_radius)
 
         outputs.update({RENINeuSFieldHeadNames.TERMINATION_DISTANCE: expected_termination_dist})
 

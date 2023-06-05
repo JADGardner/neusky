@@ -43,6 +43,7 @@ from reni_neus.model_components.renderers import RGBLambertianRendererWithVisibi
 from reni_neus.model_components.illumination_samplers import IlluminationSamplerConfig
 from reni_neus.utils.utils import RENITestLossMask, get_directions
 from reni_neus.reni_neus_fieldheadnames import RENINeuSFieldHeadNames
+from reni_neus.ddf_model import DDFModelConfig
 from nerfstudio.model_components.ray_samplers import VolumetricSampler
 
 CONSOLE = Console(width=120)

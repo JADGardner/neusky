@@ -134,11 +134,10 @@ DirectionalDistanceField = MethodSpecification(
         mixed_precision=False,
         pipeline=DDFPipelineConfig(
             datamanager=DDFDataManagerConfig(
-                train_num_rays_per_batch=256,
-                eval_num_rays_per_batch=256,
+                train_num_rays_per_batch=1024,
+                eval_num_rays_per_batch=1024,
                 num_test_images_to_generate=1,
                 test_image_cache_dir=Path("/workspace/outputs/ddf/cache/"),
-                ddf_radius="AABB",
                 accumulation_mask_threshold=0.7,
                 train_data="rand_pnts_on_sphere", # "rand_pnts_on_sphere, single_camera"
             ),
@@ -153,9 +152,14 @@ DirectionalDistanceField = MethodSpecification(
                     hidden_features=256,
                     predict_probability_of_hit=False,
                 ),
+                sdf_loss_mult=0.5,
+                depth_loss_mult=3.0,
+                prob_hit_loss_mult=0.0,
+                normal_loss_mult=1.0,
             ),
             reni_neus_ckpt_path=Path("/workspace/outputs/unnamed/reni-neus/2023-05-23_191641"),
             reni_neus_ckpt_step=70000,
+            ddf_radius="AABB",
         ),
         optimizers={
             "fields": {

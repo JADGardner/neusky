@@ -20,7 +20,7 @@ from __future__ import annotations
 import typing
 from dataclasses import dataclass, field
 from time import time
-from typing import Optional, Type
+from typing import Optional, Type, Union
 import yaml
 from pathlib import Path
 
@@ -69,6 +69,8 @@ class DDFPipelineConfig(VanillaPipelineConfig):
     """Path to reni_neus checkpoint"""
     reni_neus_ckpt_step: int = 10000
     """Step of reni_neus checkpoint"""
+    ddf_radius: Union[Literal["AABB"], float] = "AABB"
+    """Radius of the DDF sphere"""
 
 
 class DDFPipeline(VanillaPipeline):
@@ -103,8 +105,13 @@ class DDFPipeline(VanillaPipeline):
 
         scene_box = self._setup_reni(device)
 
+        if self.config.ddf_radius == "AABB":
+            self.ddf_radius = torch.abs(scene_box.aabb[0, 0]).item()
+        else:
+            self.ddf_radius = self.config.ddf_radius
+
         self.datamanager: DDFDataManager = config.datamanager.setup(
-            device=device, test_mode=test_mode, world_size=world_size, local_rank=local_rank, reni_neus=self.reni_neus, reni_neus_ckpt_path=self.config.reni_neus_ckpt_path, scene_box=scene_box
+            device=device, test_mode=test_mode, world_size=world_size, local_rank=local_rank, reni_neus=self.reni_neus, reni_neus_ckpt_path=self.config.reni_neus_ckpt_path, scene_box=scene_box, ddf_radius=self.ddf_radius
         )
         self.datamanager.to(device)
         assert self.datamanager.train_dataset is not None, "Missing input dataset"
@@ -116,6 +123,7 @@ class DDFPipeline(VanillaPipeline):
             scene_box=scene_box,
             metadata=self.datamanager.train_dataset.metadata,
             reni_neus=self.reni_neus,
+            ddf_radius=self.ddf_radius,
             num_train_data=-1,
         )
         self.model.to(device)

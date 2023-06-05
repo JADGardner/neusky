@@ -65,7 +65,7 @@ class DDFDataset(Dataset):
         num_generated_imgs: int = 10,
         cache_dir: Path = Path("path_to_img_cache"),
         num_rays_per_batch: int = 1024,
-        ddf_sphere_radius: Union[Literal["AABB"], float] = "AABB",
+        ddf_sphere_radius: float = 1.0,
         accumulation_mask_threshold: float = 0.7,
         device: Union[torch.device, str] = "cpu",
     ):
@@ -215,7 +215,7 @@ class DDFDataset(Dataset):
         positions = random_points_on_unit_sphere(1, cartesian=True)  # (1, 3)
         directions = random_inward_facing_directions(num_samples, normals=-positions)  # (1, num_directions, 3)
 
-        positions = positions * self.ddf_sphere_radius.type_as(positions)
+        positions = positions * self.ddf_sphere_radius
 
         pos_ray = positions.repeat(num_samples, 1).to(self.device)
         dir_ray = directions.reshape(-1, 3).to(self.device)

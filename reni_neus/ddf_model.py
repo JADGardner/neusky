@@ -27,6 +27,7 @@ from collections import defaultdict
 
 import torch
 from torch.nn import Parameter
+from torch import nn
 from torchmetrics import PeakSignalNoiseRatio
 from torchmetrics.functional import structural_similarity_index_measure
 from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
@@ -72,7 +73,6 @@ class DDFModelConfig(ModelConfig):
     normal_loss_mult: float = 1.0
     """Multiplier for the normal loss"""
 
-
 class DDFModel(Model):
     """Directional Distance Field model
 
@@ -82,7 +82,8 @@ class DDFModel(Model):
 
     config: DDFModelConfig
 
-    def __init__(self, config: DDFModelConfig, reni_neus, **kwargs) -> None:
+    def __init__(self, config: DDFModelConfig, reni_neus, ddf_radius, **kwargs) -> None:
+        self.ddf_radius = ddf_radius
         super().__init__(config=config, **kwargs)
         self.reni_neus = reni_neus
         self.viewer_control = ViewerControl()  # no arguments
@@ -97,9 +98,9 @@ class DDFModel(Model):
     def populate_modules(self):
         """Set the fields and modules"""
 
-        self.collider = SphereCollider(center=torch.tensor([0.0, 0.0, 0.0]), radius=1.0)
+        self.collider = SphereCollider(center=torch.tensor([0.0, 0.0, 0.0]), radius=self.ddf_radius)
 
-        self.field = self.config.ddf_field.setup()
+        self.field = self.config.ddf_field.setup(ddf_radius=self.ddf_radius)
 
         # renderers
         self.renderer_rgb = RGBRenderer(background_color=colors.WHITE)
@@ -109,6 +110,7 @@ class DDFModel(Model):
         # losses
         self.sdf_loss = MSELoss()
         self.depth_loss = MSELoss()
+        self.normal_loss = nn.CosineSimilarity(dim=1, eps=1e-6)
 
         # metrics
         self.psnr = PeakSignalNoiseRatio(data_range=1.0)
@@ -158,6 +160,19 @@ class DDFModel(Model):
         if RENINeuSFieldHeadNames.PROBABILITY_OF_HIT in field_outputs:
             outputs["expected_probability_of_hit"] = field_outputs[RENINeuSFieldHeadNames.PROBABILITY_OF_HIT]
 
+        # # Compute the gradient of depth with respect to position
+        # grad_expected_term = torch.autograd.grad(expected_termination_dist.sum(), ray_samples.frustums.origins, create_graph=True)[0]
+        
+        # # Normalize the gradient to obtain the predicted normal
+        # n_hat_unnormalized = grad_expected_term.t()
+        # n_hat = n_hat_unnormalized / torch.norm(n_hat_unnormalized, dim=-1, keepdim=True)
+        
+        # # Choose the sign of n_hat such that n_hat^T * direction < 0
+        # varsigma = torch.sign(-torch.sum(n_hat * ray_samples.frustums.directions, dim=-1, keepdim=True))
+        # n_hat = varsigma * n_hat
+
+        # outputs["predicted_normal"] = n_hat
+
         for key, value in outputs.items():
             if H is not None and W is not None:
                 outputs[key] = value.reshape(H, W, 1, -1)
@@ -168,6 +183,8 @@ class DDFModel(Model):
         
         # the sdf value at the predicted termination distance
         # should be zero
+        loss_dict = {}
+
         sdf_loss = self.sdf_loss(
             outputs["sdf_at_termination"] * batch["mask"],
             torch.zeros_like(outputs["sdf_at_termination"]) * batch["mask"],
@@ -179,8 +196,15 @@ class DDFModel(Model):
             batch["termination_dist"] * batch["mask"],
         )
 
-        loss_dict = {"sdf_loss": sdf_loss * self.config.sdf_loss_mult, 
-                     "depth_loss": depth_loss * self.config.depth_loss_mult}
+        loss_dict["sdf_loss"] = sdf_loss * self.config.sdf_loss_mult
+        loss_dict["depth_loss"] = depth_loss * self.config.depth_loss_mult
+        
+        if 'predicted_normal' in outputs:
+            normal_loss = self.normal_loss(
+                outputs["predicted_normal"] * batch["mask"],
+                batch["normal"] * batch["mask"],
+            )
+            loss_dict["normal_loss"] = normal_loss * self.config.normal_loss_mult
         
         return loss_dict
 

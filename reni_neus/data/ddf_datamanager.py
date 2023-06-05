@@ -71,8 +71,6 @@ class DDFDataManagerConfig(DataManagerConfig):
     """Number of test images to generate"""
     test_image_cache_dir: Path = Path("test_images")
     """Directory to cache test images"""
-    ddf_radius: Union[Literal["AABB"], float] = "AABB"
-    """Radius of the DDF sphere"""
     accumulation_mask_threshold: float = 0.7
     """Threshold for accumulation mask"""
     train_data: Literal["rand_pnts_on_sphere", "single_camera"] = "rand_pnts_on_sphere"
@@ -102,6 +100,7 @@ class DDFDataManager(DataManager):  # pylint: disable=abstract-method
         reni_neus: RENINeuSFactoModel,
         reni_neus_ckpt_path: Path,
         scene_box,
+        ddf_radius: float,
         device: Union[torch.device, str] = "cpu",
         test_mode: Literal["test", "val", "inference"] = "val",
         world_size: int = 1,
@@ -120,11 +119,7 @@ class DDFDataManager(DataManager):  # pylint: disable=abstract-method
         self.reni_neus = reni_neus
         self.reni_neus_ckpt_path = reni_neus_ckpt_path
         self.scene_box = scene_box
-
-        if self.config.ddf_radius == "AABB":
-            self.ddf_radius = torch.abs(scene_box.aabb[0])
-        else:
-            self.ddf_radius = self.config.ddf_radius
+        self.ddf_radius = ddf_radius
         
         self.train_dataset = self.create_train_dataset()
         self.eval_dataset = self.create_eval_dataset()
