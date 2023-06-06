@@ -23,6 +23,7 @@ from typing import Dict, Tuple, Type
 import torch
 from torchtyping import TensorType
 from typing_extensions import Literal
+import torch.nn.functional as F
 
 import numpy as np
 
@@ -31,7 +32,7 @@ from nerfstudio.field_components.encodings import NeRFEncoding, SHEncoding
 from nerfstudio.field_components.field_heads import FieldHeadNames
 from nerfstudio.fields.base_field import Field, FieldConfig
 
-from reni_neus.utils.siren import Siren
+from reni_neus.utils.siren import Siren, DDFFiLMSiren
 from reni_neus.reni_neus_fieldheadnames import RENINeuSFieldHeadNames
 
 try:
@@ -50,7 +51,7 @@ class DirectionalDistanceFieldConfig(FieldConfig):
     """Type of encoding to use for position"""
     direction_encoding_type: Literal["hash", "nerf", "sh", "none"] = "none"
     """Type of encoding to use for direction"""
-    network_type: Literal["fused_mlp", "siren"] = "siren"
+    network_type: Literal["fused_mlp", "siren", "film_siren"] = "siren"
     """Type of network to use"""
     termination_output_activation: Literal["sigmoid", "tanh", "relu"] = "sigmoid"
     """Activation function for termination network"""
@@ -62,6 +63,14 @@ class DirectionalDistanceFieldConfig(FieldConfig):
     """Number of features for ddf network"""
     predict_probability_of_hit: bool = False
     """Whether to predict probability of hit"""
+    ddf_type: Literal["ddf", "pddf"] = "ddf"
+    """Type of ddf to use, ddf or probibalisitic ddf"""
+    num_dirac_components: int = 2
+    """Dirac delta functions num K components"""
+    eta_T: float = 1.0
+    """The temperature parameter."""
+    epsilon_s: float = 1e-5
+    """The maximum inverse depth scale."""
 
 
 class DirectionalDistanceField(Field):
@@ -85,20 +94,35 @@ class DirectionalDistanceField(Field):
 
         encoding_dim = self._setup_encoding()
 
+        self.num_depth_components = self.config.num_dirac_components
+        self.num_weight_components = self.config.num_dirac_components - 1
+        depth_out_features = 1 if self.config.ddf_type == "ddf" else self.num_depth_components + self.num_weight_components
+        out_features = depth_out_features + 1 if self.config.predict_probability_of_hit else depth_out_features
+
         if self.config.network_type == "siren":
             self.ddf = Siren(
                 in_features=6 + encoding_dim,
                 hidden_features=self.config.hidden_features,
                 hidden_layers=self.config.hidden_layers,
-                out_features=1 if not self.config.predict_probability_of_hit else 2,
+                out_features=out_features,
                 outermost_linear=True,
                 first_omega_0=30,
                 hidden_omega_0=30,
             )
+        elif self.config.network_type == "film_siren":
+            self.ddf = DDFFiLMSiren(
+              input_dim=3 + encoding_dim,
+              mapping_network_input_dim=3 + encoding_dim,
+              siren_hidden_features=self.config.hidden_features,
+              siren_hidden_layers=self.config.hidden_layers,
+              mapping_network_features=self.config.hidden_features,
+              mapping_network_layers=self.config.hidden_layers,
+              out_features=out_features
+            )
         elif self.config.network_type == "fused_mlp":
             self.ddf = tcnn.Network(
                 n_input_dims=6 + encoding_dim,
-                n_output_dims=1 if not self.config.predict_probability_of_hit else 2,
+                n_output_dims=out_features,
                 network_config={
                     "otype": "FullyFusedMLP",
                     "activation": "ReLU",
@@ -128,7 +152,7 @@ class DirectionalDistanceField(Field):
             log2_hashmap_size: int = 19
             max_res: int = 2048
             growth_factor = np.exp((np.log(max_res) - np.log(base_res)) / (num_levels - 1))
-            self.position_encoding = tcnn.Encoding(n_input_dims=3, 
+            self.position_encoding = tcnn.Encoding(n_input_dims=3,
                                                    encoding_config={"otype": "HashGrid",
                                                                     "n_levels": num_levels,
                                                                     "n_features_per_level": features_per_level,
@@ -207,14 +231,31 @@ class DirectionalDistanceField(Field):
 
         output = self.ddf(inputs)
 
-        expected_termination_dist = self.termination_output_activation(output[..., 0])
+        if self.config.ddf_type == "pddf":
+            expected_termination_distances = self.termination_output_activation(output[..., :self.num_depth_components])
+            expected_termination_distances = self.termination_output_activation(expected_termination_distances)
+            
+            expected_termination_weights = output[..., self.num_depth_components:self.num_depth_components+self.num_weight_components]
+            weights = torch.cat([expected_termination_weights, 1 - expected_termination_weights], dim=-1)
+            
+            # Apply the visibility and depth adjustment to the logits
+            adjusted_logits = self.config.eta_T * weights / (self.config.epsilon_s + expected_termination_distances)
 
-        expected_termination_dist = expected_termination_dist * (2 * self.ddf_radius)
+            # Compute softmax to get the final weights
+            a = F.softmax(adjusted_logits, dim=1)
+            
+            # Compute the weighted sum of the potential depths
+            expected_termination_dist = torch.sum(a * expected_termination_distances, dim=1, keepdim=True)
+    
+        else:
+            expected_termination_dist = self.termination_output_activation(output[..., 0])
+
+            expected_termination_dist = expected_termination_dist * (2 * self.ddf_radius)
 
         outputs.update({RENINeuSFieldHeadNames.TERMINATION_DISTANCE: expected_termination_dist})
 
         if self.config.predict_probability_of_hit:
-            probability_of_hit = self.probability_of_hit_output_activation(output[..., 1])
+            probability_of_hit = self.probability_of_hit_output_activation(output[..., -1])
             outputs.update({RENINeuSFieldHeadNames.PROBABILITY_OF_HIT: probability_of_hit})
 
         return outputs

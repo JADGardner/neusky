@@ -83,6 +83,8 @@ class RENINeuSFactoWithVisibilityModelConfig(RENINeuSFactoModelConfig):
     """Visibility field"""
     ddf_radius: Union[Literal["AABB"], float] = "AABB"
     """Radius of the DDF sphere"""
+    learnable_visibility_threshold: bool = False
+    """Learnable visibility threshold"""
 
 
 class RENINeuSFactoWithVisibilityModel(RENINeuSFactoModel):
@@ -111,7 +113,7 @@ class RENINeuSFactoWithVisibilityModel(RENINeuSFactoModel):
         self.num_test_data = num_test_data
         self.test_mode = test_mode
         self.fitting_eval_latents = False
-        super().__init__(config, scene_box, num_train_data, **kwargs)
+        super().__init__(config=config, scene_box=scene_box, num_train_data=num_train_data, num_val_data=num_val_data, num_test_data=num_test_data, test_mode=test_mode, **kwargs)
 
     def populate_modules(self):
         """Instantiate modules and fields, including proposal networks."""
@@ -122,13 +124,16 @@ class RENINeuSFactoWithVisibilityModel(RENINeuSFactoModel):
         else:
             self.ddf_radius = self.config.ddf_radius
 
-        self.visibility_field = self.config.visibility_field.setup(reni_neus=self, ddf_radius=self.ddf_radius)
+        self.visibility_field = self.config.visibility_field.setup(scene_box=self.scene_box, num_train_data=self.num_train_data, ddf_radius=self.ddf_radius)
+
+        # if self.config.learnable_visibility_threshold:
+        #     self.visibility_threshold = Parameter(torch.tensor(1.0))
 
     def ray_sphere_intersection(self, positions, directions, radius):
         """Ray sphere intersection"""
         # ray-sphere intersection
         # positions is the origins of the rays
-        # directions is the directions of the rays
+        # directions is the directions of the rays [numbe]
         # radius is the radius of the sphere
 
         sphere_origin = torch.zeros_like(positions)
@@ -155,7 +160,7 @@ class RENINeuSFactoWithVisibilityModel(RENINeuSFactoModel):
         """Compute visibility"""
         # ddf_model directional distance field model
         # positions is the origins of the rays from the surface of the object
-        # directions is the directions of the rays from the surface of the object
+        # directions is the directions of the rays from the surface of the object # [98304, 1212, 3] -> [number_of_rays * samples_per_ray, number_of_light_directions, xyz]
         # sphere_intersection_points is the point on the sphere that we intersected
         
         # shortcuts
@@ -182,26 +187,20 @@ class RENINeuSFactoWithVisibilityModel(RENINeuSFactoModel):
         positions = positions.reshape(-1, 3)  # [num_rays * num_light_directions, 3]
         directions = directions.reshape(-1, 3)  # [num_rays * num_light_directions, 3]
 
-        positions = ray_samples.frustums.origins # [N, 3]
-
         sphere_intersection_points = self.ray_sphere_intersection(positions, directions, self.ddf_radius) # [num_rays * num_light_directions, 3]
-        
-        # we need directions from intersection points to ray origins
-        directions = -directions 
 
-        # build a ray_sample object to pass to the visibility_field
-        ray_samples = RaySamples(
-            frustums=Frustums(
-                origins=positions,
-                directions=directions,
-                starts=ray_samples.frustums.starts,
-                ends=ray_samples.frustums.ends,
-                pixel_area=ray_samples.frustums.pixel_area,
-            ),
+        # we need directions from intersection points to ray origins
+        directions = -directions
+
+        # build a ray_bundle object to pass to the visibility_field
+        visibility_ray_bundle = RayBundle(
+            origins=positions,
+            directions=directions,
+            pixel_area=torch.ones_like(positions[..., 0]),
         )
 
         # Get output of visibility field (DDF)
-        outputs = self.visibility_field(ray_samples) # [N, 2]
+        outputs = self.visibility_field(visibility_ray_bundle, reni_neus=self) # [N, 2]
 
         # the distance from the point on the sphere to the point on the SDF
         dist_to_ray_origins = torch.norm(positions - sphere_intersection_points, dim=-1) # [N]
@@ -213,7 +212,7 @@ class RENINeuSFactoWithVisibilityModel(RENINeuSFactoModel):
         # if the difference is positive then the expected termination distance
         # is greater than the distance from the point on the sphere to the point on the SDF
         # so the point on the sphere is visible to it
-        visibility = (difference > 0).float()
+        visibility = (difference > 0).float() # TODO make soft for training???
 
         visibility_dict = {
             "visibility": visibility,
@@ -286,7 +285,9 @@ class RENINeuSFactoWithVisibilityModel(RENINeuSFactoModel):
             visibility_dict = self.compute_visibility(ray_samples=ray_samples,
                                                       p2p_dist=p2p_dist,
                                                       illumination_directions=illumination_directions,
-                                                      threshold_distance=0.5)
+                                                      threshold_distance=0.1)
+            
+            expected_termination_dist = visibility_dict["expected_termination_dist"]
 
             rgb = self.lambertian_renderer(
                 albedos=field_outputs[RENINeuSFieldHeadNames.ALBEDO],
@@ -307,6 +308,7 @@ class RENINeuSFactoWithVisibilityModel(RENINeuSFactoModel):
             depth = torch.zeros_like(albedo)[..., 0]
             normal = torch.zeros_like(albedo)
             accumulation = torch.zeros_like(albedo)[..., 0]
+            expected_termination_dist = torch.zeros_like(albedo)[..., 0]
 
         samples_and_field_outputs["rgb"] = rgb
         samples_and_field_outputs["accumulation"] = accumulation
@@ -314,6 +316,7 @@ class RENINeuSFactoWithVisibilityModel(RENINeuSFactoModel):
         samples_and_field_outputs["normal"] = normal
         samples_and_field_outputs["albedo"] = albedo
         samples_and_field_outputs["p2p_dist"] = p2p_dist
+        samples_and_field_outputs["expected_termination_dist"] = expected_termination_dist
 
         return samples_and_field_outputs
 

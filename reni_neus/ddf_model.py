@@ -52,7 +52,6 @@ from reni_neus.fields.directional_distance_field import DirectionalDistanceField
 from reni_neus.utils.utils import random_points_on_unit_sphere, random_inward_facing_directions
 from reni_neus.model_components.ddf_sdf_sampler import DDFSDFSampler
 from reni_neus.reni_neus_fieldheadnames import RENINeuSFieldHeadNames
-from reni_neus.reni_neus_model import RENINeuSFactoModel
 
 CONSOLE = Console(width=120)
 
@@ -82,10 +81,9 @@ class DDFModel(Model):
 
     config: DDFModelConfig
 
-    def __init__(self, config: DDFModelConfig, reni_neus, ddf_radius, **kwargs) -> None:
+    def __init__(self, config: DDFModelConfig, ddf_radius, **kwargs) -> None:
         self.ddf_radius = ddf_radius
         super().__init__(config=config, **kwargs)
-        self.reni_neus = reni_neus
         self.viewer_control = ViewerControl()  # no arguments
 
         def on_sphere_look_at_origin(button):
@@ -99,6 +97,7 @@ class DDFModel(Model):
         """Set the fields and modules"""
 
         self.collider = SphereCollider(center=torch.tensor([0.0, 0.0, 0.0]), radius=self.ddf_radius)
+        # self.collider = None
 
         self.field = self.config.ddf_field.setup(ddf_radius=self.ddf_radius)
 
@@ -124,7 +123,7 @@ class DDFModel(Model):
         param_groups["fields"] = list(self.field.parameters())
         return param_groups
 
-    def get_outputs(self, ray_bundle: RayBundle):
+    def get_outputs(self, ray_bundle: RayBundle, reni_neus):
         if self.field is None:
             raise ValueError("populate_fields() must be called before get_outputs")
 
@@ -150,7 +149,7 @@ class DDFModel(Model):
         termination_points = (
             ray_samples.frustums.origins + ray_samples.frustums.directions * expected_termination_dist.unsqueeze(-1)
         )
-        sdf_at_termination = self.reni_neus.field.get_sdf_at_pos(termination_points)
+        sdf_at_termination = reni_neus.field.get_sdf_at_pos(termination_points)
 
         outputs = {
             "sdf_at_termination": sdf_at_termination,
@@ -178,6 +177,19 @@ class DDFModel(Model):
                 outputs[key] = value.reshape(H, W, 1, -1)
 
         return outputs
+    
+    def forward(self, ray_bundle: RayBundle, reni_neus) -> Dict[str, torch.Tensor]:
+        """Run forward starting with a ray bundle. This outputs different things depending on the configuration
+        of the model and whether or not the batch is provided (whether or not we are training basically)
+
+        Args:
+            ray_bundle: containing all the information needed to render that ray latents included
+        """
+
+        if self.collider is not None:
+            ray_bundle = self.collider(ray_bundle)
+
+        return self.get_outputs(ray_bundle, reni_neus)
 
     def get_loss_dict(self, outputs, batch, metrics_dict=None):
         
@@ -210,7 +222,7 @@ class DDFModel(Model):
 
     @torch.no_grad()
     def get_outputs_for_camera_ray_bundle(
-        self, camera_ray_bundle: RayBundle, show_progress=True
+        self, camera_ray_bundle: RayBundle, reni_neus=None, show_progress=True
     ) -> Dict[str, torch.Tensor]:
         """Takes in camera parameters and computes the output of the model.
 
@@ -234,7 +246,7 @@ class DDFModel(Model):
                     start_idx = i
                     end_idx = i + num_rays_per_chunk
                     ray_bundle = camera_ray_bundle.get_row_major_sliced_ray_bundle(start_idx, end_idx)
-                    outputs = self.forward(ray_bundle=ray_bundle)
+                    outputs = self.forward(ray_bundle=ray_bundle, reni_neus=reni_neus)
                     for output_name, output in outputs.items():  # type: ignore
                         if not torch.is_tensor(output):
                             # TODO: handle lists of tensors as well
@@ -246,7 +258,7 @@ class DDFModel(Model):
                 start_idx = i
                 end_idx = i + num_rays_per_chunk
                 ray_bundle = camera_ray_bundle.get_row_major_sliced_ray_bundle(start_idx, end_idx)
-                outputs = self.forward(ray_bundle=ray_bundle)
+                outputs = self.forward(ray_bundle=ray_bundle, reni_neus=reni_neus)
                 for output_name, output in outputs.items():  # type: ignore
                     if not torch.is_tensor(output):
                         # TODO: handle lists of tensors as well

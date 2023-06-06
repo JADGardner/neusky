@@ -122,7 +122,6 @@ class DDFPipeline(VanillaPipeline):
         self._model = config.model.setup(
             scene_box=scene_box,
             metadata=self.datamanager.train_dataset.metadata,
-            reni_neus=self.reni_neus,
             ddf_radius=self.ddf_radius,
             num_train_data=-1,
         )
@@ -165,6 +164,35 @@ class DDFPipeline(VanillaPipeline):
         self.reni_neus.to(device)
 
         return scene_box
+    
+    @profiler.time_function
+    def get_train_loss_dict(self, step: int):
+        """This function gets your training loss dict. This will be responsible for
+        getting the next batch of data from the DataManager and interfacing with the
+        Model class, feeding the data to the model's forward function.
+
+        Args:
+            step: current iteration step to update sampler if using DDP (distributed)
+        """
+        ray_bundle, batch = self.datamanager.next_train(step)
+        model_outputs = self._model(ray_bundle, self.reni_neus)  # train distributed data parallel model if world_size > 1
+        metrics_dict = self.model.get_metrics_dict(model_outputs, batch)
+
+        if self.config.datamanager.camera_optimizer is not None:
+            camera_opt_param_group = self.config.datamanager.camera_optimizer.param_group
+            if camera_opt_param_group in self.datamanager.get_param_groups():
+                # Report the camera optimization metrics
+                metrics_dict["camera_opt_translation"] = (
+                    self.datamanager.get_param_groups()[camera_opt_param_group][0].data[:, :3].norm()
+                )
+                metrics_dict["camera_opt_rotation"] = (
+                    self.datamanager.get_param_groups()[camera_opt_param_group][0].data[:, 3:].norm()
+                )
+
+        loss_dict = self.model.get_loss_dict(model_outputs, batch, metrics_dict)
+
+        return model_outputs, loss_dict, metrics_dict
+
 
     @profiler.time_function
     def get_eval_loss_dict(self, step: int):
@@ -176,7 +204,7 @@ class DDFPipeline(VanillaPipeline):
         """
         self.eval()
         ray_bundle, batch = self.datamanager.next_eval(step)
-        model_outputs = self.model(ray_bundle)
+        model_outputs = self.model(ray_bundle, self.reni_neus)
         metrics_dict = self.model.get_metrics_dict(model_outputs, batch)
         loss_dict = self.model.get_loss_dict(model_outputs, batch, metrics_dict)
         self.train()
@@ -192,7 +220,7 @@ class DDFPipeline(VanillaPipeline):
         """
         self.eval()
         image_idx, camera_ray_bundle, batch = self.datamanager.next_eval_image(step)
-        outputs = self.model.get_outputs_for_camera_ray_bundle(camera_ray_bundle, show_progress=True)
+        outputs = self.model.get_outputs_for_camera_ray_bundle(camera_ray_bundle, self.reni_neus, show_progress=True)
         metrics_dict, images_dict = self.model.get_image_metrics_and_images(outputs, batch)
         assert "image_idx" not in metrics_dict
         metrics_dict["image_idx"] = image_idx
@@ -224,7 +252,7 @@ class DDFPipeline(VanillaPipeline):
                 inner_start = time()
                 height, width = camera_ray_bundle.shape
                 num_rays = height * width
-                outputs = self.model.get_outputs_for_camera_ray_bundle(camera_ray_bundle)
+                outputs = self.model.get_outputs_for_camera_ray_bundle(camera_ray_bundle, self.reni_neus)
                 metrics_dict, _ = self.model.get_image_metrics_and_images(outputs, batch)
                 assert "num_rays_per_sec" not in metrics_dict
                 metrics_dict["num_rays_per_sec"] = num_rays / (time() - inner_start)

@@ -451,7 +451,7 @@ class RENIVariationalAutoDecoder(nn.Module):
             Z = x
             x = invariant_representation(Z, directions, equivariance=self.equivariance, conditioning="Concat")
         return self.net(x)
-
+    
 
 def download_weights():
     """Downloads the weights for the RENI model"""
