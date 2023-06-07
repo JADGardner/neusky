@@ -268,7 +268,7 @@ class NeRFOSRCityScapes(DataParser):
                     idx=i,
                     semantics=semantics,
                     mask_classes=["road", "sidewalk"])
-                ground_mask = (~ground_mask).unsqueeze(-1).float()  # 1 is ground, 0 is not ground
+                ground_mask = (ground_mask).unsqueeze(-1).float()  # 1 is ground, 0 is not ground
 
                 masks.append(mask)
                 fg_masks.append(fg_mask)
