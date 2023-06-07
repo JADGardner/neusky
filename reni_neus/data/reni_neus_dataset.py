@@ -95,6 +95,7 @@ class RENINeuSDataset(InputDataset):
 
         metadata["mask"] = self.metadata["mask"][data["image_idx"]] if "mask" in self.metadata else None
         metadata["fg_mask"] = self.metadata["fg_mask"][data["image_idx"]] if "fg_mask" in self.metadata else None
+        metadata["ground_mask"] = self.metadata["ground_mask"][data["image_idx"]] if "ground_mask" in self.metadata else None
 
         return metadata
 

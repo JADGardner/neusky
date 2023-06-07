@@ -21,6 +21,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Type, Union
+import copy
 
 import torch
 from rich.progress import Console
@@ -121,11 +122,16 @@ class DDFDataManager(DataManager):  # pylint: disable=abstract-method
         self.scene_box = scene_box
         self.ddf_radius = ddf_radius
         
+
+
         self.train_dataset = self.create_train_dataset()
         self.eval_dataset = self.create_eval_dataset()
 
         # not used just to get rid of error
         self.train_dataparser_outputs = self.eval_dataset.old_datamanager.train_dataparser_outputs
+        # self.train_dataparser_outputs = copy.deepcopy(self.eval_dataset.old_datamanager.train_dataparser_outputs)
+
+        # del self.eval_dataset.old_datamanager
 
     def create_train_dataset(self) -> DDFDataset:
         # This is used for fitting to a single image for debugging

@@ -243,13 +243,10 @@ class DirectionalDistanceField(Field):
 
             # Compute the weighted sum of the potential depths
             expected_termination_dist = torch.sum(F.softmax(adjusted_logits, dim=1) * expected_termination_distances, dim=1, keepdim=True)
-            expected_termination_dist = expected_termination_dist * (2 * self.ddf_radius)
-
         else:
             expected_termination_dist = self.termination_output_activation(output[..., 0])
 
-            expected_termination_dist = expected_termination_dist * (2 * self.ddf_radius)
-
+        expected_termination_dist = expected_termination_dist * (2 * self.ddf_radius)
         outputs.update({RENINeuSFieldHeadNames.TERMINATION_DISTANCE: expected_termination_dist})
 
         if self.config.predict_probability_of_hit:

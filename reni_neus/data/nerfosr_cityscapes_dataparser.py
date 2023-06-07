@@ -248,6 +248,7 @@ class NeRFOSRCityScapes(DataParser):
             )
             masks = []
             fg_masks = []
+            ground_masks = []
             for i, _ in enumerate(segmentation_filenames):
                 # get mask for transients
                 mask = self.get_mask_from_semantics(
@@ -262,8 +263,16 @@ class NeRFOSRCityScapes(DataParser):
                 fg_mask = self.get_mask_from_semantics(idx=i, semantics=semantics, mask_classes=["sky"])
                 fg_mask = (~fg_mask).unsqueeze(-1).float()  # 1 is foreground, 0 is background
 
+                # get_ground_mask
+                ground_mask = self.get_mask_from_semantics(
+                    idx=i,
+                    semantics=semantics,
+                    mask_classes=["road", "sidewalk"])
+                ground_mask = (~ground_mask).unsqueeze(-1).float()  # 1 is ground, 0 is not ground
+
                 masks.append(mask)
                 fg_masks.append(fg_mask)
+                ground_masks.append(ground_mask)
 
         metadata = {
             "semantics": None,
@@ -273,6 +282,7 @@ class NeRFOSRCityScapes(DataParser):
             "c2w_colmap": None,
             "mask": masks,
             "fg_mask": fg_masks,
+            "ground_mask": ground_masks,
             "crop_to_equal_size": self.config.crop_to_equal_size,
             "min_wh": self.min_wh,
         }

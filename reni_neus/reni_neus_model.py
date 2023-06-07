@@ -29,7 +29,7 @@ import nerfacc
 import torch
 from torch.nn import Parameter
 
-from nerfstudio.cameras.rays import RayBundle
+from nerfstudio.cameras.rays import RayBundle, RaySamples, Frustums
 from nerfstudio.data.scene_box import SceneBox
 from nerfstudio.model_components.renderers import RGBRenderer
 from nerfstudio.field_components.field_heads import FieldHeadNames
@@ -37,6 +37,13 @@ from nerfstudio.field_components.field_heads import FieldHeadNames
 from nerfstudio.models.base_model import ModelConfig
 from nerfstudio.models.neus_facto import NeuSFactoModel, NeuSFactoModelConfig
 from nerfstudio.utils import colormaps
+
+from nerfstudio.model_components.losses import (
+    L1Loss,
+    MSELoss,
+    ScaleAndShiftInvariantLoss,
+    monosdf_normal_loss,
+)
 
 from reni_neus.illumination_fields.base_illumination_field import IlluminationFieldConfig
 from reni_neus.model_components.renderers import RGBLambertianRendererWithVisibility
@@ -74,8 +81,16 @@ class RENINeuSFactoModelConfig(NeuSFactoModelConfig):
     """Resolution of the occupancy grid"""
     occupancy_grid_levels: int = 4
     """Levels of the occupancy grid"""
+    include_hashgrid_density_loss: bool = False
+    """Include hashgrid density loss"""
     hashgrid_density_loss_weight: float = 0.0
     """Weight for the hashgrid density loss"""
+    hashgrid_density_loss_sample_resolution: int = 256
+    """Resolution of the hashgrid density loss"""
+    include_ground_plane_normal_alignment: bool = False
+    """Align the ground plane normal to the z-axis"""
+    ground_plane_normal_alignment_multi: float = 1.0
+    """Weight for the ground plane normal alignment loss"""
 
 
 class RENINeuSFactoModel(NeuSFactoModel):
@@ -138,6 +153,9 @@ class RENINeuSFactoModel(NeuSFactoModel):
             alpha=self.config.illumination_field_prior_loss_weight,
             beta=self.config.illumination_field_cosine_loss_weight,
         )
+
+        # l1 loss
+        self.grid_density_loss = torch.nn.L1Loss()
 
     def get_param_groups(self) -> Dict[str, List[Parameter]]:
         """Return a dictionary with the parameters of the proposal networks."""
@@ -206,14 +224,59 @@ class RENINeuSFactoModel(NeuSFactoModel):
             "background_colours": background_colours,
         }
 
-        if self.config.hashgrid_density_loss_weight > 0.0:
-            pass
-            # generate a set of uniform samples in the scene within the aabb of the scene
-            # and compute the density at those points
+        if self.config.include_hashgrid_density_loss and self.training:
+            # Get min and max coordinates
+            min_coord, max_coord = self.scene_box.aabb
+
+            # Create a linear space for each dimension
+            x = torch.linspace(min_coord[0], max_coord[0], self.config.hashgrid_density_loss_sample_resolution)
+            y = torch.linspace(min_coord[1], max_coord[1], self.config.hashgrid_density_loss_sample_resolution)
+            z = torch.linspace(min_coord[2], max_coord[2], self.config.hashgrid_density_loss_sample_resolution)
+
+            # Generate a 3D grid of points
+            X, Y, Z = torch.meshgrid(x, y, z)
+            positions = torch.stack((X, Y, Z), -1)  # size will be (resolution, resolution, resolution, 3)
+
+            # Flatten and reshape
+            positions = positions.reshape(-1, 3)
+
+            # Calculate gap
+            gap = torch.tensor([(max_coord[i] - min_coord[i]) / self.config.hashgrid_density_loss_sample_resolution for i in range(3)])
+
+            # Generate random perturbations
+            perturbations = torch.rand_like(positions) * gap - gap / 2
+
+            # Apply perturbations
+            positions += perturbations
+            
+            # generate random normalised directions of shape positions
+            # these are needed for 
+            directions = torch.randn_like(positions)
+            directions = directions / torch.norm(directions, dim=-1, keepdim=True)
+
+            # Create ray_samples
+            grid_samples = RaySamples(
+                frustums=Frustums(
+                origins=positions,
+                directions=directions,
+                starts=torch.zeros_like(positions),
+                ends=torch.zeros_like(positions),
+                pixel_area=torch.zeros_like(positions[:, 0]),
+              ),
+              deltas=gap,
+            )
+
+            grid_samples.frustums.origins = grid_samples.frustums.origins.to(self.device)
+            grid_samples.frustums.directions = grid_samples.frustums.directions.to(self.device)
+            grid_samples.frustums.starts = grid_samples.frustums.starts.to(self.device)
+            grid_samples.deltas = grid_samples.deltas.to(self.device)
+
+            # get density
+            density = self.field.get_alpha(grid_samples)
+
+            samples_and_field_outputs["grid_density"] = density
 
         albedo = self.albedo_renderer(rgb=field_outputs[RENINeuSFieldHeadNames.ALBEDO], weights=weights)
-
-        # TODO Add visibility here?
 
         if not self.config.render_only_albedo:
             rgb = self.lambertian_renderer(
@@ -281,7 +344,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
             "weights": weights,
             "background_colours": background_colours,
             # used to scale z_vals for free space and sdf loss
-            "directions_norm": ray_bundle.metadata["directions_norm"],
+            "directions_norm": ray_bundle.metadata["directions_norm"]
         }
 
         if self.training:
@@ -299,6 +362,10 @@ class RENINeuSFactoModel(NeuSFactoModel):
                 )
         # this is used only in viewer
         outputs["normal_vis"] = (outputs["normal"] + 1.0) / 2.0
+
+        if 'grid_density' in samples_and_field_outputs:
+            outputs['grid_density'] = samples_and_field_outputs['grid_density']
+
         return outputs
 
     def get_loss_dict(
@@ -319,6 +386,17 @@ class RENINeuSFactoModel(NeuSFactoModel):
                         Z=self.illumination_field_train.get_latents(),
                     )
                     * self.config.illumination_field_loss_weight
+                )
+
+            if 'grid_density' in outputs:
+                loss_dict['grid_density_loss'] = self.grid_density_loss(outputs['grid_density'], torch.zeros_like(outputs['grid_density'])) * self.config.hashgrid_density_loss_weight
+
+            if self.config.include_ground_plane_normal_alignment:
+                normal_pred = outputs["normal"]
+                # ground plane should be facing up in z direction
+                normal_gt = torch.tensor([0.0, 0.0, 1.0]).to(self.device).expand_as(normal_pred)
+                loss_dict["ground_plane_alignment_loss"] = (
+                    monosdf_normal_loss(normal_pred * batch["ground_mask"], normal_gt * batch["ground_mask"]) * self.config.ground_plane_normal_alignment_multi
                 )
 
         return loss_dict

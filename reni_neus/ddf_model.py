@@ -75,6 +75,8 @@ class DDFModelConfig(ModelConfig):
     """Multiplier for the probability of hit loss"""
     normal_loss_mult: float = 1.0
     """Multiplier for the normal loss"""
+    compute_normals: bool = False
+    """Whether to compute normals"""
 
 class DDFModel(Model):
     """Directional Distance Field model
@@ -146,40 +148,41 @@ class DDFModel(Model):
             ),
         )
 
-        ray_samples.frustums.origins.requires_grad = True
+        if self.config.compute_normals:
+            ray_samples.frustums.origins.requires_grad = True
 
-        with torch.enable_grad():
-            field_outputs = self.field.forward(ray_samples)
-            expected_termination_dist = field_outputs[RENINeuSFieldHeadNames.TERMINATION_DISTANCE]
+        field_outputs = self.field.forward(ray_samples)
+        expected_termination_dist = field_outputs[RENINeuSFieldHeadNames.TERMINATION_DISTANCE]
 
-            # get sdf at expected termination distance for loss
-            termination_points = (
-                ray_samples.frustums.origins + ray_samples.frustums.directions * expected_termination_dist.unsqueeze(-1)
-            )
-            sdf_at_termination = reni_neus.field.get_sdf_at_pos(termination_points)
+        # get sdf at expected termination distance for loss
+        termination_points = (
+            ray_samples.frustums.origins + ray_samples.frustums.directions * expected_termination_dist.unsqueeze(-1)
+        )
+        sdf_at_termination = reni_neus.field.get_sdf_at_pos(termination_points)
 
-            outputs = {
-                "sdf_at_termination": sdf_at_termination,
-                "expected_termination_dist": expected_termination_dist,
-            }
+        outputs = {
+            "sdf_at_termination": sdf_at_termination,
+            "expected_termination_dist": expected_termination_dist,
+        }
 
-            if RENINeuSFieldHeadNames.PROBABILITY_OF_HIT in field_outputs:
-                outputs["expected_probability_of_hit"] = field_outputs[RENINeuSFieldHeadNames.PROBABILITY_OF_HIT]
+        if RENINeuSFieldHeadNames.PROBABILITY_OF_HIT in field_outputs:
+            outputs["expected_probability_of_hit"] = field_outputs[RENINeuSFieldHeadNames.PROBABILITY_OF_HIT]
 
-            # Compute the gradient of the depths with respect to the ray origins
+        # # Compute the gradient of the depths with respect to the ray origins
+        if self.config.compute_normals:
             d_output = torch.ones_like(expected_termination_dist, requires_grad=False, device=expected_termination_dist.device)
             gradients = torch.autograd.grad(
                 outputs=expected_termination_dist, inputs=ray_samples.frustums.origins, grad_outputs=d_output, create_graph=True, retain_graph=True, only_inputs=True
             )[0]
 
-        # Normalize the gradient to obtain the predicted normal
-        n_hat = gradients / torch.norm(gradients, dim=-1, keepdim=True)
+            # Normalize the gradient to obtain the predicted normal
+            n_hat = gradients / torch.norm(gradients, dim=-1, keepdim=True)
 
-        # Choose the sign of n_hat such that n_hat * direction < 0
-        varsigma = torch.sign(-torch.sum(n_hat * ray_samples.frustums.directions, dim=-1, keepdim=True))
-        n_hat = varsigma * n_hat
+            # Choose the sign of n_hat such that n_hat * direction < 0
+            varsigma = torch.sign(-torch.sum(n_hat * ray_samples.frustums.directions, dim=-1, keepdim=True))
+            n_hat = varsigma * n_hat
 
-        outputs["predicted_normals"] = n_hat
+            outputs["predicted_normals"] = n_hat
 
         for key, value in outputs.items():
             if H is not None and W is not None:
@@ -213,7 +216,7 @@ class DDFModel(Model):
 
         # match the depth of the sdf model
         depth_loss = self.depth_loss(
-            outputs["expected_termination_dist"] * batch["mask"],
+            outputs["expected_termination_dist"].squeeze() * batch["mask"],
             batch["termination_dist"] * batch["mask"],
         )
 
@@ -255,7 +258,13 @@ class DDFModel(Model):
                     start_idx = i
                     end_idx = i + num_rays_per_chunk
                     ray_bundle = camera_ray_bundle.get_row_major_sliced_ray_bundle(start_idx, end_idx)
-                    outputs = self.forward(ray_bundle=ray_bundle, reni_neus=reni_neus)
+                    if self.compute_normals:
+                        with torch.enable_grad():
+                            outputs = self.forward(ray_bundle=ray_bundle, reni_neus=reni_neus)
+                    else:
+                        outputs = self.forward(ray_bundle=ray_bundle, reni_neus=reni_neus)
+                    # move to cpu
+                    outputs = {k: v.cpu() for k, v in outputs.items()}
                     for output_name, output in outputs.items():  # type: ignore
                         if not torch.is_tensor(output):
                             # TODO: handle lists of tensors as well
@@ -288,6 +297,10 @@ class DDFModel(Model):
         gt_termination_dist = batch["termination_dist"]
         expected_termination_dist = outputs["expected_termination_dist"]
 
+        # ensure gt is on the same device as the model
+        gt_accumulations = gt_accumulations.to(expected_termination_dist.device)
+        gt_termination_dist = gt_termination_dist.to(expected_termination_dist.device)
+
         gt_depth = colormaps.apply_depth_colormap(
             gt_termination_dist,
             accumulation=gt_accumulations,
@@ -309,14 +322,13 @@ class DDFModel(Model):
             expected_probability_of_hit = outputs["expected_probability_of_hit"]
 
         if 'predicted_normals' in outputs:
-            normal = outputs["predicted_normals"]
-            normal = (normal + 1.0) / 2.0
+            normals = outputs["predicted_normals"]
+            normals = (normals + 1.0) / 2.0
 
-            if "normal" in batch:
-                normal_gt = (batch["normals"].to(self.device) + 1.0) / 2.0
-                combined_normal = torch.cat([normal_gt, normal], dim=1)
-            else:
-                combined_normal = torch.cat([normal], dim=1)
+            gt_normal = batch["normals"].to(normals.device)
+            gt_normal = (gt_normal + 1.0) / 2.0
+
+            combined_normal = torch.cat([gt_normal, normals], dim=1)
 
             images_dict["normals"] = combined_normal
 
