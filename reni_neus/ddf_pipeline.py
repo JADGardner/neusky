@@ -208,6 +208,7 @@ class DDFPipeline(VanillaPipeline):
         metrics_dict = self.model.get_metrics_dict(model_outputs, batch)
         loss_dict = self.model.get_loss_dict(model_outputs, batch, metrics_dict)
         self.train()
+        self.reni_neus.eval()
         return model_outputs, loss_dict, metrics_dict
 
     @profiler.time_function
@@ -227,6 +228,7 @@ class DDFPipeline(VanillaPipeline):
         assert "num_rays" not in metrics_dict
         metrics_dict["num_rays"] = len(camera_ray_bundle)
         self.train()
+        self.reni_neus.eval()
         return metrics_dict, images_dict
 
     @profiler.time_function
@@ -268,4 +270,5 @@ class DDFPipeline(VanillaPipeline):
                 torch.mean(torch.tensor([metrics_dict[key] for metrics_dict in metrics_dict_list]))
             )
         self.train()
+        self.reni_neus.eval()
         return metrics_dict

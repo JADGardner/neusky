@@ -234,19 +234,17 @@ class DirectionalDistanceField(Field):
         if self.config.ddf_type == "pddf":
             expected_termination_distances = self.termination_output_activation(output[..., :self.num_depth_components])
             expected_termination_distances = self.termination_output_activation(expected_termination_distances)
-            
+
             expected_termination_weights = output[..., self.num_depth_components:self.num_depth_components+self.num_weight_components]
             weights = torch.cat([expected_termination_weights, 1 - expected_termination_weights], dim=-1)
-            
+
             # Apply the visibility and depth adjustment to the logits
             adjusted_logits = self.config.eta_T * weights / (self.config.epsilon_s + expected_termination_distances)
 
-            # Compute softmax to get the final weights
-            a = F.softmax(adjusted_logits, dim=1)
-            
             # Compute the weighted sum of the potential depths
-            expected_termination_dist = torch.sum(a * expected_termination_distances, dim=1, keepdim=True)
-    
+            expected_termination_dist = torch.sum(F.softmax(adjusted_logits, dim=1) * expected_termination_distances, dim=1, keepdim=True)
+            expected_termination_dist = expected_termination_dist * (2 * self.ddf_radius)
+
         else:
             expected_termination_dist = self.termination_output_activation(output[..., 0])
 

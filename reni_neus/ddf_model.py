@@ -63,6 +63,10 @@ class DDFModelConfig(ModelConfig):
     _target: Type = field(default_factory=lambda: DDFModel)
     ddf_field: DirectionalDistanceFieldConfig = DirectionalDistanceFieldConfig()
     """DDF field configuration"""
+    sdf_loss: Literal["L1", "L2"] = "L2"
+    """SDF loss type"""
+    depth_loss: Literal["L1", "L2"] = "L2"
+    """Depth loss type"""
     sdf_loss_mult: float = 1.0
     """Multiplier for the sdf loss"""
     depth_loss_mult: float = 1.0
@@ -107,8 +111,8 @@ class DDFModel(Model):
         self.renderer_depth = DepthRenderer()
 
         # losses
-        self.sdf_loss = MSELoss()
-        self.depth_loss = MSELoss()
+        self.sdf_loss = MSELoss() if self.config.sdf_loss == "L2" else nn.L1Loss()
+        self.depth_loss = MSELoss() if self.config.depth_loss == "L2" else nn.L1Loss()
         self.normal_loss = nn.CosineSimilarity(dim=1, eps=1e-6)
 
         # metrics
@@ -142,35 +146,40 @@ class DDFModel(Model):
             ),
         )
 
-        field_outputs = self.field.forward(ray_samples)
-        expected_termination_dist = field_outputs[RENINeuSFieldHeadNames.TERMINATION_DISTANCE]
+        ray_samples.frustums.origins.requires_grad = True
 
-        # get sdf at expected termination distance for loss
-        termination_points = (
-            ray_samples.frustums.origins + ray_samples.frustums.directions * expected_termination_dist.unsqueeze(-1)
-        )
-        sdf_at_termination = reni_neus.field.get_sdf_at_pos(termination_points)
+        with torch.enable_grad():
+            field_outputs = self.field.forward(ray_samples)
+            expected_termination_dist = field_outputs[RENINeuSFieldHeadNames.TERMINATION_DISTANCE]
 
-        outputs = {
-            "sdf_at_termination": sdf_at_termination,
-            "expected_termination_dist": expected_termination_dist,
-        }
+            # get sdf at expected termination distance for loss
+            termination_points = (
+                ray_samples.frustums.origins + ray_samples.frustums.directions * expected_termination_dist.unsqueeze(-1)
+            )
+            sdf_at_termination = reni_neus.field.get_sdf_at_pos(termination_points)
 
-        if RENINeuSFieldHeadNames.PROBABILITY_OF_HIT in field_outputs:
-            outputs["expected_probability_of_hit"] = field_outputs[RENINeuSFieldHeadNames.PROBABILITY_OF_HIT]
+            outputs = {
+                "sdf_at_termination": sdf_at_termination,
+                "expected_termination_dist": expected_termination_dist,
+            }
 
-        # # Compute the gradient of depth with respect to position
-        # grad_expected_term = torch.autograd.grad(expected_termination_dist.sum(), ray_samples.frustums.origins, create_graph=True)[0]
-        
-        # # Normalize the gradient to obtain the predicted normal
-        # n_hat_unnormalized = grad_expected_term.t()
-        # n_hat = n_hat_unnormalized / torch.norm(n_hat_unnormalized, dim=-1, keepdim=True)
-        
-        # # Choose the sign of n_hat such that n_hat^T * direction < 0
-        # varsigma = torch.sign(-torch.sum(n_hat * ray_samples.frustums.directions, dim=-1, keepdim=True))
-        # n_hat = varsigma * n_hat
+            if RENINeuSFieldHeadNames.PROBABILITY_OF_HIT in field_outputs:
+                outputs["expected_probability_of_hit"] = field_outputs[RENINeuSFieldHeadNames.PROBABILITY_OF_HIT]
 
-        # outputs["predicted_normal"] = n_hat
+            # Compute the gradient of the depths with respect to the ray origins
+            d_output = torch.ones_like(expected_termination_dist, requires_grad=False, device=expected_termination_dist.device)
+            gradients = torch.autograd.grad(
+                outputs=expected_termination_dist, inputs=ray_samples.frustums.origins, grad_outputs=d_output, create_graph=True, retain_graph=True, only_inputs=True
+            )[0]
+
+        # Normalize the gradient to obtain the predicted normal
+        n_hat = gradients / torch.norm(gradients, dim=-1, keepdim=True)
+
+        # Choose the sign of n_hat such that n_hat * direction < 0
+        varsigma = torch.sign(-torch.sum(n_hat * ray_samples.frustums.directions, dim=-1, keepdim=True))
+        n_hat = varsigma * n_hat
+
+        outputs["predicted_normals"] = n_hat
 
         for key, value in outputs.items():
             if H is not None and W is not None:
@@ -211,11 +220,11 @@ class DDFModel(Model):
         loss_dict["sdf_loss"] = sdf_loss * self.config.sdf_loss_mult
         loss_dict["depth_loss"] = depth_loss * self.config.depth_loss_mult
         
-        if 'predicted_normal' in outputs:
+        if 'predicted_normals' in outputs:
             normal_loss = self.normal_loss(
-                outputs["predicted_normal"] * batch["mask"],
-                batch["normal"] * batch["mask"],
-            )
+                outputs["predicted_normals"] * batch["mask"].unsqueeze(-1),
+                batch["normals"] * batch["mask"].unsqueeze(-1),
+            ).sum()
             loss_dict["normal_loss"] = normal_loss * self.config.normal_loss_mult
         
         return loss_dict
@@ -272,14 +281,12 @@ class DDFModel(Model):
     def get_image_metrics_and_images(
         self, outputs: Dict[str, torch.Tensor], batch: Dict[str, torch.Tensor]
     ) -> Tuple[Dict[str, float], Dict[str, torch.Tensor]]:
+        metrics_dict = {}
+        images_dict = {}
+
         gt_accumulations = batch["accumulations"]
         gt_termination_dist = batch["termination_dist"]
-        gt_normals = batch["normals"]
-
         expected_termination_dist = outputs["expected_termination_dist"]
-
-        if RENINeuSFieldHeadNames.PROBABILITY_OF_HIT in outputs:
-            expected_probability_of_hit = outputs["expected_probability_of_hit"]
 
         gt_depth = colormaps.apply_depth_colormap(
             gt_termination_dist,
@@ -296,8 +303,21 @@ class DDFModel(Model):
         )
 
         combined_depth = torch.cat([gt_depth, depth], dim=1)
+        images_dict["depth"] = combined_depth
 
-        metrics_dict = {}
+        if RENINeuSFieldHeadNames.PROBABILITY_OF_HIT in outputs:
+            expected_probability_of_hit = outputs["expected_probability_of_hit"]
 
-        images_dict = {"depth": combined_depth}
+        if 'predicted_normals' in outputs:
+            normal = outputs["predicted_normals"]
+            normal = (normal + 1.0) / 2.0
+
+            if "normal" in batch:
+                normal_gt = (batch["normals"].to(self.device) + 1.0) / 2.0
+                combined_normal = torch.cat([normal_gt, normal], dim=1)
+            else:
+                combined_normal = torch.cat([normal], dim=1)
+
+            images_dict["normals"] = combined_normal
+
         return metrics_dict, images_dict
