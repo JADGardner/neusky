@@ -41,7 +41,7 @@ from reni_neus.fields.directional_distance_field import DirectionalDistanceField
 from reni_neus.ddf_pipeline import DDFPipelineConfig
 from reni_neus.data.ddf_datamanager import DDFDataManagerConfig
 from reni_neus.reni_neus_with_vis_model import RENINeuSFactoWithVisibilityModelConfig
-
+from reni_neus.model_components.ddf_sampler import DDFSamplerConfig, VMFDDFSamplerConfig
 
 
 RENINeuS = MethodSpecification(
@@ -232,7 +232,7 @@ RENINeuSWithVis = MethodSpecification(
 DirectionalDistanceField = MethodSpecification(
     config=TrainerConfig(
         method_name="ddf",
-        steps_per_eval_image=1000,
+        steps_per_eval_image=250,
         steps_per_eval_batch=100000,
         steps_per_save=1000,
         steps_per_eval_all_images=1000000,  # set to a very large model so we don't eval with all images
@@ -240,12 +240,15 @@ DirectionalDistanceField = MethodSpecification(
         mixed_precision=False,
         pipeline=DDFPipelineConfig(
             datamanager=DDFDataManagerConfig(
-                train_num_rays_per_batch=256,
-                eval_num_rays_per_batch=256,
+                train_num_rays_per_batch=1024,
+                eval_num_rays_per_batch=1024,
                 num_test_images_to_generate=1,
                 test_image_cache_dir=Path("/workspace/outputs/ddf/cache/"),
                 accumulation_mask_threshold=0.7,
                 train_data="rand_pnts_on_sphere", # "rand_pnts_on_sphere, single_camera"
+                ddf_sampler=VMFDDFSamplerConfig(
+                    concentration=25.0,
+                )
             ),
             model=DDFModelConfig(
                 ddf_field=DirectionalDistanceFieldConfig(
@@ -263,11 +266,11 @@ DirectionalDistanceField = MethodSpecification(
                 depth_loss_mult=1.0,
                 prob_hit_loss_mult=0.0,
                 normal_loss_mult=1.0,
-                eval_num_rays_per_chunk=256,
-                compute_normals=False, # This will currently not work
+                eval_num_rays_per_chunk=1024,
+                compute_normals=False, # This currently does not work
             ),
-            reni_neus_ckpt_path=Path("/workspace/outputs/unnamed/reni-neus/2023-05-23_191641"),
-            reni_neus_ckpt_step=70000,
+            reni_neus_ckpt_path=Path("/workspace/outputs/unnamed/reni-neus/2023-06-07_141907"),
+            reni_neus_ckpt_step=85000,
             ddf_radius="AABB",
         ),
         optimizers={

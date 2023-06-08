@@ -75,7 +75,7 @@ class RENINeuSFactoModelConfig(NeuSFactoModelConfig):
     """Weight for the reni loss"""
     visibility_loss_mse_multi: float = 0.01
     """Weight for the visibility mse loss"""
-    render_only_albedo: bool = False
+    render_only_albedo: bool = False # TODO remove for next full training run
     """Render only albedo"""
     include_occupancy_network: bool = False
     """Include occupancy network in the model"""
@@ -245,7 +245,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
             # Flatten and reshape
             positions = positions.reshape(-1, 3)
 
-            # Calculate gap
+            # Calculate gaps between each sample
             gap = torch.tensor([(max_coord[i] - min_coord[i]) / self.config.hashgrid_density_loss_sample_resolution for i in range(3)])
 
             # Generate random perturbations
@@ -255,7 +255,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
             positions += perturbations
             
             # generate random normalised directions of shape positions
-            # these are needed for 
+            # these are needed for generating alphas
             directions = torch.randn_like(positions)
             directions = directions / torch.norm(directions, dim=-1, keepdim=True)
 

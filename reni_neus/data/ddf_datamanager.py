@@ -54,6 +54,7 @@ from reni_neus.data.reni_neus_pixel_sampler import RENINeuSPixelSampler
 from reni_neus.data.reni_neus_dataset import RENINeuSDataset
 from reni_neus.data.ddf_dataset import DDFDataset
 from reni_neus.reni_neus_model import RENINeuSFactoModel
+from reni_neus.model_components.ddf_sampler import DDFSamplerConfig
 
 CONSOLE = Console(width=120)
 
@@ -76,6 +77,8 @@ class DDFDataManagerConfig(DataManagerConfig):
     """Threshold for accumulation mask"""
     train_data: Literal["rand_pnts_on_sphere", "single_camera"] = "rand_pnts_on_sphere"
     """Type of training data to use"""
+    ddf_sampler: DDFSamplerConfig = DDFSamplerConfig()
+    """DDF sampler config"""
 
 
 class DDFDataManager(DataManager):  # pylint: disable=abstract-method
@@ -121,7 +124,7 @@ class DDFDataManager(DataManager):  # pylint: disable=abstract-method
         self.reni_neus_ckpt_path = reni_neus_ckpt_path
         self.scene_box = scene_box
         self.ddf_radius = ddf_radius
-        
+        self.ddf_sampler = self.config.ddf_sampler.setup(device=self.device)
 
 
         self.train_dataset = self.create_train_dataset()
@@ -144,6 +147,7 @@ class DDFDataManager(DataManager):  # pylint: disable=abstract-method
             reni_neus=self.reni_neus,
             reni_neus_ckpt_path=self.reni_neus_ckpt_path,
             test_mode=test_mode,
+            sampler=self.ddf_sampler,
             scene_box=self.scene_box,
             num_generated_imgs=1,
             cache_dir=self.config.test_image_cache_dir,
@@ -158,6 +162,7 @@ class DDFDataManager(DataManager):  # pylint: disable=abstract-method
             reni_neus=self.reni_neus,
             reni_neus_ckpt_path=self.reni_neus_ckpt_path,
             test_mode=self.test_mode,
+            sampler=self.ddf_sampler,
             scene_box=self.scene_box,
             num_generated_imgs=self.config.num_test_images_to_generate,
             cache_dir=self.config.test_image_cache_dir,

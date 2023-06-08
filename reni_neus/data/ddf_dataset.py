@@ -42,7 +42,7 @@ from nerfstudio.data.datamanagers.base_datamanager import VanillaDataManager
 
 from reni_neus.utils.utils import random_points_on_unit_sphere, random_inward_facing_directions, look_at_target
 from reni_neus.reni_neus_model import RENINeuSFactoModel
-
+from reni_neus.model_components.ddf_sampler import DDFSampler
 
 class DDFDataset(Dataset):
     """Dataset that returns images.
@@ -61,6 +61,7 @@ class DDFDataset(Dataset):
         reni_neus: RENINeuSFactoModel,
         reni_neus_ckpt_path: Path,
         scene_box: SceneBox,
+        sampler: DDFSampler,
         test_mode: Literal["train", "test", "val"] = "train",
         num_generated_imgs: int = 10,
         cache_dir: Path = Path("path_to_img_cache"),
@@ -73,6 +74,7 @@ class DDFDataset(Dataset):
         self.reni_neus = reni_neus
         self.reni_neus_ckpt_path = reni_neus_ckpt_path
         self.test_mode = test_mode
+        self.sampler = sampler
         self.num_generated_imgs = num_generated_imgs
         self.cache_dir = cache_dir
         self.num_rays_per_batch = num_rays_per_batch
@@ -212,24 +214,26 @@ class DDFDataset(Dataset):
     def _ddf_rays(self):
         num_samples = self.num_rays_per_batch
 
-        positions = random_points_on_unit_sphere(1, cartesian=True)  # (1, 3)
-        directions = random_inward_facing_directions(num_samples, normals=-positions)  # (1, num_directions, 3)
+        ray_bundle = self.sampler(num_positions=1, num_directions=num_samples)
 
-        positions = positions * self.ddf_sphere_radius
+        # positions = random_points_on_unit_sphere(1, cartesian=True)  # (1, 3)
+        # directions = random_inward_facing_directions(num_samples, normals=-positions)  # (1, num_directions, 3)
 
-        pos_ray = positions.repeat(num_samples, 1).to(self.device)
-        dir_ray = directions.reshape(-1, 3).to(self.device)
-        pixel_area = torch.ones(num_samples, 1, device=self.device)
-        camera_indices = torch.zeros(num_samples, 1, device=self.device, dtype=torch.int64)
-        metadata = {"directions_norm": torch.ones(num_samples, 1, device=self.device)}
+        # positions = positions * self.ddf_sphere_radius
 
-        ray_bundle = RayBundle(
-            origins=pos_ray,
-            directions=dir_ray,
-            pixel_area=pixel_area,
-            camera_indices=camera_indices,
-            metadata=metadata,
-        )
+        # pos_ray = positions.repeat(num_samples, 1).to(self.device)
+        # dir_ray = directions.reshape(-1, 3).to(self.device)
+        # pixel_area = torch.ones(num_samples, 1, device=self.device)
+        # camera_indices = torch.zeros(num_samples, 1, device=self.device, dtype=torch.int64)
+        # metadata = {"directions_norm": torch.ones(num_samples, 1, device=self.device)}
+
+        # ray_bundle = RayBundle(
+        #     origins=pos_ray,
+        #     directions=dir_ray,
+        #     pixel_area=pixel_area,
+        #     camera_indices=camera_indices,
+        #     metadata=metadata,
+        # )
 
         accumulations = None
         termination_dist = None

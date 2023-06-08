@@ -50,7 +50,6 @@ from nerfstudio.viewer.server.viewer_elements import ViewerControl, ViewerButton
 
 from reni_neus.fields.directional_distance_field import DirectionalDistanceField, DirectionalDistanceFieldConfig
 from reni_neus.utils.utils import random_points_on_unit_sphere, random_inward_facing_directions
-from reni_neus.model_components.ddf_sdf_sampler import DDFSDFSampler
 from reni_neus.reni_neus_fieldheadnames import RENINeuSFieldHeadNames
 
 CONSOLE = Console(width=120)
@@ -77,6 +76,10 @@ class DDFModelConfig(ModelConfig):
     """Multiplier for the normal loss"""
     compute_normals: bool = False
     """Whether to compute normals"""
+    include_multi_view_loss: bool = False
+    """Whether to include multi-view loss"""
+    multi_view_loss_mult: float = 1.0
+    """Multiplier for the multi-view loss"""
 
 class DDFModel(Model):
     """Directional Distance Field model
@@ -128,6 +131,30 @@ class DDFModel(Model):
             raise ValueError("populate_fields() must be called before get_param_groups")
         param_groups["fields"] = list(self.field.parameters())
         return param_groups
+    
+    def get_localised_transforms(self, positions):
+        """Computes the local coordinate system for each point in the input positions"""
+        up_vector = torch.tensor([0, 0, 1]).type_as(positions)  # Assuming world up-vector is along z-axis as is the case in nerfstudio
+        up_vector = up_vector.expand_as(positions)  # Expand to match the shape of positions
+
+        positions = -positions # negate to ensure [0, 1, 0] direction is facing origin
+
+        # Calculate the cross product between the position vector and the world up-vector to obtain the x-axis of the local coordinate system
+        x_local = torch.cross(up_vector, positions)
+        x_local = x_local / x_local.norm(dim=-1, keepdim=True)  # Normalize
+
+        # Compute the local z-axis by crossing position and x_local
+        z_local = torch.cross(positions, x_local)
+        z_local = z_local / z_local.norm(dim=-1, keepdim=True)  # Normalize
+
+        # The y-axis is the position itself
+        y_local = positions      
+
+        # Stack the local basis vectors to form the rotation matrices
+        rotation_matrices = torch.stack((x_local, y_local, z_local), dim=-1)
+
+        return rotation_matrices
+ 
 
     def get_outputs(self, ray_bundle: RayBundle, reni_neus):
         if self.field is None:
@@ -138,12 +165,19 @@ class DDFModel(Model):
         if len(ray_bundle.origins.shape) in [3, 4]:
             H, W = ray_bundle.origins.shape[:2]
 
+        positions = ray_bundle.origins.reshape(-1, 3)
+        directions = ray_bundle.directions.reshape(-1, 3)
+
+        rotation_matrices = self.get_localised_transforms(positions)
+
+        transformed_directions = torch.einsum('ijl,ij->il', rotation_matrices, directions)
+
         ray_samples = RaySamples(
             frustums=Frustums(
-                origins=ray_bundle.origins.reshape(-1, 3),
-                directions=ray_bundle.directions.reshape(-1, 3),
-                starts=torch.zeros_like(ray_bundle.origins),
-                ends=torch.zeros_like(ray_bundle.origins),
+                origins=positions,
+                directions=transformed_directions,
+                starts=torch.zeros_like(positions),
+                ends=torch.zeros_like(positions),
                 pixel_area=ray_bundle.pixel_area.reshape(-1, 1),
             ),
         )
@@ -156,7 +190,7 @@ class DDFModel(Model):
 
         # get sdf at expected termination distance for loss
         termination_points = (
-            ray_samples.frustums.origins + ray_samples.frustums.directions * expected_termination_dist.unsqueeze(-1)
+            positions + directions * expected_termination_dist.unsqueeze(-1)
         )
         sdf_at_termination = reni_neus.field.get_sdf_at_pos(termination_points)
 
@@ -183,6 +217,26 @@ class DDFModel(Model):
             n_hat = varsigma * n_hat
 
             outputs["predicted_normals"] = n_hat
+
+        # if self.config.include_multi_view_loss:
+        #     # for every termination_point we choose a random other position on the sphere
+        #     # we the the ddf to predict the expteected termination distance from the random
+        #     # point to the termination point. This distance should be no greater than the
+        #     # expected termination distance that provided ther termination point.
+
+        #     # for every termination point we choose a random other position on the sphere
+        #     points_on_sphere = random_points_on_unit_sphere(num_points=termination_points.shape[0])
+        #     direction_to_term_points = termination_points - points_on_sphere
+        #     ray_samples = RaySamples(
+        #         frustums=Frustums(
+        #             origins=points_on_sphere,
+        #             directions=direction_to_term_points,
+        #             starts=torch.zeros_like(points_on_sphere),
+        #             ends=torch.zeros_like(points_on_sphere),
+        #             pixel_area=torch.ones_like(points_on_sphere[:, 0]),
+        #         ),
+        #     )
+        #     field_outputs = self.field.forward(ray_samples)
 
         for key, value in outputs.items():
             if H is not None and W is not None:
@@ -258,7 +312,7 @@ class DDFModel(Model):
                     start_idx = i
                     end_idx = i + num_rays_per_chunk
                     ray_bundle = camera_ray_bundle.get_row_major_sliced_ray_bundle(start_idx, end_idx)
-                    if self.compute_normals:
+                    if self.config.compute_normals:
                         with torch.enable_grad():
                             outputs = self.forward(ray_bundle=ray_bundle, reni_neus=reni_neus)
                     else:
