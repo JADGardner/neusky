@@ -45,6 +45,8 @@ from nerfstudio.model_components.losses import (
     monosdf_normal_loss,
 )
 
+from nerfstudio.viewer.server.viewer_elements import ViewerControl, ViewerButton, ViewerCheckbox
+
 from reni_neus.illumination_fields.base_illumination_field import IlluminationFieldConfig
 from reni_neus.model_components.renderers import RGBLambertianRendererWithVisibility
 from reni_neus.model_components.illumination_samplers import IlluminationSamplerConfig
@@ -120,6 +122,9 @@ class RENINeuSFactoModel(NeuSFactoModel):
         self.test_mode = test_mode
         self.fitting_eval_latents = False
         super().__init__(config, scene_box, num_train_data, **kwargs)
+
+        self.setup_gui()
+        
 
     def populate_modules(self):
         """Instantiate modules and fields, including proposal networks."""
@@ -276,37 +281,6 @@ class RENINeuSFactoModel(NeuSFactoModel):
 
             samples_and_field_outputs["grid_density"] = density
 
-        albedo = self.albedo_renderer(rgb=field_outputs[RENINeuSFieldHeadNames.ALBEDO], weights=weights)
-
-        if not self.config.render_only_albedo:
-            rgb = self.lambertian_renderer(
-                albedos=field_outputs[RENINeuSFieldHeadNames.ALBEDO],
-                normals=field_outputs[FieldHeadNames.NORMALS],
-                light_directions=illumination_directions,
-                light_colors=hdr_illumination_colours,
-                visibility=None,
-                background_illumination=background_colours,
-                weights=weights,
-            )
-            p2p_dist = self.renderer_depth(weights=weights, ray_samples=ray_samples)
-            # the rendered depth is point-to-point distance and we should convert to depth
-            depth = p2p_dist / ray_bundle.metadata["directions_norm"]
-            normal = self.renderer_normal(semantics=field_outputs[FieldHeadNames.NORMALS], weights=weights)
-            accumulation = self.renderer_accumulation(weights=weights)
-        else:
-            rgb = torch.zeros_like(albedo)
-            p2p_dist = torch.zeros_like(albedo)[..., 0]
-            depth = torch.zeros_like(albedo)[..., 0]
-            normal = torch.zeros_like(albedo)
-            accumulation = torch.zeros_like(albedo)[..., 0]
-
-        samples_and_field_outputs["rgb"] = rgb
-        samples_and_field_outputs["accumulation"] = accumulation
-        samples_and_field_outputs["depth"] = depth
-        samples_and_field_outputs["normal"] = normal
-        samples_and_field_outputs["albedo"] = albedo
-        samples_and_field_outputs["p2p_dist"] = p2p_dist
-
         return samples_and_field_outputs
 
     def get_outputs(self, ray_bundle: RayBundle) -> Dict[str, torch.Tensor]:
@@ -325,14 +299,46 @@ class RENINeuSFactoModel(NeuSFactoModel):
         field_outputs = samples_and_field_outputs["field_outputs"]
 
         weights = samples_and_field_outputs["weights"]
-        rgb = samples_and_field_outputs["rgb"]
-        accumulation = samples_and_field_outputs["accumulation"]
-        depth = samples_and_field_outputs["depth"]
-        normal = samples_and_field_outputs["normal"]
-        p2p_dist = samples_and_field_outputs["p2p_dist"]
+        ray_samples = samples_and_field_outputs["ray_samples"]
+        illumination_directions = samples_and_field_outputs["illumination_directions"]
+        hdr_illumination_colours = samples_and_field_outputs["hdr_illumination_colours"]
         background_colours = samples_and_field_outputs["background_colours"]
-        albedo = samples_and_field_outputs["albedo"]
-        normal = samples_and_field_outputs["normal"]
+
+        if self.render_rgb_static:
+            rgb = self.lambertian_renderer(
+                albedos=field_outputs[RENINeuSFieldHeadNames.ALBEDO],
+                normals=field_outputs[FieldHeadNames.NORMALS],
+                light_directions=illumination_directions,
+                light_colors=hdr_illumination_colours,
+                visibility=None,
+                background_illumination=background_colours,
+                weights=weights,
+            )
+        else:
+            rgb = torch.zeros((ray_bundle.shape[0], 3)).to(self.device)
+
+        if self.render_accumulation_static:
+            accumulation = self.renderer_accumulation(weights=weights)
+        else:
+            accumulation = torch.zeros((ray_bundle.shape[0], 1)).to(self.device)
+
+        if self.render_depth_static:
+            p2p_dist = self.renderer_depth(weights=weights, ray_samples=ray_samples)
+            # the rendered depth is point-to-point distance and we should convert to depth
+            depth = p2p_dist / ray_bundle.metadata["directions_norm"]
+        else:
+            p2p_dist = torch.zeros((ray_bundle.shape[0], 1)).to(self.device)
+            depth = torch.zeros((ray_bundle.shape[0], 1)).to(self.device)
+
+        if self.render_normal_static:
+            normal = self.renderer_normal(semantics=field_outputs[FieldHeadNames.NORMALS], weights=weights)
+        else:
+            normal = torch.zeros((ray_bundle.shape[0], 3)).to(self.device)
+
+        if self.render_albedo_static:
+            albedo = self.albedo_renderer(rgb=field_outputs[RENINeuSFieldHeadNames.ALBEDO], weights=weights)
+        else:
+            albedo = torch.zeros((ray_bundle.shape[0], 3)).to(self.device)
 
         outputs = {
             "rgb": rgb,
@@ -445,6 +451,12 @@ class RENINeuSFactoModel(NeuSFactoModel):
         num_rays = len(camera_ray_bundle)
         outputs_lists = defaultdict(list)
 
+        self.render_rgb_static = self.render_rgb
+        self.render_accumulation_static = self.render_accumulation
+        self.render_depth_static = self.render_depth
+        self.render_normal_static = self.render_normal
+        self.render_albedo_static = self.render_albedo
+
         if show_progress:
             with Progress(
                 TextColumn("[progress.description]{task.description}"),
@@ -512,13 +524,6 @@ class RENINeuSFactoModel(NeuSFactoModel):
 
                     if gt_source == "envmap":
                         raise NotImplementedError
-                        # rgb = batch["envmap"].to(self.device)
-                        # directions = get_directions(rgb.shape[1])
-                        # sineweight = get_sineweight(rgb.shape[1])
-                        # rgb = rgb.unsqueeze(0)  # [B, H, W, 3]
-                        # rgb = rgb.reshape(rgb.shape[0], -1, 3)  # [B, H*W, 3]
-                        # D = directions.type_as(rgb).repeat(rgb.shape[0], 1, 1)  # [B, H*W, 3]
-                        # S = sineweight.type_as(rgb).repeat(rgb.shape[0], 1, 1)  # [B, H*W, 3]
                     elif gt_source in ["image_half", "image_full"]:
                         divisor = 2 if gt_source == "image_half" else 1
 
@@ -574,3 +579,62 @@ class RENINeuSFactoModel(NeuSFactoModel):
 
         # No longer using eval RENI
         self.fitting_eval_latents = False
+
+    def setup_gui(self):
+        """Setup the GUI."""
+        self.viewer_control = ViewerControl()  # no arguments
+
+        self.render_rgb = True
+        self.render_rgb_static = True
+        self.render_accumulation = True
+        self.render_accumulation_static = True
+        self.render_depth = True
+        self.render_depth_static = True
+        self.render_normal = True
+        self.render_normal_static = True
+        self.render_albedo = True
+        self.render_albedo_static = True
+
+        def render_rgb_callback(handle: ViewerCheckbox) -> None:
+            self.render_rgb = handle.value
+
+        self.render_rgb_checkbox = ViewerCheckbox(name="Render RGB",
+                                                     default_value=True,
+                                                     cb_hook=render_rgb_callback)
+        
+        def render_accumulation_callback(handle: ViewerCheckbox) -> None:
+            self.render_accumulation = handle.value
+        
+        self.render_accumulation_checkbox = ViewerCheckbox(name="Render Accumulation",
+                                                     default_value=True,
+                                                     cb_hook=render_accumulation_callback)
+        
+        def render_depth_callback(handle: ViewerCheckbox) -> None:
+            self.render_depth = handle.value
+
+        self.render_depth_checkbox = ViewerCheckbox(name="Render Depth",
+                                                    default_value=True,
+                                                    cb_hook=render_depth_callback)
+        
+        def render_normal_callback(handle: ViewerCheckbox) -> None:
+            self.render_normal = handle.value
+
+        self.render_normal_checkbox = ViewerCheckbox(name="Render Normal",
+                                                    default_value=True,
+                                                    cb_hook=render_normal_callback)
+        
+      
+        def render_albedo_callback(handle: ViewerCheckbox) -> None:
+            self.render_albedo = handle.value
+        
+        self.render_albedo_checkbox = ViewerCheckbox(name="Render Albedo",
+                                                     default_value=True,
+                                                     cb_hook=render_albedo_callback)
+        
+        
+        def on_sphere_look_at_origin(button):
+            # instant=False means the camera smoothly animates
+            # instant=True means the camera jumps instantly to the pose
+            self.viewer_control.set_pose(position=(0, 1, 0), look_at=(0,0,0), instant=False)
+        
+        self.viewer_button = ViewerButton(name="Camera on DDF",cb_hook=on_sphere_look_at_origin)
