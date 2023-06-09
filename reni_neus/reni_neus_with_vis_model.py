@@ -57,28 +57,6 @@ class RENINeuSFactoWithVisibilityModelConfig(RENINeuSFactoModelConfig):
     """RENINeuSFacto With Visibility Model Config"""
 
     _target: Type = field(default_factory=lambda: RENINeuSFactoWithVisibilityModel)
-    illumination_field: IlluminationFieldConfig = IlluminationFieldConfig()
-    """Illumination Field"""
-    illumination_sampler: IlluminationSamplerConfig = IlluminationSamplerConfig()
-    """Illumination sampler to use"""
-    illumination_field_prior_loss_weight: float = 1e-7
-    """Weight for the prior loss"""
-    illumination_field_cosine_loss_weight: float = 1e-1
-    """Weight for the reni cosine loss"""
-    illumination_field_loss_weight: float = 1.0
-    """Weight for the reni loss"""
-    visibility_loss_mse_multi: float = 0.01
-    """Weight for the visibility mse loss"""
-    render_only_albedo: bool = False
-    """Render only albedo"""
-    include_occupancy_network: bool = False
-    """Include occupancy network in the model"""
-    occupancy_grid_resolution: int = 64
-    """Resolution of the occupancy grid"""
-    occupancy_grid_levels: int = 4
-    """Levels of the occupancy grid"""
-    hashgrid_density_loss_weight: float = 0.0
-    """Weight for the hashgrid density loss"""
     visibility_field: DDFModelConfig = DDFModelConfig()
     """Visibility field"""
     ddf_radius: Union[Literal["AABB"], float] = "AABB"
@@ -126,101 +104,120 @@ class RENINeuSFactoWithVisibilityModel(RENINeuSFactoModel):
 
         self.visibility_field = self.config.visibility_field.setup(scene_box=self.scene_box, num_train_data=self.num_train_data, ddf_radius=self.ddf_radius)
 
-        # if self.config.learnable_visibility_threshold:
-        #     self.visibility_threshold = Parameter(torch.tensor(1.0))
+        if self.config.learnable_visibility_threshold:
+            self.visibility_threshold = Parameter(torch.tensor(1.0))
 
-    def ray_sphere_intersection(self, positions, directions, radius):
-        """Ray sphere intersection"""
-        # ray-sphere intersection
-        # positions is the origins of the rays
-        # directions is the directions of the rays [numbe]
-        # radius is the radius of the sphere
+    
+    def sample_and_forward_field(self, ray_bundle: RayBundle) -> Dict[str, Any]:
+        """Sample rays using proposal networks and compute the corresponding field outputs."""
+        ray_samples, weights_list, ray_samples_list = self.proposal_sampler(ray_bundle, density_fns=self.density_fns)
 
-        sphere_origin = torch.zeros_like(positions)
-        radius = torch.ones_like(positions[..., 0]) * radius
+        camera_indices = ray_samples.camera_indices.squeeze()  # [num_rays, samples_per_ray]
 
-        a = 1 # direction is normalized
-        b = 2 * torch.einsum("ij,ij->i", directions, positions - sphere_origin)
-        c = torch.einsum("ij,ij->i", positions - sphere_origin, positions - sphere_origin) - radius**2
+        field_outputs = self.field(ray_samples, return_alphas=True)
 
-        discriminant = b**2 - 4 * a * c
+        weights, transmittance = ray_samples.get_weights_and_transmittance_from_alphas(
+            field_outputs[FieldHeadNames.ALPHA]
+        )
+        bg_transmittance = transmittance[:, -1, :]
 
-        t0 = (-b - torch.sqrt(discriminant)) / (2 * a)
-        t1 = (-b + torch.sqrt(discriminant)) / (2 * a)
+        weights_list.append(weights)
+        ray_samples_list.append(ray_samples)
 
-        # since we are inside the sphere we want the positive t
-        t = torch.max(t0, t1)
+        illumination_field = self.get_illumination_field()
 
-        # now we need to point on the sphere that we intersected
-        intersection_point = positions + t.unsqueeze(-1) * directions
+        illumination_directions = self.illumination_sampler()
+        illumination_directions = illumination_directions.to(self.device)
 
-        return intersection_point
-
-    def compute_visibility(self, ray_samples, p2p_dist, illumination_directions, threshold_distance):
-        """Compute visibility"""
-        # ddf_model directional distance field model
-        # positions is the origins of the rays from the surface of the object
-        # directions is the directions of the rays from the surface of the object # [98304, 1212, 3] -> [number_of_rays * samples_per_ray, number_of_light_directions, xyz]
-        # sphere_intersection_points is the point on the sphere that we intersected
-        
-        # shortcuts
-        num_light_directions = illumination_directions.shape[1]
-        num_rays = ray_samples.frustums.origins.shape[0]
-
-        # since we are only using a single sample, the sample we think has hit the object,
-        # we can just use one of each of these values, they are all just copied for each
-        # sample along the ray. So here I'm just taking the first one.
-        origins = ray_samples.frustums.origins[:, 0:1, :]  # [num_rays, 1, 3]
-        ray_directions = ray_samples.frustums.directions[:, 0:1, :]  # [num_rays, 1, 3]
-
-        # get positions based on p2p distance (expected termination depth)
-        # this is our sample on the surface of the SDF representing the scene
-        positions = origins + ray_directions * p2p_dist.unsqueeze(-1)
-
-        positions = positions.unsqueeze(1).repeat(
-            1, num_light_directions, 1, 1
-        )  # [num_rays, num_light_directions, 1, 3]
-        directions = (
-            illumination_directions[0:1, :, :].unsqueeze(2).repeat(num_rays, 1, 1, 1)
-        )  # [num_rays, num_light_directions, 1, 3]
-
-        positions = positions.reshape(-1, 3)  # [num_rays * num_light_directions, 3]
-        directions = directions.reshape(-1, 3)  # [num_rays * num_light_directions, 3]
-
-        sphere_intersection_points = self.ray_sphere_intersection(positions, directions, self.ddf_radius) # [num_rays * num_light_directions, 3]
-
-        # we need directions from intersection points to ray origins
-        directions = -directions
-
-        # build a ray_bundle object to pass to the visibility_field
-        visibility_ray_bundle = RayBundle(
-            origins=positions,
-            directions=directions,
-            pixel_area=torch.ones_like(positions[..., 0]),
+        # Get environment illumination for samples along the rays for each unique camera
+        hdr_illumination_colours, illumination_directions = illumination_field(
+            camera_indices=camera_indices,
+            positions=None,
+            directions=illumination_directions,
+            illumination_type="illumination",
         )
 
-        # Get output of visibility field (DDF)
-        outputs = self.visibility_field(visibility_ray_bundle, reni_neus=self) # [N, 2]
+        # Get LDR colour of the background for rays from the camera that don't hit the scene
+        background_colours, _ = illumination_field(
+            camera_indices=camera_indices,
+            positions=None,
+            directions=ray_samples.frustums.directions[:, 0, :],
+            illumination_type="background",
+        )
 
-        # the distance from the point on the sphere to the point on the SDF
-        dist_to_ray_origins = torch.norm(positions - sphere_intersection_points, dim=-1) # [N]
-
-        # add threshold_distance extra to the expected_termination_dist (i.e slighly futher into the SDF) 
-        # and get the difference between it and the distance from the point on the sphere to the point on the SDF
-        difference = (outputs['expected_termination_dist'] + threshold_distance) - dist_to_ray_origins
-
-        # if the difference is positive then the expected termination distance
-        # is greater than the distance from the point on the sphere to the point on the SDF
-        # so the point on the sphere is visible to it
-        visibility = (difference > 0).float() # TODO make soft for training???
-
-        visibility_dict = {
-            "visibility": visibility,
-            "expected_termination_dist": outputs['expected_termination_dist'],
-            "sdf_at_termination": outputs['sdf_at_termination'],
+        samples_and_field_outputs = {
+            "ray_samples": ray_samples,
+            "field_outputs": field_outputs,
+            "weights": weights,
+            "bg_transmittance": bg_transmittance,
+            "weights_list": weights_list,
+            "ray_samples_list": ray_samples_list,
+            "illumination_directions": illumination_directions,
+            "hdr_illumination_colours": hdr_illumination_colours,
+            "background_colours": background_colours,
         }
 
-        return visibility_dict
+        visibility_dict = self.compute_visibility(ray_samples=ray_samples,
+                                                  p2p_dist=p2p_dist,
+                                                  illumination_directions=illumination_directions,
+                                                  threshold_distance=0.1)
+        
+        expected_termination_dist = visibility_dict["expected_termination_dist"]
+        
+
+        if self.config.include_hashgrid_density_loss and self.training:
+            # Get min and max coordinates
+            min_coord, max_coord = self.scene_box.aabb
+
+            # Create a linear space for each dimension
+            x = torch.linspace(min_coord[0], max_coord[0], self.config.hashgrid_density_loss_sample_resolution)
+            y = torch.linspace(min_coord[1], max_coord[1], self.config.hashgrid_density_loss_sample_resolution)
+            z = torch.linspace(min_coord[2], max_coord[2], self.config.hashgrid_density_loss_sample_resolution)
+
+            # Generate a 3D grid of points
+            X, Y, Z = torch.meshgrid(x, y, z)
+            positions = torch.stack((X, Y, Z), -1)  # size will be (resolution, resolution, resolution, 3)
+
+            # Flatten and reshape
+            positions = positions.reshape(-1, 3)
+
+            # Calculate gaps between each sample
+            gap = torch.tensor([(max_coord[i] - min_coord[i]) / self.config.hashgrid_density_loss_sample_resolution for i in range(3)])
+
+            # Generate random perturbations
+            perturbations = torch.rand_like(positions) * gap - gap / 2
+
+            # Apply perturbations
+            positions += perturbations
+            
+            # generate random normalised directions of shape positions
+            # these are needed for generating alphas
+            directions = torch.randn_like(positions)
+            directions = directions / torch.norm(directions, dim=-1, keepdim=True)
+
+            # Create ray_samples
+            grid_samples = RaySamples(
+                frustums=Frustums(
+                origins=positions,
+                directions=directions,
+                starts=torch.zeros_like(positions),
+                ends=torch.zeros_like(positions),
+                pixel_area=torch.zeros_like(positions[:, 0]),
+              ),
+              deltas=gap,
+            )
+
+            grid_samples.frustums.origins = grid_samples.frustums.origins.to(self.device)
+            grid_samples.frustums.directions = grid_samples.frustums.directions.to(self.device)
+            grid_samples.frustums.starts = grid_samples.frustums.starts.to(self.device)
+            grid_samples.deltas = grid_samples.deltas.to(self.device)
+
+            # get density
+            density = self.field.get_alpha(grid_samples)
+
+            samples_and_field_outputs["grid_density"] = density
+
+        return samples_and_field_outputs
 
 
     def sample_and_forward_field(self, ray_bundle: RayBundle) -> Dict[str, Any]:

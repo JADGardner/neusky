@@ -79,6 +79,8 @@ class DDFDataManagerConfig(DataManagerConfig):
     """Type of training data to use"""
     ddf_sampler: DDFSamplerConfig = DDFSamplerConfig()
     """DDF sampler config"""
+    num_of_sky_ray_samples: int = 256
+    """Number of sky ray samples"""
 
 
 class DDFDataManager(DataManager):  # pylint: disable=abstract-method
@@ -154,6 +156,7 @@ class DDFDataManager(DataManager):  # pylint: disable=abstract-method
             num_rays_per_batch=self.config.train_num_rays_per_batch,
             ddf_sphere_radius=self.ddf_radius,
             accumulation_mask_threshold=self.config.accumulation_mask_threshold,
+            num_sky_ray_samples=self.config.num_of_sky_ray_samples,
             device=self.device,
         )
 
@@ -169,6 +172,7 @@ class DDFDataManager(DataManager):  # pylint: disable=abstract-method
             num_rays_per_batch=self.config.eval_num_rays_per_batch,
             ddf_sphere_radius=self.ddf_radius,
             accumulation_mask_threshold=self.config.accumulation_mask_threshold,
+            num_sky_ray_samples=self.config.num_of_sky_ray_samples,
             device=self.device,
         )
 

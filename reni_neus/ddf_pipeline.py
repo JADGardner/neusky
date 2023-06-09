@@ -175,7 +175,7 @@ class DDFPipeline(VanillaPipeline):
             step: current iteration step to update sampler if using DDP (distributed)
         """
         ray_bundle, batch = self.datamanager.next_train(step)
-        model_outputs = self._model(ray_bundle, self.reni_neus)  # train distributed data parallel model if world_size > 1
+        model_outputs = self._model(ray_bundle, batch, self.reni_neus)  # train distributed data parallel model if world_size > 1
         metrics_dict = self.model.get_metrics_dict(model_outputs, batch)
 
         if self.config.datamanager.camera_optimizer is not None:
@@ -204,7 +204,7 @@ class DDFPipeline(VanillaPipeline):
         """
         self.eval()
         ray_bundle, batch = self.datamanager.next_eval(step)
-        model_outputs = self.model(ray_bundle, self.reni_neus)
+        model_outputs = self.model(ray_bundle, None, self.reni_neus)
         metrics_dict = self.model.get_metrics_dict(model_outputs, batch)
         loss_dict = self.model.get_loss_dict(model_outputs, batch, metrics_dict)
         self.train()

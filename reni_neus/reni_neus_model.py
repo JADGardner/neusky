@@ -20,7 +20,7 @@ Based on SDFStudio https://github.com/autonomousvision/sdfstudio/
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple, Type
+from typing import Any, Dict, List, Optional, Tuple, Type, Union, Literal
 from collections import defaultdict
 import random
 from rich.progress import BarColumn, Console, Progress, TextColumn, TimeRemainingColumn
@@ -93,6 +93,12 @@ class RENINeuSFactoModelConfig(NeuSFactoModelConfig):
     """Align the ground plane normal to the z-axis"""
     ground_plane_normal_alignment_multi: float = 1.0
     """Weight for the ground plane normal alignment loss"""
+    visibility_field: Union[DDFModelConfig, None] = None
+    """Visibility field"""
+    ddf_radius: Union[Literal["AABB"], float] = "AABB"
+    """Radius of the DDF sphere"""
+    learnable_visibility_threshold: bool = False
+    """Learnable visibility threshold"""
 
 
 class RENINeuSFactoModel(NeuSFactoModel):
@@ -124,6 +130,12 @@ class RENINeuSFactoModel(NeuSFactoModel):
         super().__init__(config, scene_box, num_train_data, **kwargs)
 
         self.setup_gui()
+
+        if self.config.visibility_field is not None:
+            self.visibility_field = self.config.visibility_field.setup(scene_box=self.scene_box, num_train_data=self.num_train_data, ddf_radius=self.ddf_radius)
+
+            if self.config.learnable_visibility_threshold:
+                self.visibility_threshold = Parameter(torch.tensor(1.0))
         
 
     def populate_modules(self):
@@ -229,6 +241,21 @@ class RENINeuSFactoModel(NeuSFactoModel):
             "background_colours": background_colours,
         }
 
+        if self.config.visibility_field is not None:
+            # we need depth to compute visibility so render it here instead of in get_outputs()
+            p2p_dist = self.renderer_depth(weights=weights, ray_samples=ray_samples)
+            # the rendered depth is point-to-point distance and we should convert to depth
+            depth = p2p_dist / ray_bundle.metadata["directions_norm"]
+
+            visibility_dict = self.compute_visibility(ray_samples=ray_samples,
+                                          p2p_dist=p2p_dist,
+                                          illumination_directions=illumination_directions,
+                                          threshold_distance=0.1)
+            
+            samples_and_field_outputs["p2p_dist"] = p2p_dist
+            samples_and_field_outputs["depth"] = depth
+            samples_and_field_outputs["visibility_dict"] = visibility_dict
+
         if self.config.include_hashgrid_density_loss and self.training:
             # Get min and max coordinates
             min_coord, max_coord = self.scene_box.aabb
@@ -322,13 +349,17 @@ class RENINeuSFactoModel(NeuSFactoModel):
         else:
             accumulation = torch.zeros((ray_bundle.shape[0], 1)).to(self.device)
 
-        if self.render_depth_static:
-            p2p_dist = self.renderer_depth(weights=weights, ray_samples=ray_samples)
-            # the rendered depth is point-to-point distance and we should convert to depth
-            depth = p2p_dist / ray_bundle.metadata["directions_norm"]
+        if 'p2p_dist' in samples_and_field_outputs:
+            p2p_dist = samples_and_field_outputs["p2p_dist"]
+            depth = samples_and_field_outputs["depth"]
         else:
-            p2p_dist = torch.zeros((ray_bundle.shape[0], 1)).to(self.device)
-            depth = torch.zeros((ray_bundle.shape[0], 1)).to(self.device)
+          if self.render_depth_static:
+              p2p_dist = self.renderer_depth(weights=weights, ray_samples=ray_samples)
+              # the rendered depth is point-to-point distance and we should convert to depth
+              depth = p2p_dist / ray_bundle.metadata["directions_norm"]
+          else:
+              p2p_dist = torch.zeros((ray_bundle.shape[0], 1)).to(self.device)
+              depth = torch.zeros((ray_bundle.shape[0], 1)).to(self.device)
 
         if self.render_normal_static:
             normal = self.renderer_normal(semantics=field_outputs[FieldHeadNames.NORMALS], weights=weights)
@@ -451,6 +482,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
         num_rays = len(camera_ray_bundle)
         outputs_lists = defaultdict(list)
 
+        # This handles thread 
         self.render_rgb_static = self.render_rgb
         self.render_accumulation_static = self.render_accumulation
         self.render_depth_static = self.render_depth
@@ -609,12 +641,13 @@ class RENINeuSFactoModel(NeuSFactoModel):
                                                      default_value=True,
                                                      cb_hook=render_accumulation_callback)
         
-        def render_depth_callback(handle: ViewerCheckbox) -> None:
-            self.render_depth = handle.value
+        if self.config.visibility_field is None:
+            def render_depth_callback(handle: ViewerCheckbox) -> None:
+                self.render_depth = handle.value
 
-        self.render_depth_checkbox = ViewerCheckbox(name="Render Depth",
-                                                    default_value=True,
-                                                    cb_hook=render_depth_callback)
+            self.render_depth_checkbox = ViewerCheckbox(name="Render Depth",
+                                                        default_value=True,
+                                                        cb_hook=render_depth_callback)
         
         def render_normal_callback(handle: ViewerCheckbox) -> None:
             self.render_normal = handle.value
@@ -638,3 +671,97 @@ class RENINeuSFactoModel(NeuSFactoModel):
             self.viewer_control.set_pose(position=(0, 1, 0), look_at=(0,0,0), instant=False)
         
         self.viewer_button = ViewerButton(name="Camera on DDF",cb_hook=on_sphere_look_at_origin)
+
+
+    def ray_sphere_intersection(self, positions, directions, radius):
+        """Ray sphere intersection"""
+        # ray-sphere intersection
+        # positions is the origins of the rays
+        # directions is the directions of the rays [numbe]
+        # radius is the radius of the sphere
+
+        sphere_origin = torch.zeros_like(positions)
+        radius = torch.ones_like(positions[..., 0]) * radius
+
+        a = 1 # direction is normalized
+        b = 2 * torch.einsum("ij,ij->i", directions, positions - sphere_origin)
+        c = torch.einsum("ij,ij->i", positions - sphere_origin, positions - sphere_origin) - radius**2
+
+        discriminant = b**2 - 4 * a * c
+
+        t0 = (-b - torch.sqrt(discriminant)) / (2 * a)
+        t1 = (-b + torch.sqrt(discriminant)) / (2 * a)
+
+        # since we are inside the sphere we want the positive t
+        t = torch.max(t0, t1)
+
+        # now we need to point on the sphere that we intersected
+        intersection_point = positions + t.unsqueeze(-1) * directions
+
+        return intersection_point
+
+    def compute_visibility(self, ray_samples, p2p_dist, illumination_directions, threshold_distance):
+        """Compute visibility"""
+        # ddf_model directional distance field model
+        # positions is the origins of the rays from the surface of the object
+        # directions is the directions of the rays from the surface of the object # [98304, 1212, 3] -> [number_of_rays * samples_per_ray, number_of_light_directions, xyz]
+        # sphere_intersection_points is the point on the sphere that we intersected
+        
+        # shortcuts
+        num_light_directions = illumination_directions.shape[1]
+        num_rays = ray_samples.frustums.origins.shape[0]
+
+        # since we are only using a single sample, the sample we think has hit the object,
+        # we can just use one of each of these values, they are all just copied for each
+        # sample along the ray. So here I'm just taking the first one.
+        origins = ray_samples.frustums.origins[:, 0:1, :]  # [num_rays, 1, 3]
+        ray_directions = ray_samples.frustums.directions[:, 0:1, :]  # [num_rays, 1, 3]
+
+        # get positions based on p2p distance (expected termination depth)
+        # this is our sample on the surface of the SDF representing the scene
+        positions = origins + ray_directions * p2p_dist.unsqueeze(-1)
+
+        positions = positions.unsqueeze(1).repeat(
+            1, num_light_directions, 1, 1
+        )  # [num_rays, num_light_directions, 1, 3]
+        directions = (
+            illumination_directions[0:1, :, :].unsqueeze(2).repeat(num_rays, 1, 1, 1)
+        )  # [num_rays, num_light_directions, 1, 3]
+
+        positions = positions.reshape(-1, 3)  # [num_rays * num_light_directions, 3]
+        directions = directions.reshape(-1, 3)  # [num_rays * num_light_directions, 3]
+
+        sphere_intersection_points = self.ray_sphere_intersection(positions, directions, self.ddf_radius) # [num_rays * num_light_directions, 3]
+
+        # we need directions from intersection points to ray origins
+        directions = -directions
+
+        # build a ray_bundle object to pass to the visibility_field
+        visibility_ray_bundle = RayBundle(
+            origins=positions,
+            directions=directions,
+            pixel_area=torch.ones_like(positions[..., 0]),
+        )
+
+        # Get output of visibility field (DDF)
+        outputs = self.visibility_field(visibility_ray_bundle, reni_neus=self) # [N, 2]
+
+        # the distance from the point on the sphere to the point on the SDF
+        dist_to_ray_origins = torch.norm(positions - sphere_intersection_points, dim=-1) # [N]
+
+        # add threshold_distance extra to the expected_termination_dist (i.e slighly futher into the SDF)
+        # and get the difference between it and the distance from the point on the sphere to the point on the SDF
+        difference = (outputs['expected_termination_dist'] + threshold_distance) - dist_to_ray_origins
+
+        # if the difference is positive then the expected termination distance
+        # is greater than the distance from the point on the sphere to the point on the SDF
+        # so the point on the sphere is visible to it
+        visibility = (difference > 0).float() # TODO make soft for training???
+
+        visibility_dict = {
+            "visibility": visibility,
+            "expected_termination_dist": outputs['expected_termination_dist'],
+            "sdf_at_termination": outputs['sdf_at_termination'],
+        }
+
+        return visibility_dict

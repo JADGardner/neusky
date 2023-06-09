@@ -179,13 +179,13 @@ class DirectionalDistanceField(Field):
 
         if position_encoding_type == "nerf":
             self.position_encoding = NeRFEncoding(
-                in_dim=3, num_frequencies=10, min_freq_exp=0.0, max_freq_exp=8.0, include_input=True
+                in_dim=3, num_frequencies=2, min_freq_exp=0.0, max_freq_exp=2.0, include_input=True
             )
             encoding_dim += self.position_encoding.get_out_dim()
 
         if direction_encoding_type == "nerf":
             self.direction_encoding = NeRFEncoding(
-                in_dim=3, num_frequencies=6, min_freq_exp=0.0, max_freq_exp=8.0, include_input=True
+                in_dim=3, num_frequencies=2, min_freq_exp=0.0, max_freq_exp=2.0, include_input=True
             )
             encoding_dim += self.direction_encoding.get_out_dim()
 

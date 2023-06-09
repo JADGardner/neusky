@@ -247,13 +247,14 @@ DirectionalDistanceField = MethodSpecification(
                 accumulation_mask_threshold=0.7,
                 train_data="rand_pnts_on_sphere", # "rand_pnts_on_sphere, single_camera"
                 ddf_sampler=VMFDDFSamplerConfig(
-                    concentration=25.0,
-                )
+                    concentration=20.0,
+                ),
+                num_of_sky_ray_samples=256,
             ),
             model=DDFModelConfig(
                 ddf_field=DirectionalDistanceFieldConfig(
                     ddf_type="ddf", # pddf
-                    position_encoding_type="none",
+                    position_encoding_type="none", # none, hash, nerf, sh
                     direction_encoding_type="none",
                     network_type="siren", # siren, film_siren, fused_mlp
                     termination_output_activation="sigmoid",
@@ -264,10 +265,15 @@ DirectionalDistanceField = MethodSpecification(
                 ),
                 sdf_loss_mult=1.0,
                 depth_loss_mult=1.0,
-                prob_hit_loss_mult=0.0,
+                prob_hit_loss_mult=0.5,
                 normal_loss_mult=1.0,
                 eval_num_rays_per_chunk=1024,
                 compute_normals=False, # This currently does not work
+                include_multi_view_loss=True,
+                multi_view_loss_mult=0.1,
+                multi_view_loss_stop_gradient=False,
+                include_sky_ray_loss=True,
+                sky_ray_loss_mult=1.0,
             ),
             reni_neus_ckpt_path=Path("/workspace/outputs/unnamed/reni-neus/2023-06-07_141907"),
             reni_neus_ckpt_step=85000,

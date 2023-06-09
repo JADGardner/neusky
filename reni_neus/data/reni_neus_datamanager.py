@@ -289,6 +289,15 @@ class RENINeuSDataManager(DataManager):  # pylint: disable=abstract-method
             device=self.device,
             num_workers=self.world_size * 4,
         )
+    
+    def get_sky_ray_bundle(self, number_of_rays: int) -> Tuple[RayBundle, Dict]:
+        """Returns a sky ray bundle for the given step."""
+        image_batch = next(self.iter_train_image_dataloader)
+        assert self.train_pixel_sampler is not None
+        batch = self.train_pixel_sampler.collate_sky_ray_batch(image_batch, num_rays_per_batch=number_of_rays)
+        ray_indices = batch["indices"].cpu()
+        ray_bundle = self.train_ray_generator(ray_indices)
+        return ray_bundle
 
     def next_train(self, step: int) -> Tuple[RayBundle, Dict]:
         """Returns the next batch of data from the train dataloader."""

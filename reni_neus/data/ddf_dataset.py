@@ -68,6 +68,7 @@ class DDFDataset(Dataset):
         num_rays_per_batch: int = 1024,
         ddf_sphere_radius: float = 1.0,
         accumulation_mask_threshold: float = 0.7,
+        num_sky_ray_samples: int = 256,
         device: Union[torch.device, str] = "cpu",
     ):
         super().__init__()
@@ -84,6 +85,7 @@ class DDFDataset(Dataset):
         self.metadata = {}
         self.scale_factor = 1.0
         self.scene_box = scene_box
+        self.num_sky_ray_samples = num_sky_ray_samples
         self.old_datamanager = None
 
         config = Path(self.reni_neus_ckpt_path) / "config.yml"
@@ -114,7 +116,7 @@ class DDFDataset(Dataset):
             camera_type=CameraType.PERSPECTIVE,
         )
 
-        if self.test_mode in ["test", "val"] and self.old_datamanager is None:
+        if self.old_datamanager is None:
             self._setup_previous_datamanager(config)
 
     def __len__(self):
@@ -216,25 +218,6 @@ class DDFDataset(Dataset):
 
         ray_bundle = self.sampler(num_positions=1, num_directions=num_samples)
 
-        # positions = random_points_on_unit_sphere(1, cartesian=True)  # (1, 3)
-        # directions = random_inward_facing_directions(num_samples, normals=-positions)  # (1, num_directions, 3)
-
-        # positions = positions * self.ddf_sphere_radius
-
-        # pos_ray = positions.repeat(num_samples, 1).to(self.device)
-        # dir_ray = directions.reshape(-1, 3).to(self.device)
-        # pixel_area = torch.ones(num_samples, 1, device=self.device)
-        # camera_indices = torch.zeros(num_samples, 1, device=self.device, dtype=torch.int64)
-        # metadata = {"directions_norm": torch.ones(num_samples, 1, device=self.device)}
-
-        # ray_bundle = RayBundle(
-        #     origins=pos_ray,
-        #     directions=dir_ray,
-        #     pixel_area=pixel_area,
-        #     camera_indices=camera_indices,
-        #     metadata=metadata,
-        # )
-
         accumulations = None
         termination_dist = None
         normals = None
@@ -245,12 +228,18 @@ class DDFDataset(Dataset):
         normals = field_outputs["normal"].reshape(-1, 3).squeeze()
         mask = (accumulations > self.accumulation_mask_threshold).float()
 
+        # this is so we can use the fact that sky rays don't intersect anything
+        # so we can go from the DDF boundary to the known camera position as
+        # ground truth distance for DDF.
+        sky_ray_bundle = self.old_datamanager.get_sky_ray_bundle(number_of_rays=self.num_sky_ray_samples)
+
         data = {
             "ray_bundle": ray_bundle,
             "accumulations": accumulations,
             "mask": mask,
             "termination_dist": termination_dist,
             "normals": normals,
+            "sky_ray_bundle": sky_ray_bundle,
         }
 
         return data

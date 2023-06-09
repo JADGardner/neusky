@@ -195,6 +195,33 @@ def random_inward_facing_directions(num_directions, normals):
     return directions
 
 
+def ray_sphere_intersection(positions, directions, radius):
+    """Ray sphere intersection"""
+    # ray-sphere intersection
+    # positions is the origins of the rays
+    # directions is the directions of the rays [numbe]
+    # radius is the radius of the sphere
+
+    sphere_origin = torch.zeros_like(positions)
+    radius = torch.ones_like(positions[..., 0]) * radius
+
+    a = 1 # direction is normalized
+    b = 2 * torch.einsum("ij,ij->i", directions, positions - sphere_origin)
+    c = torch.einsum("ij,ij->i", positions - sphere_origin, positions - sphere_origin) - radius**2
+
+    discriminant = b**2 - 4 * a * c
+
+    t0 = (-b - torch.sqrt(discriminant)) / (2 * a)
+    t1 = (-b + torch.sqrt(discriminant)) / (2 * a)
+
+    # since we are inside the sphere we want the positive t
+    t = torch.max(t0, t1)
+
+    # now we need to point on the sphere that we intersected
+    intersection_point = positions + t.unsqueeze(-1) * directions
+
+    return intersection_point
+
 def sph2cart(theta, phi):
     x = torch.sin(phi) * torch.cos(theta)
     y = torch.sin(phi) * torch.sin(theta)

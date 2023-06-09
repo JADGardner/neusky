@@ -49,7 +49,7 @@ from nerfstudio.model_components.scene_colliders import SphereCollider
 from nerfstudio.viewer.server.viewer_elements import ViewerControl, ViewerButton
 
 from reni_neus.fields.directional_distance_field import DirectionalDistanceField, DirectionalDistanceFieldConfig
-from reni_neus.utils.utils import random_points_on_unit_sphere, random_inward_facing_directions
+from reni_neus.utils.utils import random_points_on_unit_sphere, random_inward_facing_directions, ray_sphere_intersection
 from reni_neus.reni_neus_fieldheadnames import RENINeuSFieldHeadNames
 
 CONSOLE = Console(width=120)
@@ -80,6 +80,12 @@ class DDFModelConfig(ModelConfig):
     """Whether to include multi-view loss"""
     multi_view_loss_mult: float = 1.0
     """Multiplier for the multi-view loss"""
+    multi_view_loss_stop_gradient: bool = False
+    """Whether to stop gradient for the multi-view loss"""
+    include_sky_ray_loss: bool = False
+    """Whether to include sky ray loss"""
+    sky_ray_loss_mult: float = 1.0
+    """Multiplier for the sky ray loss"""
 
 class DDFModel(Model):
     """Directional Distance Field model
@@ -119,6 +125,7 @@ class DDFModel(Model):
         self.sdf_loss = MSELoss() if self.config.sdf_loss == "L2" else nn.L1Loss()
         self.depth_loss = MSELoss() if self.config.depth_loss == "L2" else nn.L1Loss()
         self.normal_loss = nn.CosineSimilarity(dim=1, eps=1e-6)
+        self.probability_loss = torch.nn.BCELoss()
 
         # metrics
         self.psnr = PeakSignalNoiseRatio(data_range=1.0)
@@ -131,7 +138,7 @@ class DDFModel(Model):
             raise ValueError("populate_fields() must be called before get_param_groups")
         param_groups["fields"] = list(self.field.parameters())
         return param_groups
-    
+
     def get_localised_transforms(self, positions):
         """Computes the local coordinate system for each point in the input positions"""
         up_vector = torch.tensor([0, 0, 1]).type_as(positions)  # Assuming world up-vector is along z-axis as is the case in nerfstudio
@@ -148,7 +155,7 @@ class DDFModel(Model):
         z_local = z_local / z_local.norm(dim=-1, keepdim=True)  # Normalize
 
         # The y-axis is the position itself
-        y_local = positions      
+        y_local = positions
 
         # Stack the local basis vectors to form the rotation matrices
         rotation_matrices = torch.stack((x_local, y_local, z_local), dim=-1)
@@ -156,7 +163,7 @@ class DDFModel(Model):
         return rotation_matrices
  
 
-    def get_outputs(self, ray_bundle: RayBundle, reni_neus):
+    def get_outputs(self, ray_bundle: RayBundle, batch, reni_neus):
         if self.field is None:
             raise ValueError("populate_fields() must be called before get_outputs")
 
@@ -218,25 +225,85 @@ class DDFModel(Model):
 
             outputs["predicted_normals"] = n_hat
 
-        # if self.config.include_multi_view_loss:
-        #     # for every termination_point we choose a random other position on the sphere
-        #     # we the the ddf to predict the expteected termination distance from the random
-        #     # point to the termination point. This distance should be no greater than the
-        #     # expected termination distance that provided ther termination point.
+        if self.config.include_multi_view_loss and self.training:
+            assert batch is not None
+            # for every gt termination point we choose a random other position on the sphere
+            # we the the ddf to predict the termination distance from the random
+            # point to the termination point. This distance should be no greater than the distance
+            # from the random point to the gt termination point.
 
-        #     # for every termination point we choose a random other position on the sphere
-        #     points_on_sphere = random_points_on_unit_sphere(num_points=termination_points.shape[0])
-        #     direction_to_term_points = termination_points - points_on_sphere
-        #     ray_samples = RaySamples(
-        #         frustums=Frustums(
-        #             origins=points_on_sphere,
-        #             directions=direction_to_term_points,
-        #             starts=torch.zeros_like(points_on_sphere),
-        #             ends=torch.zeros_like(points_on_sphere),
-        #             pixel_area=torch.ones_like(points_on_sphere[:, 0]),
-        #         ),
-        #     )
-        #     field_outputs = self.field.forward(ray_samples)
+            # get gt_termination_points using gt_termination_dist
+            gt_termination_points = positions + directions * batch["termination_dist"].unsqueeze(-1)
+
+            # for every termination point we choose a random other position on the sphere
+            points_on_sphere = random_points_on_unit_sphere(num_points=gt_termination_points.shape[0]).type_as(gt_termination_points)
+
+            # get directions from points_on_sphere to termination_points
+            direction_to_term_points = gt_termination_points - points_on_sphere
+
+            # distance is the norm of the direction vector (this will be used in loss)
+            distance_to_term_points = torch.norm(direction_to_term_points, dim=-1)
+
+            # normalize the direction vector
+            direction_to_term_points = direction_to_term_points / distance_to_term_points.unsqueeze(-1)
+
+            # normalise directions such that [0, 1, 0] is facing the origin
+            rotation_matrices = self.get_localised_transforms(points_on_sphere)
+            transformed_directions = torch.einsum('ijl,ij->il', rotation_matrices, direction_to_term_points)
+
+            ray_samples = RaySamples(
+                frustums=Frustums(
+                    origins=points_on_sphere,
+                    directions=transformed_directions,
+                    starts=torch.zeros_like(points_on_sphere),
+                    ends=torch.zeros_like(points_on_sphere),
+                    pixel_area=torch.ones_like(points_on_sphere[:, 0]),
+                ),
+            )
+        
+            field_outputs = self.field.forward(ray_samples)
+
+            outputs["multi_view_termintation_dist"] = batch["termination_dist"]
+            outputs["multi_view_expected_termination_dist"] = field_outputs[RENINeuSFieldHeadNames.TERMINATION_DISTANCE]
+
+        if self.config.include_sky_ray_loss and self.training:
+            # all rays that go from cameras into the sky don't intersect the scene
+            # so we know that in the opposite direction the DDF should predict the
+            # distance from the DDF sphere to the camera origin, this is a ground truth
+            # distance that we can use to train the DDF
+
+            # first get the sky rays
+            sky_ray_bundle = batch["sky_ray_bundle"]
+
+            camera_origins = sky_ray_bundle.origins.reshape(-1, 3)
+            camera_directions = sky_ray_bundle.directions.reshape(-1, 3)
+
+            # we need the intersection points of the sky rays with the DDF sphere
+            points_on_sphere = ray_sphere_intersection(positions=camera_origins, directions=camera_directions, radius=self.ddf_radius)
+
+            # we need the ground truth distance from the camera origin to the intersection point
+            # this is the distance that the DDF should predict
+            distance_to_camera_origins = torch.norm(camera_origins - points_on_sphere, dim=-1)
+
+            # reverse directions (Origins to Sky -> DDF to Origin) and transform such that [0, 1, 0] is facing the origin
+            rotation_matrices = self.get_localised_transforms(points_on_sphere)
+            transformed_directions = torch.einsum('ijl,ij->il', rotation_matrices, -camera_directions)
+
+            ray_samples = RaySamples(
+                frustums=Frustums(
+                    origins=points_on_sphere,
+                    directions=transformed_directions,
+                    starts=torch.zeros_like(points_on_sphere),
+                    ends=torch.zeros_like(points_on_sphere),
+                    pixel_area=torch.ones_like(points_on_sphere[:, 0]),
+                ),
+            )
+        
+            field_outputs = self.field.forward(ray_samples)
+
+            outputs["sky_ray_termination_dist"] = distance_to_camera_origins
+            outputs["sky_ray_expected_termination_dist"] = field_outputs[RENINeuSFieldHeadNames.TERMINATION_DISTANCE]
+
 
         for key, value in outputs.items():
             if H is not None and W is not None:
@@ -244,7 +311,7 @@ class DDFModel(Model):
 
         return outputs
     
-    def forward(self, ray_bundle: RayBundle, reni_neus) -> Dict[str, torch.Tensor]:
+    def forward(self, ray_bundle: RayBundle, batch, reni_neus) -> Dict[str, torch.Tensor]:
         """Run forward starting with a ray bundle. This outputs different things depending on the configuration
         of the model and whether or not the batch is provided (whether or not we are training basically)
 
@@ -255,7 +322,7 @@ class DDFModel(Model):
         if self.collider is not None:
             ray_bundle = self.collider(ray_bundle)
 
-        return self.get_outputs(ray_bundle, reni_neus)
+        return self.get_outputs(ray_bundle, batch, reni_neus)
 
     def get_loss_dict(self, outputs, batch, metrics_dict=None):
         
@@ -276,14 +343,37 @@ class DDFModel(Model):
 
         loss_dict["sdf_loss"] = sdf_loss * self.config.sdf_loss_mult
         loss_dict["depth_loss"] = depth_loss * self.config.depth_loss_mult
-        
+
+        if 'expected_probability_of_hit' in outputs:
+            # this should be matching the mask and use binary cross entropy
+            probability_loss = self.probability_loss(
+                outputs["expected_probability_of_hit"],
+                batch["mask"]
+            )
+            loss_dict["probability_loss"] = probability_loss * self.config.prob_hit_loss_mult
+                
         if 'predicted_normals' in outputs:
             normal_loss = self.normal_loss(
                 outputs["predicted_normals"] * batch["mask"].unsqueeze(-1),
                 batch["normals"] * batch["mask"].unsqueeze(-1),
             ).sum()
             loss_dict["normal_loss"] = normal_loss * self.config.normal_loss_mult
-        
+
+        if 'multi_view_termintation_dist' in outputs:
+            # multi_view_expected_termination_dist must be less than multi_view_termintation_dist
+            # so penalise anything over
+            multi_view_loss = torch.zeros_like(outputs["multi_view_expected_termination_dist"])
+            multi_view_loss = torch.max(multi_view_loss, outputs["multi_view_expected_termination_dist"] - outputs["multi_view_termintation_dist"])
+            loss_dict["multi_view_loss"] = torch.mean(multi_view_loss) * self.config.multi_view_loss_mult
+
+        if 'sky_ray_termination_dist' in outputs:
+            sky_ray_loss = self.depth_loss(
+                outputs["sky_ray_expected_termination_dist"],
+                outputs["sky_ray_termination_dist"],
+            ) * self.config.sky_ray_loss_mult
+
+            loss_dict["sky_ray_loss"] = sky_ray_loss
+
         return loss_dict
 
     @torch.no_grad()
@@ -314,9 +404,9 @@ class DDFModel(Model):
                     ray_bundle = camera_ray_bundle.get_row_major_sliced_ray_bundle(start_idx, end_idx)
                     if self.config.compute_normals:
                         with torch.enable_grad():
-                            outputs = self.forward(ray_bundle=ray_bundle, reni_neus=reni_neus)
+                            outputs = self.forward(ray_bundle=ray_bundle, batch=None, reni_neus=reni_neus)
                     else:
-                        outputs = self.forward(ray_bundle=ray_bundle, reni_neus=reni_neus)
+                        outputs = self.forward(ray_bundle=ray_bundle, batch=None, reni_neus=reni_neus)
                     # move to cpu
                     outputs = {k: v.cpu() for k, v in outputs.items()}
                     for output_name, output in outputs.items():  # type: ignore
@@ -338,7 +428,7 @@ class DDFModel(Model):
                     outputs_lists[output_name].append(output)
         outputs = {}
         for output_name, outputs_list in outputs_lists.items():
-            outputs[output_name] = torch.cat(outputs_list).view(image_height, image_width, -1)  # type: ignore
+            outputs[output_name] = torch.cat(outputs_list).view(image_height, image_width, -1).to(dtype=torch.float32)  # type: ignore
         return outputs
 
     def get_image_metrics_and_images(
