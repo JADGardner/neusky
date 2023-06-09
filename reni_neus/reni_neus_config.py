@@ -65,8 +65,8 @@ RENINeuS = MethodSpecification(
                     auto_scale_poses=True,
                     crop_to_equal_size=True,
                 ),
-                train_num_rays_per_batch=512,
-                eval_num_rays_per_batch=512,
+                train_num_rays_per_batch=256,
+                eval_num_rays_per_batch=256,
                 camera_optimizer=CameraOptimizerConfig(
                     mode="off", optimizer=AdamOptimizerConfig(lr=6e-4, eps=1e-8, weight_decay=1e-2)
                 ),
@@ -90,11 +90,11 @@ RENINeuS = MethodSpecification(
                     optimise_exposure_scale=True,
                 ),
                 illumination_sampler=IcosahedronSamplerConfig(
-                    icosphere_order=11,
+                    icosphere_order=4,
                     apply_random_rotation=True,
                     remove_lower_hemisphere=False,
                 ),
-                eval_num_rays_per_chunk=512,
+                eval_num_rays_per_chunk=256,
                 illumination_field_prior_loss_weight=1e-7,
                 illumination_field_cosine_loss_weight=1e-1,
                 illumination_field_loss_weight=1.0,
@@ -107,7 +107,8 @@ RENINeuS = MethodSpecification(
                 hashgrid_density_loss_sample_resolution=10,
                 include_ground_plane_normal_alignment=True,
                 ground_plane_normal_alignment_multi=0.1,
-                visibility_field=DDFModelConfig(
+                # visibility_field=None,
+                visibility_field=DDFModelConfig( # DDFModelConfig or None
                     ddf_field=DirectionalDistanceFieldConfig(
                         ddf_type="ddf", # pddf
                         position_encoding_type="none", # none, hash, nerf, sh

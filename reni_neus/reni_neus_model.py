@@ -757,6 +757,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
         # shortcuts for later
         num_rays = ray_samples.frustums.origins.shape[0]
         num_samples = ray_samples.frustums.origins.shape[1]
+        original_num_light_directions = illumination_directions.shape[1]
 
         # illumination_directions = [num_rays * num_samples, num_light_directions, xyz]
         # we only want [num_light_directions, xyz]
@@ -848,9 +849,10 @@ class RENINeuSFactoModel(NeuSFactoModel):
         if self.config.only_upperhemisphere_visibility:
             # we now need to use the mask we created earlier to select only the upper hemisphere
             # and then use the predicted visibility values there
-            total_vis = torch.ones_like(illumination_directions).type_as(visibility)
+            total_vis = torch.ones(num_rays, original_num_light_directions, 1).type_as(visibility)
             total_vis[mask] = visibility
             visibility = total_vis
+            visibility = visibility.unsqueeze(1).repeat(1, num_samples, 1, 1).reshape(-1, 1, 1)
 
         visibility_dict = outputs
         visibility_dict["visibility"] = visibility

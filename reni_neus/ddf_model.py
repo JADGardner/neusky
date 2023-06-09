@@ -194,7 +194,7 @@ class DDFModel(Model):
                 directions=transformed_directions,
                 starts=torch.zeros_like(positions),
                 ends=torch.zeros_like(positions),
-                pixel_area=ray_bundle.pixel_area.reshape(-1, 1),
+                pixel_area=torch.ones_like(positions[..., 0]),
             ),
         )
 
@@ -319,8 +319,8 @@ class DDFModel(Model):
             outputs["sky_ray_expected_termination_dist"] = field_outputs[RENINeuSFieldHeadNames.TERMINATION_DISTANCE]
 
 
-        for key, value in outputs.items():
-            if H is not None and W is not None:
+        if H is not None and W is not None:
+            for key, value in outputs.items():
                 outputs[key] = value.reshape(H, W, 1, -1)
 
         return outputs
