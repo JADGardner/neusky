@@ -257,3 +257,7 @@ def look_at_target(camera_positions, target_positions, up_vector=torch.tensor([0
     c2w_matrices[..., 3, 3] = 1.0
 
     return c2w_matrices
+
+def log_loss(y_true, y_pred):
+    diff = torch.log(y_pred + 1e-6) - torch.log(y_true + 1e-6)
+    return torch.mean(diff ** 2) - (torch.var(diff) / 2)

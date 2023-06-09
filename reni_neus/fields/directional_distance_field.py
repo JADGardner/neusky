@@ -92,7 +92,7 @@ class DirectionalDistanceField(Field):
         self.config = config
         self.ddf_radius = ddf_radius
 
-        encoding_dim = self._setup_encoding()
+        pos_encoding_dim, dir_encoding_dim = self._setup_encoding()
 
         self.num_depth_components = self.config.num_dirac_components
         self.num_weight_components = self.config.num_dirac_components - 1
@@ -101,7 +101,7 @@ class DirectionalDistanceField(Field):
 
         if self.config.network_type == "siren":
             self.ddf = Siren(
-                in_features=6 + encoding_dim,
+                in_features=6 + pos_encoding_dim + dir_encoding_dim,
                 hidden_features=self.config.hidden_features,
                 hidden_layers=self.config.hidden_layers,
                 out_features=out_features,
@@ -111,8 +111,8 @@ class DirectionalDistanceField(Field):
             )
         elif self.config.network_type == "film_siren":
             self.ddf = DDFFiLMSiren(
-              input_dim=3 + encoding_dim,
-              mapping_network_input_dim=3 + encoding_dim,
+              input_dim=3 + pos_encoding_dim,
+              mapping_network_input_dim=3 + dir_encoding_dim,
               siren_hidden_features=self.config.hidden_features,
               siren_hidden_layers=self.config.hidden_layers,
               mapping_network_features=self.config.hidden_features,
@@ -121,7 +121,7 @@ class DirectionalDistanceField(Field):
             )
         elif self.config.network_type == "fused_mlp":
             self.ddf = tcnn.Network(
-                n_input_dims=6 + encoding_dim,
+                n_input_dims=6 + pos_encoding_dim + dir_encoding_dim,
                 n_output_dims=out_features,
                 network_config={
                     "otype": "FullyFusedMLP",
@@ -138,7 +138,7 @@ class DirectionalDistanceField(Field):
         )
 
     def _setup_encoding(self):
-        encoding_dim = 0
+        pos_encoding_dim, dir_encoding_dim = 0, 0
         self.position_encoding = None
         self.direction_encoding = None
 
@@ -161,6 +161,7 @@ class DirectionalDistanceField(Field):
                                                                     "per_level_scale": growth_factor}
             )
 
+
         if direction_encoding_type == "hash":
             num_levels: int = 16
             base_res: int = 16
@@ -181,23 +182,22 @@ class DirectionalDistanceField(Field):
             self.position_encoding = NeRFEncoding(
                 in_dim=3, num_frequencies=2, min_freq_exp=0.0, max_freq_exp=2.0, include_input=True
             )
-            encoding_dim += self.position_encoding.get_out_dim()
 
         if direction_encoding_type == "nerf":
             self.direction_encoding = NeRFEncoding(
                 in_dim=3, num_frequencies=2, min_freq_exp=0.0, max_freq_exp=2.0, include_input=True
             )
-            encoding_dim += self.direction_encoding.get_out_dim()
 
         if position_encoding_type == "sh":
             self.position_encoding = SHEncoding(4)
-            encoding_dim += self.position_encoding.get_out_dim()
 
         if direction_encoding_type == "sh":
             self.direction_encoding = SHEncoding(4)
-            encoding_dim += self.direction_encoding.get_out_dim()
 
-        return encoding_dim
+        pos_encoding_dim += self.position_encoding.get_out_dim() if self.position_encoding is not None else 0
+        dir_encoding_dim += self.direction_encoding.get_out_dim() if self.direction_encoding is not None else 0
+
+        return pos_encoding_dim, dir_encoding_dim
 
     def _get_activation(self, activation: Literal["sigmoid", "tanh", "relu"]):
         if activation == "sigmoid":

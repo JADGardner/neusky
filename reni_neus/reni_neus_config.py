@@ -107,104 +107,37 @@ RENINeuS = MethodSpecification(
                 hashgrid_density_loss_sample_resolution=10,
                 include_ground_plane_normal_alignment=True,
                 ground_plane_normal_alignment_multi=0.1,
-            ),
-        ),
-        optimizers={
-            "proposal_networks": {
-                "optimizer": AdamOptimizerConfig(lr=1e-2, eps=1e-15),
-                "scheduler": CosineDecaySchedulerConfig(warm_up_end=500, learning_rate_alpha=0.05, max_steps=100001),
-            },
-            "fields": {
-                "optimizer": AdamOptimizerConfig(lr=1e-3, eps=1e-15),
-                "scheduler": CosineDecaySchedulerConfig(warm_up_end=500, learning_rate_alpha=0.05, max_steps=100001),
-            },
-            "illumination_field": {
-                "optimizer": AdamOptimizerConfig(lr=1e-2, eps=1e-15),
-                "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-4, max_steps=100001),
-            },
-        },
-        viewer=ViewerConfig(num_rays_per_chunk=1 << 15),
-        vis="viewer",
-    ),
-    description="Base config for RENI-NeuS.",
-)
-
-
-RENINeuSWithVis = MethodSpecification(
-    config=TrainerConfig(
-        method_name="reni-neus-with-vis",
-        steps_per_eval_image=10000,
-        steps_per_eval_batch=100000,
-        steps_per_save=5000,
-        steps_per_eval_all_images=1000000,  # set to a very large model so we don't eval with all images
-        max_num_iterations=100001,
-        mixed_precision=False,
-        # load_dir=Path("/workspace/outputs/unnamed/reni-neus/2023-05-23_104452/nerfstudio_models/"),
-        # load_step=50000,
-        pipeline=RENINeuSPipelineConfig(
-            eval_latent_optimisation_source="image_full",
-            eval_latent_optimisation_epochs=50,
-            eval_latent_optimisation_lr=1e-2,
-            datamanager=RENINeuSDataManagerConfig(
-                dataparser=NeRFOSRCityScapesDataParserConfig(
-                    scene="lk2",
-                    auto_scale_poses=True,
-                    crop_to_equal_size=True,
-                ),
-                train_num_rays_per_batch=512,
-                eval_num_rays_per_batch=512,
-                camera_optimizer=CameraOptimizerConfig(
-                    mode="off", optimizer=AdamOptimizerConfig(lr=6e-4, eps=1e-8, weight_decay=1e-2)
-                ),
-            ),
-            model=RENINeuSFactoWithVisibilityModelConfig(
-                # proposal network allows for signifanctly smaller sdf/color network
-                sdf_field=SDFAlbedoFieldConfig(
-                    use_grid_feature=True,
-                    num_layers=2,
-                    hidden_dim=256,
-                    num_layers_color=2,
-                    hidden_dim_color=256,
-                    bias=0.1,
-                    beta_init=0.1,
-                    use_appearance_embedding=False,
-                    inside_outside=False,
-                ),
-                illumination_field=RENIFieldConfig(
-                    checkpoint_path="/workspace/reni_neus/checkpoints/reni_weights/latent_dim_36_net_5_256_vad_cbc_tanh_hdr/version_0/checkpoints/fit_decoder_epoch=1589.ckpt",
-                    fixed_decoder=True,
-                    optimise_exposure_scale=True,
-                ),
-                illumination_sampler=IcosahedronSamplerConfig(
-                    icosphere_order=11,
-                    apply_random_rotation=True,
-                    remove_lower_hemisphere=False,
-                ),
                 visibility_field=DDFModelConfig(
                     ddf_field=DirectionalDistanceFieldConfig(
-                      position_encoding_type="none",
-                      direction_encoding_type="none",
-                      network_type="siren",
-                      termination_output_activation="sigmoid",
-                      probability_of_hit_output_activation="sigmoid",
-                      hidden_layers=5,
-                      hidden_features=256,
-                      predict_probability_of_hit=False,
-                      ),
-                    sdf_loss_mult=0.5,
-                    depth_loss_mult=3.0,
-                    prob_hit_loss_mult=0.0,
+                        ddf_type="ddf", # pddf
+                        position_encoding_type="none", # none, hash, nerf, sh
+                        direction_encoding_type="none",
+                        network_type="film_siren", # siren, film_siren, fused_mlp
+                        termination_output_activation="sigmoid",
+                        probability_of_hit_output_activation="sigmoid",
+                        hidden_layers=5,
+                        hidden_features=256,
+                        predict_probability_of_hit=False,
+                    ),
+                    sdf_loss_mult=1.0,
+                    depth_loss="L1", # L2, L1, Log_Loss
+                    depth_loss_mult=5.0,
+                    prob_hit_loss_mult=0.5,
                     normal_loss_mult=1.0,
+                    eval_num_rays_per_chunk=1024,
+                    compute_normals=False, # This currently does not work
+                    include_multi_view_loss=True,
+                    multi_view_loss_mult=0.1,
+                    multi_view_loss_stop_gradient=False,
+                    include_sky_ray_loss=True,
+                    sky_ray_loss_mult=1.0,
                 ),
                 ddf_radius="AABB",
-                eval_num_rays_per_chunk=512,
-                illumination_field_prior_loss_weight=1e-7,
-                illumination_field_cosine_loss_weight=1e-1,
-                illumination_field_loss_weight=1.0,
-                fg_mask_loss_mult=1.0,
-                background_model="none",
-                use_average_appearance_embedding=False,
-                render_only_albedo=False,
+                visibility_threshold="learnable", # "learnable", float
+                only_upperhemisphere_visibility=True,
+                optimise_visibility=True,
+                visibility_ckpt_path=None,
+                visibility_ckpt_step=0,
             ),
         ),
         optimizers={
@@ -220,12 +153,118 @@ RENINeuSWithVis = MethodSpecification(
                 "optimizer": AdamOptimizerConfig(lr=1e-2, eps=1e-15),
                 "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-4, max_steps=100001),
             },
+            "visibility_threshold": {
+                "optimizer": AdamOptimizerConfig(lr=1e-2, eps=1e-15),
+                "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-4, max_steps=100001),
+            },
+            "ddf_field": {
+                "optimizer": AdamOptimizerConfig(lr=1e-4, eps=1e-15),
+                "scheduler": CosineDecaySchedulerConfig(warm_up_end=500, learning_rate_alpha=0.05, max_steps=10001),
+            },
         },
         viewer=ViewerConfig(num_rays_per_chunk=1 << 15),
         vis="viewer",
     ),
     description="Base config for RENI-NeuS.",
 )
+
+
+# RENINeuSWithVis = MethodSpecification(
+#     config=TrainerConfig(
+#         method_name="reni-neus-with-vis",
+#         steps_per_eval_image=10000,
+#         steps_per_eval_batch=100000,
+#         steps_per_save=5000,
+#         steps_per_eval_all_images=1000000,  # set to a very large model so we don't eval with all images
+#         max_num_iterations=100001,
+#         mixed_precision=False,
+#         # load_dir=Path("/workspace/outputs/unnamed/reni-neus/2023-05-23_104452/nerfstudio_models/"),
+#         # load_step=50000,
+#         pipeline=RENINeuSPipelineConfig(
+#             eval_latent_optimisation_source="image_full",
+#             eval_latent_optimisation_epochs=50,
+#             eval_latent_optimisation_lr=1e-2,
+#             datamanager=RENINeuSDataManagerConfig(
+#                 dataparser=NeRFOSRCityScapesDataParserConfig(
+#                     scene="lk2",
+#                     auto_scale_poses=True,
+#                     crop_to_equal_size=True,
+#                 ),
+#                 train_num_rays_per_batch=512,
+#                 eval_num_rays_per_batch=512,
+#                 camera_optimizer=CameraOptimizerConfig(
+#                     mode="off", optimizer=AdamOptimizerConfig(lr=6e-4, eps=1e-8, weight_decay=1e-2)
+#                 ),
+#             ),
+#             model=RENINeuSFactoWithVisibilityModelConfig(
+#                 # proposal network allows for signifanctly smaller sdf/color network
+#                 sdf_field=SDFAlbedoFieldConfig(
+#                     use_grid_feature=True,
+#                     num_layers=2,
+#                     hidden_dim=256,
+#                     num_layers_color=2,
+#                     hidden_dim_color=256,
+#                     bias=0.1,
+#                     beta_init=0.1,
+#                     use_appearance_embedding=False,
+#                     inside_outside=False,
+#                 ),
+#                 illumination_field=RENIFieldConfig(
+#                     checkpoint_path="/workspace/reni_neus/checkpoints/reni_weights/latent_dim_36_net_5_256_vad_cbc_tanh_hdr/version_0/checkpoints/fit_decoder_epoch=1589.ckpt",
+#                     fixed_decoder=True,
+#                     optimise_exposure_scale=True,
+#                 ),
+#                 illumination_sampler=IcosahedronSamplerConfig(
+#                     icosphere_order=11,
+#                     apply_random_rotation=True,
+#                     remove_lower_hemisphere=False,
+#                 ),
+#                 visibility_field=DDFModelConfig(
+#                     ddf_field=DirectionalDistanceFieldConfig(
+#                       position_encoding_type="none",
+#                       direction_encoding_type="none",
+#                       network_type="siren",
+#                       termination_output_activation="sigmoid",
+#                       probability_of_hit_output_activation="sigmoid",
+#                       hidden_layers=5,
+#                       hidden_features=256,
+#                       predict_probability_of_hit=False,
+#                       ),
+#                     sdf_loss_mult=0.5,
+#                     depth_loss_mult=3.0,
+#                     prob_hit_loss_mult=0.0,
+#                     normal_loss_mult=1.0,
+#                 ),
+#                 ddf_radius="AABB",
+#                 eval_num_rays_per_chunk=512,
+#                 illumination_field_prior_loss_weight=1e-7,
+#                 illumination_field_cosine_loss_weight=1e-1,
+#                 illumination_field_loss_weight=1.0,
+#                 fg_mask_loss_mult=1.0,
+#                 background_model="none",
+#                 use_average_appearance_embedding=False,
+#                 render_only_albedo=False,
+#             ),
+#         ),
+#         optimizers={
+#             "proposal_networks": {
+#                 "optimizer": AdamOptimizerConfig(lr=1e-2, eps=1e-15),
+#                 "scheduler": CosineDecaySchedulerConfig(warm_up_end=500, learning_rate_alpha=0.05, max_steps=100001),
+#             },
+#             "fields": {
+#                 "optimizer": AdamOptimizerConfig(lr=1e-3, eps=1e-15),
+#                 "scheduler": CosineDecaySchedulerConfig(warm_up_end=500, learning_rate_alpha=0.05, max_steps=100001),
+#             },
+#             "illumination_field": {
+#                 "optimizer": AdamOptimizerConfig(lr=1e-2, eps=1e-15),
+#                 "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-4, max_steps=100001),
+#             },
+#         },
+#         viewer=ViewerConfig(num_rays_per_chunk=1 << 15),
+#         vis="viewer",
+#     ),
+#     description="Base config for RENI-NeuS.",
+# )
 
 
 
@@ -254,17 +293,18 @@ DirectionalDistanceField = MethodSpecification(
             model=DDFModelConfig(
                 ddf_field=DirectionalDistanceFieldConfig(
                     ddf_type="ddf", # pddf
-                    position_encoding_type="none", # none, hash, nerf, sh
-                    direction_encoding_type="none",
-                    network_type="siren", # siren, film_siren, fused_mlp
+                    position_encoding_type="nerf", # none, hash, nerf, sh
+                    direction_encoding_type="nerf",
+                    network_type="film_siren", # siren, film_siren, fused_mlp
                     termination_output_activation="sigmoid",
                     probability_of_hit_output_activation="sigmoid",
                     hidden_layers=5,
                     hidden_features=256,
                     predict_probability_of_hit=False,
                 ),
-                sdf_loss_mult=1.0,
-                depth_loss_mult=1.0,
+                sdf_loss_mult=0.1,
+                depth_loss="L2", # L2, L1, Log_Loss
+                depth_loss_mult=5.0,
                 prob_hit_loss_mult=0.5,
                 normal_loss_mult=1.0,
                 eval_num_rays_per_chunk=1024,
@@ -280,7 +320,7 @@ DirectionalDistanceField = MethodSpecification(
             ddf_radius="AABB",
         ),
         optimizers={
-            "fields": {
+            "ddf_field": {
                 "optimizer": AdamOptimizerConfig(lr=1e-4, eps=1e-15),
                 "scheduler": CosineDecaySchedulerConfig(warm_up_end=500, learning_rate_alpha=0.05, max_steps=10001),
             },

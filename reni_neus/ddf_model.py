@@ -49,7 +49,7 @@ from nerfstudio.model_components.scene_colliders import SphereCollider
 from nerfstudio.viewer.server.viewer_elements import ViewerControl, ViewerButton
 
 from reni_neus.fields.directional_distance_field import DirectionalDistanceField, DirectionalDistanceFieldConfig
-from reni_neus.utils.utils import random_points_on_unit_sphere, random_inward_facing_directions, ray_sphere_intersection
+from reni_neus.utils.utils import random_points_on_unit_sphere, random_inward_facing_directions, ray_sphere_intersection, log_loss
 from reni_neus.reni_neus_fieldheadnames import RENINeuSFieldHeadNames
 
 CONSOLE = Console(width=120)
@@ -64,7 +64,7 @@ class DDFModelConfig(ModelConfig):
     """DDF field configuration"""
     sdf_loss: Literal["L1", "L2"] = "L2"
     """SDF loss type"""
-    depth_loss: Literal["L1", "L2"] = "L2"
+    depth_loss: Literal["L1", "L2", "Log_Loss", "Inverse_Scaled_L2"] = "L2"
     """Depth loss type"""
     sdf_loss_mult: float = 1.0
     """Multiplier for the sdf loss"""
@@ -86,6 +86,8 @@ class DDFModelConfig(ModelConfig):
     """Whether to include sky ray loss"""
     sky_ray_loss_mult: float = 1.0
     """Multiplier for the sky ray loss"""
+    include_sdf_loss: bool = True # perhaps make all losses a union of literals with none as option
+    """Whether to include sdf loss"""
 
 class DDFModel(Model):
     """Directional Distance Field model
@@ -123,7 +125,14 @@ class DDFModel(Model):
 
         # losses
         self.sdf_loss = MSELoss() if self.config.sdf_loss == "L2" else nn.L1Loss()
-        self.depth_loss = MSELoss() if self.config.depth_loss == "L2" else nn.L1Loss()
+        
+        if self.config.depth_loss == "L2":
+            self.depth_loss = nn.MSELoss()
+        elif self.config.depth_loss == "L1":
+            self.depth_loss = nn.L1Loss()
+        elif self.config.depth_loss == "Log_Loss":
+            self.depth_loss = log_loss
+
         self.normal_loss = nn.CosineSimilarity(dim=1, eps=1e-6)
         self.probability_loss = torch.nn.BCELoss()
 
@@ -136,7 +145,7 @@ class DDFModel(Model):
         param_groups = {}
         if self.field is None:
             raise ValueError("populate_fields() must be called before get_param_groups")
-        param_groups["fields"] = list(self.field.parameters())
+        param_groups["ddf_field"] = list(self.field.parameters())
         return param_groups
 
     def get_localised_transforms(self, positions):
@@ -172,12 +181,12 @@ class DDFModel(Model):
         if len(ray_bundle.origins.shape) in [3, 4]:
             H, W = ray_bundle.origins.shape[:2]
 
-        positions = ray_bundle.origins.reshape(-1, 3)
-        directions = ray_bundle.directions.reshape(-1, 3)
+        positions = ray_bundle.origins.reshape(-1, 3) # (N, 3)
+        directions = ray_bundle.directions.reshape(-1, 3) # (N, 3)
 
-        rotation_matrices = self.get_localised_transforms(positions)
+        rotation_matrices = self.get_localised_transforms(positions) # (N, 3, 3)
 
-        transformed_directions = torch.einsum('ijl,ij->il', rotation_matrices, directions)
+        transformed_directions = torch.einsum('ijl,ij->il', rotation_matrices, directions) # (N, 3)
 
         ray_samples = RaySamples(
             frustums=Frustums(
@@ -196,10 +205,15 @@ class DDFModel(Model):
         expected_termination_dist = field_outputs[RENINeuSFieldHeadNames.TERMINATION_DISTANCE]
 
         # get sdf at expected termination distance for loss
-        termination_points = (
-            positions + directions * expected_termination_dist.unsqueeze(-1)
-        )
-        sdf_at_termination = reni_neus.field.get_sdf_at_pos(termination_points)
+        if self.config.include_sdf_loss:
+          if reni_neus is not None:
+              termination_points = (
+                  positions + directions * expected_termination_dist.unsqueeze(-1)
+              )
+              sdf_at_termination = reni_neus.field.get_sdf_at_pos(termination_points)
+          else:
+              assert 'sdf_at_termination' in batch, 'sdf_at_termination not in batch and reni_neus is None'
+              sdf_at_termination = batch['sdf_at_termination']
 
         outputs = {
             "sdf_at_termination": sdf_at_termination,
@@ -330,19 +344,20 @@ class DDFModel(Model):
         # should be zero
         loss_dict = {}
 
-        sdf_loss = self.sdf_loss(
-            outputs["sdf_at_termination"] * batch["mask"],
-            torch.zeros_like(outputs["sdf_at_termination"]) * batch["mask"],
-        )
+        if 'sdf_at_termination' in outputs:
+            sdf_loss = self.sdf_loss(
+                outputs["sdf_at_termination"] * batch["mask"],
+                torch.zeros_like(outputs["sdf_at_termination"]) * batch["mask"],
+            )
+            loss_dict["sdf_loss"] = sdf_loss * self.config.sdf_loss_mult
 
         # match the depth of the sdf model
-        depth_loss = self.depth_loss(
-            outputs["expected_termination_dist"].squeeze() * batch["mask"],
-            batch["termination_dist"] * batch["mask"],
-        )
-
-        loss_dict["sdf_loss"] = sdf_loss * self.config.sdf_loss_mult
-        loss_dict["depth_loss"] = depth_loss * self.config.depth_loss_mult
+        if 'expected_termination_dist' in outputs:
+            depth_loss = self.depth_loss(
+                outputs["expected_termination_dist"].squeeze() * batch["mask"],
+                batch["termination_dist"] * batch["mask"],
+            )
+            loss_dict["depth_loss"] = depth_loss * self.config.depth_loss_mult
 
         if 'expected_probability_of_hit' in outputs:
             # this should be matching the mask and use binary cross entropy
@@ -462,8 +477,17 @@ class DDFModel(Model):
         combined_depth = torch.cat([gt_depth, depth], dim=1)
         images_dict["depth"] = combined_depth
 
+        depth_error = torch.abs(gt_termination_dist * batch['mask'].type_as(gt_termination_dist) - expected_termination_dist * batch['mask'].type_as(expected_termination_dist))
+        depth_error_normalized = (depth_error - torch.min(depth_error)) / (torch.max(depth_error) - torch.min(depth_error))
+        images_dict["depth_error"] = depth_error_normalized
+
         if RENINeuSFieldHeadNames.PROBABILITY_OF_HIT in outputs:
             expected_probability_of_hit = outputs["expected_probability_of_hit"]
+
+            combined_probability_of_hit = torch.cat([gt_accumulations, expected_probability_of_hit], dim=1)
+
+            images_dict["probability_of_hit"] = combined_probability_of_hit
+
 
         if 'predicted_normals' in outputs:
             normals = outputs["predicted_normals"]

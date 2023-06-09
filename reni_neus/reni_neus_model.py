@@ -24,6 +24,8 @@ from typing import Any, Dict, List, Optional, Tuple, Type, Union, Literal
 from collections import defaultdict
 import random
 from rich.progress import BarColumn, Console, Progress, TextColumn, TimeRemainingColumn
+from pathlib import Path
+import yaml
 
 import nerfacc
 import torch
@@ -97,8 +99,16 @@ class RENINeuSFactoModelConfig(NeuSFactoModelConfig):
     """Visibility field"""
     ddf_radius: Union[Literal["AABB"], float] = "AABB"
     """Radius of the DDF sphere"""
-    learnable_visibility_threshold: bool = False
+    visibility_threshold: Union[Literal["learnable"], float] = "learnable"
     """Learnable visibility threshold"""
+    optimise_visibility: bool = False
+    """Optimise visibility"""
+    visibility_ckpt_path: Union[Path, None] = None
+    """Path to visibility checkpoint"""
+    visibility_ckpt_step: int = 0
+    """Step of the visibility checkpoint"""
+    only_upperhemisphere_visibility: bool = False
+    """Lower hemisphere visibility will always be 1.0 if this is True"""
 
 
 class RENINeuSFactoModel(NeuSFactoModel):
@@ -131,11 +141,18 @@ class RENINeuSFactoModel(NeuSFactoModel):
 
         self.setup_gui()
 
-        if self.config.visibility_field is not None:
-            self.visibility_field = self.config.visibility_field.setup(scene_box=self.scene_box, num_train_data=self.num_train_data, ddf_radius=self.ddf_radius)
+        if self.config.ddf_radius == "AABB":
+            self.ddf_radius = torch.abs(self.scene_box.aabb[0, 0]).item()
+        else:
+            self.ddf_radius = self.config.ddf_radius
 
-            if self.config.learnable_visibility_threshold:
+        if self.config.visibility_field is not None:
+            self.visibility_field = self._setup_visibility_field()
+
+            if self.config.visibility_threshold == "learnable":
                 self.visibility_threshold = Parameter(torch.tensor(1.0))
+            else:
+                self.visibility_threshold = torch.tensor(self.config.visibility_threshold)
         
 
     def populate_modules(self):
@@ -180,6 +197,10 @@ class RENINeuSFactoModel(NeuSFactoModel):
         param_groups["fields"] = list(self.field.parameters())
         param_groups["proposal_networks"] = list(self.proposal_networks.parameters())
         param_groups["illumination_field"] = list(self.illumination_field_train.parameters())
+        if self.config.visibility_threshold == "learnable":
+            param_groups["visibility_threshold"] = [self.visibility_threshold]
+        if self.config.optimise_visibility:
+            param_groups.update(self.visibility_field.get_param_groups())
         return param_groups
 
     def get_illumination_field(self):
@@ -191,8 +212,22 @@ class RENINeuSFactoModel(NeuSFactoModel):
             )
 
         return illumination_field
+    
+    def forward(self, ray_bundle: RayBundle, batch: Union[Dict, None] = None) -> Dict[str, torch.Tensor]:
+        """Run forward starting with a ray bundle. This outputs different things depending on the configuration
+        of the model and whether or not the batch is provided (whether or not we are training basically)
 
-    def sample_and_forward_field(self, ray_bundle: RayBundle) -> Dict[str, Any]:
+        Args:
+            ray_bundle: containing all the information needed to render that ray latents included
+            batch: batch needed for DDF: masks, etc.
+        """
+
+        if self.collider is not None:
+            ray_bundle = self.collider(ray_bundle)
+
+        return self.get_outputs(ray_bundle, batch)
+
+    def sample_and_forward_field(self, ray_bundle: RayBundle, batch: Union[Dict, None] = None) -> Dict[str, Any]:
         """Sample rays using proposal networks and compute the corresponding field outputs."""
         ray_samples, weights_list, ray_samples_list = self.proposal_sampler(ray_bundle, density_fns=self.density_fns)
 
@@ -248,9 +283,10 @@ class RENINeuSFactoModel(NeuSFactoModel):
             depth = p2p_dist / ray_bundle.metadata["directions_norm"]
 
             visibility_dict = self.compute_visibility(ray_samples=ray_samples,
-                                          p2p_dist=p2p_dist,
-                                          illumination_directions=illumination_directions,
-                                          threshold_distance=0.1)
+                                                      p2p_dist=p2p_dist,
+                                                      illumination_directions=illumination_directions,
+                                                      threshold_distance=self.visibility_threshold,
+                                                      batch=batch)
             
             samples_and_field_outputs["p2p_dist"] = p2p_dist
             samples_and_field_outputs["depth"] = depth
@@ -310,7 +346,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
 
         return samples_and_field_outputs
 
-    def get_outputs(self, ray_bundle: RayBundle) -> Dict[str, torch.Tensor]:
+    def get_outputs(self, ray_bundle: RayBundle, batch: Union[Dict, None] = None) -> Dict[str, torch.Tensor]:
         """Takes in a Ray Bundle and returns a dictionary of outputs.
 
         Args:
@@ -320,7 +356,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
         Returns:
             Outputs of model. (ie. rendered colors)
         """
-        samples_and_field_outputs = self.sample_and_forward_field(ray_bundle=ray_bundle)
+        samples_and_field_outputs = self.sample_and_forward_field(ray_bundle=ray_bundle, batch=batch)
 
         # shortcuts
         field_outputs = samples_and_field_outputs["field_outputs"]
@@ -331,13 +367,17 @@ class RENINeuSFactoModel(NeuSFactoModel):
         hdr_illumination_colours = samples_and_field_outputs["hdr_illumination_colours"]
         background_colours = samples_and_field_outputs["background_colours"]
 
+        visibility = None
+        if 'visibility_dict' in samples_and_field_outputs:
+            visibility = field_outputs['visibility_dict']['expected_termination_dist']
+            
         if self.render_rgb_static:
             rgb = self.lambertian_renderer(
                 albedos=field_outputs[RENINeuSFieldHeadNames.ALBEDO],
                 normals=field_outputs[FieldHeadNames.NORMALS],
                 light_directions=illumination_directions,
                 light_colors=hdr_illumination_colours,
-                visibility=None,
+                visibility=visibility,
                 background_illumination=background_colours,
                 weights=weights,
             )
@@ -403,6 +443,9 @@ class RENINeuSFactoModel(NeuSFactoModel):
         if 'grid_density' in samples_and_field_outputs:
             outputs['grid_density'] = samples_and_field_outputs['grid_density']
 
+        if 'visibility_dict' in samples_and_field_outputs:
+            outputs['visibility_batch'] = samples_and_field_outputs['visibility_dict']['visibility_batch']
+
         return outputs
 
     def get_loss_dict(
@@ -435,6 +478,10 @@ class RENINeuSFactoModel(NeuSFactoModel):
                 loss_dict["ground_plane_alignment_loss"] = (
                     monosdf_normal_loss(normal_pred * batch["ground_mask"], normal_gt * batch["ground_mask"]) * self.config.ground_plane_normal_alignment_multi
                 )
+
+        if self.config.visibility_field is not None:
+            # add the loss_dict from the visibility field
+            loss_dict.update(self.visibility_field.get_loss_dict(outputs, outputs["visibility_batch"]))
 
         return loss_dict
 
@@ -700,16 +747,30 @@ class RENINeuSFactoModel(NeuSFactoModel):
 
         return intersection_point
 
-    def compute_visibility(self, ray_samples, p2p_dist, illumination_directions, threshold_distance):
+    def compute_visibility(self, ray_samples, p2p_dist, illumination_directions, threshold_distance, batch):
         """Compute visibility"""
         # ddf_model directional distance field model
         # positions is the origins of the rays from the surface of the object
         # directions is the directions of the rays from the surface of the object # [98304, 1212, 3] -> [number_of_rays * samples_per_ray, number_of_light_directions, xyz]
         # sphere_intersection_points is the point on the sphere that we intersected
-        
-        # shortcuts
-        num_light_directions = illumination_directions.shape[1]
+
+        # shortcuts for later
         num_rays = ray_samples.frustums.origins.shape[0]
+        num_samples = ray_samples.frustums.origins.shape[1]
+
+        # illumination_directions = [num_rays * num_samples, num_light_directions, xyz]
+        # we only want [num_light_directions, xyz]
+        illumination_directions = illumination_directions[0, :, :]
+
+        if self.config.only_upperhemisphere_visibility:
+            # we dot product illumination_directions with the vertical z axis
+            # and use it as mask to select only the upper hemisphere
+            dot_products = torch.sum(torch.tensor([0, 0, 1]).type_as(illumination_directions) * illumination_directions, dim=1)
+            mask = dot_products > 0
+            directions = illumination_directions[mask] # [num_light_directions, xyz]
+        
+        # more shortcuts
+        num_light_directions = directions.shape[0]
 
         # since we are only using a single sample, the sample we think has hit the object,
         # we can just use one of each of these values, they are all just copied for each
@@ -719,19 +780,21 @@ class RENINeuSFactoModel(NeuSFactoModel):
 
         # get positions based on p2p distance (expected termination depth)
         # this is our sample on the surface of the SDF representing the scene
-        positions = origins + ray_directions * p2p_dist.unsqueeze(-1)
+        positions = origins + ray_directions * p2p_dist.unsqueeze(-1) # [num_rays, 1, 3]
 
         positions = positions.unsqueeze(1).repeat(
             1, num_light_directions, 1, 1
         )  # [num_rays, num_light_directions, 1, 3]
         directions = (
-            illumination_directions[0:1, :, :].unsqueeze(2).repeat(num_rays, 1, 1, 1)
+            directions.unsqueeze(0).repeat(num_rays, 1, 1)
         )  # [num_rays, num_light_directions, 1, 3]
 
         positions = positions.reshape(-1, 3)  # [num_rays * num_light_directions, 3]
         directions = directions.reshape(-1, 3)  # [num_rays * num_light_directions, 3]
 
         sphere_intersection_points = self.ray_sphere_intersection(positions, directions, self.ddf_radius) # [num_rays * num_light_directions, 3]
+
+        termination_dist = torch.norm(sphere_intersection_points - positions, dim=-1) # [num_rays * num_light_directions]
 
         # we need directions from intersection points to ray origins
         directions = -directions
@@ -740,11 +803,30 @@ class RENINeuSFactoModel(NeuSFactoModel):
         visibility_ray_bundle = RayBundle(
             origins=positions,
             directions=directions,
-            pixel_area=torch.ones_like(positions[..., 0]),
+            pixel_area=torch.ones_like(positions[..., 0]), # not used but required for class
         )
 
+        # we can use the fact that any rays that hit the sky we know
+        fg_mask = batch['fg_mask']
+        sky_mask = (1.0 - fg_mask).bool().repeat(1, 3) # [num_sky_rays, 3]
+
+        sky_origins = ray_samples.frustums.origins[:, 0, :][sky_mask].reshape(-1, 3) # [num_sky_rays, 3]
+        sky_directions = ray_samples.frustums.directions[:, 0, :][sky_mask].reshape(-1, 3) # [num_sky_rays, 3]
+        sky_pixel_ares = torch.ones_like(sky_origins[..., 0]).reshape(-1, 1) # [num_sky_rays, 1]
+
+        sky_ray_bundle = RayBundle(
+            origins=sky_origins,
+            directions=sky_directions,
+            pixel_area=sky_pixel_ares,
+        )
+
+        ddf_batch = {
+            "termination_dist": termination_dist,
+            "sky_ray_bundle": sky_ray_bundle,
+        }
+
         # Get output of visibility field (DDF)
-        outputs = self.visibility_field(visibility_ray_bundle, reni_neus=self) # [N, 2]
+        outputs = self.visibility_field(visibility_ray_bundle, batch=ddf_batch, reni_neus=self) # [N, 2]
 
         # the distance from the point on the sphere to the point on the SDF
         dist_to_ray_origins = torch.norm(positions - sphere_intersection_points, dim=-1) # [N]
@@ -756,12 +838,56 @@ class RENINeuSFactoModel(NeuSFactoModel):
         # if the difference is positive then the expected termination distance
         # is greater than the distance from the point on the sphere to the point on the SDF
         # so the point on the sphere is visible to it
-        visibility = (difference > 0).float() # TODO make soft for training???
+        # visibility = (difference > 0).float() # TODO make soft for training???
+        # Use a large scale to make the transition steep
+        scale = 50.0
+        # Adjust the bias to control the point at which the transition happens
+        bias = 0.0
+        visibility = torch.sigmoid(scale * (difference - bias))
 
-        visibility_dict = {
-            "visibility": visibility,
-            "expected_termination_dist": outputs['expected_termination_dist'],
-            "sdf_at_termination": outputs['sdf_at_termination'],
+        if self.config.only_upperhemisphere_visibility:
+            # we now need to use the mask we created earlier to select only the upper hemisphere
+            # and then use the predicted visibility values there
+            total_vis = torch.ones_like(illumination_directions).type_as(visibility)
+            total_vis[mask] = visibility
+            visibility = total_vis
+
+        visibility_dict = outputs
+        visibility_dict["visibility"] = visibility
+        visibility_dict["visibility_batch"] = {
+            "termination_dist": termination_dist,
+            "mask": torch.ones_like(termination_dist),
         }
-
+        
         return visibility_dict
+    
+    def _setup_visibility_field(self):
+        # setting up visibility field
+        if self.config.visibility_ckpt_path is None:
+            return self.config.visibility_field.setup(scene_box=self.scene_box, num_train_data=self.num_train_data, ddf_radius=self.ddf_radius)
+        else:
+            ckpt_path = self.config.visibility_ckpt_path / "nerfstudio_models" / f"step-{self.config.visibility_ckpt_step:09d}.ckpt"
+            ckpt = torch.load(str(ckpt_path))
+
+            model_dict = {}
+            for key in ckpt["pipeline"].keys():
+                if key.startswith("_model."):
+                    model_dict[key[7:]] = ckpt["pipeline"][key]
+
+            # load yaml checkpoint config
+            visibility_config = Path(self.config.visibility_ckpt_path) / "config.yml"
+            visibility_config = yaml.load(visibility_config.open(), Loader=yaml.Loader)
+
+            visibility_field = visibility_config.pipeline.model.setup(
+                scene_box=self.scene_box,
+                num_train_data=-1,
+                ddf_radius=self.ddf_radius,
+            )
+
+            visibility_field.load_state_dict(model_dict)
+            if not self.config.optimise_visibility:
+              visibility_field.eval()
+
+            visibility_field.to(self.device)
+
+            return visibility_field
