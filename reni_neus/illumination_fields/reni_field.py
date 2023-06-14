@@ -591,7 +591,7 @@ class RENIField(IlluminationField):
         # TODO (james): make generic for type of reni
         self.reni.mu.requires_grad = False
 
-    def get_outputs(self, unique_indices, inverse_indices, directions, illumination_type):
+    def get_outputs(self, unique_indices, inverse_indices, directions, rotation, illumination_type):
         """Computes and returns the HDR illumination colours.
 
         Args:
@@ -603,8 +603,13 @@ class RENIField(IlluminationField):
             light_colours: [num_rays * samples_per_ray, num_directions, 3]
             light_directions: [num_rays * samples_per_ray, num_directions, 3]
         """
+        Z, _, _ = self.reni.sample_latent(unique_indices)  # [unique_indices, ndims, 3]
+
+        if rotation is not None:
+            rotation = rotation.type_as(Z)
+            Z = torch.matmul(Z, rotation)  # [unique_indices, ndims, 3]
+                
         if illumination_type == "illumination":
-            Z, _, _ = self.reni.sample_latent(unique_indices)  # [unique_indices, ndims, 3]
             # convert directions to RENI coordinate system
             light_directions = torch.stack([-directions[:, 0], directions[:, 2], directions[:, 1]], dim=1)
             light_directions = directions.unsqueeze(0).repeat(Z.shape[0], 1, 1).to(Z.device)  # [unique_indices, D, 3]
@@ -625,7 +630,6 @@ class RENIField(IlluminationField):
             )  # [num_rays * samples_per_ray, D, 3]
             return light_colours, light_directions
         elif illumination_type == "background":
-            Z, _, _ = self.reni.sample_latent(unique_indices)  # [unique_indices, ndims, 3]
             Z = Z[inverse_indices[:, 0], :, :]  # [num_rays, ndims, 3]
             light_directions = directions.unsqueeze(1)  # [num_rays, 1, 3]
             # convert directions to RENI coordinate system
@@ -641,7 +645,6 @@ class RENIField(IlluminationField):
             light_colours = sRGB(light_colours)  # [num_rays, 1, 3]
             return light_colours, light_directions
         elif illumination_type == "envmap":
-            Z, _, _ = self.reni.sample_latent(unique_indices)
             light_colours = self.reni(Z, directions)  # [unique_indices, D, 3]
             light_colours = self.reni.unnormalise(light_colours)  # undo reni scaling between -1 and 1
             if self.exposure_scale:

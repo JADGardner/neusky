@@ -3,6 +3,8 @@ from functools import singledispatch, update_wrapper
 import numpy as np
 import torch.nn.functional as F
 
+from typing import Literal
+
 
 def sRGB(color):
     color = torch.where(
@@ -122,7 +124,7 @@ def methdispatch(func):
     return wrapper
 
 
-def get_directions(sidelen):
+def get_directions(sidelen, convention: Literal["RENI", "Nerfstudio"] = "RENI"):
     """Generates a flattened grid of (x,y,z,...) coordinates in a range of -1 to 1.
     sidelen: int
     dim: int"""
@@ -143,6 +145,11 @@ def get_directions(sidelen):
     ).unsqueeze(
         0
     )  # shape=[1, sidelen/2*sidelen, 3]
+
+    if convention == "Nerfstudio":
+        directions = torch.stack(
+                [-directions[:, :, 0], directions[:, :, 2], directions[:, :, 1]], dim=2
+            )
     return directions
 
 

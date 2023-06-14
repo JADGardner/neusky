@@ -43,6 +43,7 @@ from nerfstudio.data.datamanagers.base_datamanager import VanillaDataManager
 from reni_neus.utils.utils import random_points_on_unit_sphere, random_inward_facing_directions, look_at_target
 from reni_neus.reni_neus_model import RENINeuSFactoModel
 from reni_neus.model_components.ddf_sampler import DDFSampler
+from reni_neus.model_components.illumination_samplers import IcosahedronSamplerConfig
 
 class DDFDataset(Dataset):
     """Dataset that returns images.
@@ -87,6 +88,9 @@ class DDFDataset(Dataset):
         self.scene_box = scene_box
         self.num_sky_ray_samples = num_sky_ray_samples
         self.old_datamanager = None
+        
+        camera_sampler_config = IcosahedronSamplerConfig(icosphere_order=1, apply_random_rotation=True, remove_lower_hemisphere=True)
+        self.camera_sampler = camera_sampler_config.setup()
 
         config = Path(self.reni_neus_ckpt_path) / "config.yml"
         config = yaml.load(config.open(), Loader=yaml.Loader)
@@ -140,25 +144,21 @@ class DDFDataset(Dataset):
         intrinsics[0, 1, 1] = self.old_datamanager.eval_dataloader.cameras.fy[0]
         intrinsics[0, 0, 2] = self.old_datamanager.eval_dataloader.cameras.cx[0]
         intrinsics[0, 1, 2] = self.old_datamanager.eval_dataloader.cameras.cy[0]
-
-        min_x = torch.min(original_data_c2w[:, 0, 3])
-        max_x = torch.max(original_data_c2w[:, 0, 3])
-        min_y = torch.min(original_data_c2w[:, 1, 3])
-        max_y = torch.max(original_data_c2w[:, 1, 3])
-
+        
         batch_list = []
 
-        for _ in range(self.num_generated_imgs):
-            # generate random camera positions between min and max x and y and z > 0
-            random_x = torch.empty(1).uniform_(min_x, max_x).type_as(min_x)
-            random_y = torch.empty(1).uniform_(min_y, max_y).type_as(min_x)
-            random_z = torch.empty(1).uniform_(0.1, 0.3).type_as(min_x)
+        # positions is an empyty tensor
+        positions = torch.empty((0, 3), device=self.device)
+        # keep sampling and concatenating positions until > num_generated_imgs
+        while positions.shape[0] < self.num_generated_imgs:
+            position_sample = self.camera_sampler.sample()
+            positions = torch.cat([positions, position_sample], dim=0)
+        
+        # select only the first num_generated_imgs positions
+        positions = positions[:self.num_generated_imgs]
 
-            # combine x, y, z into a single tensor
-            random_position = torch.stack([random_x, random_y, random_z], dim=1)
-
-            # normalize the positions
-            position = F.normalize(random_position, p=2, dim=1)
+        for i in range(self.num_generated_imgs):
+            position = positions[i]
 
             # generate c2w looking at the origin
             c2w = look_at_target(position, torch.zeros_like(position).type_as(position))[..., :3, :4]  # (3, 4)
@@ -180,6 +180,8 @@ class DDFDataset(Dataset):
             accumulations = outputs["accumulation"]  # [H, W, 1]
             # termination_dist = outputs["p2p_dist"].reshape(-1, 1).squeeze()  # [N]
             termination_dist = outputs["p2p_dist"]  # [H, W, 1]
+            # clamp termination distance to 2 x ddf_sphere_radius
+            termination_dist = torch.clamp(termination_dist, max=2 * self.ddf_sphere_radius)
             # normals = outputs["normal"].reshape(-1, 3).squeeze()  # [N, 3]
             normals = outputs["normal"]  # [H, W, 1, 3]
             mask = (accumulations > self.accumulation_mask_threshold).float()
@@ -227,6 +229,9 @@ class DDFDataset(Dataset):
         termination_dist = field_outputs["p2p_dist"].reshape(-1, 1).squeeze()
         normals = field_outputs["normal"].reshape(-1, 3).squeeze()
         mask = (accumulations > self.accumulation_mask_threshold).float()
+
+        # clamp termination distance to 2 x ddf_sphere_radius
+        termination_dist = torch.clamp(termination_dist, max=2 * self.ddf_sphere_radius)
 
         # this is so we can use the fact that sky rays don't intersect anything
         # so we can go from the DDF boundary to the known camera position as

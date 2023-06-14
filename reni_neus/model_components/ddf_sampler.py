@@ -233,7 +233,7 @@ class VMFDDFSampler(DDFSampler):
         positions = self.random_points_on_unit_sphere(1, cartesian=True)  # (1, 3)
         directions = self.random_vmf(mu=-positions.squeeze(), kappa=self.concentration, size=num_directions) # (N, 3)
 
-        # identify any directions that are not in the hemisphere of the associated normal
+        # # identify any directions that are not in the hemisphere of the associated normal
         dot_products = torch.sum(-positions * directions, dim=1)
         mask = dot_products < 0
 

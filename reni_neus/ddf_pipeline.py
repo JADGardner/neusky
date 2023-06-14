@@ -254,7 +254,7 @@ class DDFPipeline(VanillaPipeline):
                 inner_start = time()
                 height, width = camera_ray_bundle.shape
                 num_rays = height * width
-                outputs = self.model.get_outputs_for_camera_ray_bundle(camera_ray_bundle, self.reni_neus)
+                outputs = self.model.get_outputs_for_camera_ray_bundle(camera_ray_bundle, self.reni_neus, show_progress=True)
                 metrics_dict, _ = self.model.get_image_metrics_and_images(outputs, batch)
                 assert "num_rays_per_sec" not in metrics_dict
                 metrics_dict["num_rays_per_sec"] = num_rays / (time() - inner_start)

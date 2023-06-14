@@ -101,11 +101,15 @@ class IcosahedronSampler(IlluminationSampler):
         self.icosphere_order = icosphere_order
         vertices, _ = icosphere.icosphere(self.icosphere_order)
         self.directions = torch.from_numpy(vertices).float()
+    
+    def icosphere_order_from_num_directions(self, num_directions: int):
+        """Returns the icosphere order for a given number of directions"""
+        return int((num_directions - 2) / 10)
 
-    def generate_direction_samples(self, num_directions=None) -> torch.Tensor:
+    def generate_direction_samples(self, num_directions=None, apply_random_rotation=None) -> torch.Tensor:
         # generate N random rotations
         directions = self.directions
-        if self.apply_random_rotation:
+        if (apply_random_rotation is None and self.apply_random_rotation) or apply_random_rotation is True:
             R = torch.from_numpy(Rotation.random(1).as_matrix())[0].float()
             directions = directions @ R
 

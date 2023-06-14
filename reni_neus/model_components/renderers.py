@@ -106,7 +106,7 @@ class RGBLambertianRendererWithVisibility(nn.Module):
 
         if visibility is not None:
             # Apply the visibility mask to the dot product
-            dot_prod = dot_prod * visibility
+            dot_prod = dot_prod * visibility.squeeze()
 
         # compute final color by multiplying dot product with albedo color and light color
         color = torch.einsum("bi,bj,bji->bi", albedos, dot_prod, light_colors)  # [num_rays * samples_per_ray, 3]

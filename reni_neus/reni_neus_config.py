@@ -47,7 +47,7 @@ from reni_neus.model_components.ddf_sampler import DDFSamplerConfig, VMFDDFSampl
 RENINeuS = MethodSpecification(
     config=TrainerConfig(
         method_name="reni-neus",
-        steps_per_eval_image=10000,
+        steps_per_eval_image=100,
         steps_per_eval_batch=100000,
         steps_per_save=5000,
         steps_per_eval_all_images=1000000,  # set to a very large model so we don't eval with all images
@@ -111,8 +111,8 @@ RENINeuS = MethodSpecification(
                 visibility_field=DDFModelConfig( # DDFModelConfig or None
                     ddf_field=DirectionalDistanceFieldConfig(
                         ddf_type="ddf", # pddf
-                        position_encoding_type="none", # none, hash, nerf, sh
-                        direction_encoding_type="none",
+                        position_encoding_type="nerf", # none, hash, nerf, sh
+                        direction_encoding_type="nerf",
                         network_type="film_siren", # siren, film_siren, fused_mlp
                         termination_output_activation="sigmoid",
                         probability_of_hit_output_activation="sigmoid",
@@ -132,9 +132,10 @@ RENINeuS = MethodSpecification(
                     multi_view_loss_stop_gradient=False,
                     include_sky_ray_loss=True,
                     sky_ray_loss_mult=1.0,
+                    include_sdf_loss=False,
                 ),
                 ddf_radius="AABB",
-                visibility_threshold="learnable", # "learnable", float
+                visibility_threshold=1.0, # "learnable", float
                 only_upperhemisphere_visibility=True,
                 optimise_visibility=True,
                 visibility_ckpt_path=None,
@@ -155,12 +156,12 @@ RENINeuS = MethodSpecification(
                 "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-4, max_steps=100001),
             },
             "visibility_threshold": {
-                "optimizer": AdamOptimizerConfig(lr=1e-2, eps=1e-15),
+                "optimizer": AdamOptimizerConfig(lr=1e-6, eps=1e-15),
                 "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-4, max_steps=100001),
             },
             "ddf_field": {
                 "optimizer": AdamOptimizerConfig(lr=1e-4, eps=1e-15),
-                "scheduler": CosineDecaySchedulerConfig(warm_up_end=500, learning_rate_alpha=0.05, max_steps=10001),
+                "scheduler": CosineDecaySchedulerConfig(warm_up_end=500, learning_rate_alpha=0.05, max_steps=100001),
             },
         },
         viewer=ViewerConfig(num_rays_per_chunk=1 << 15),
@@ -303,8 +304,8 @@ DirectionalDistanceField = MethodSpecification(
                     hidden_features=256,
                     predict_probability_of_hit=False,
                 ),
-                sdf_loss_mult=0.1,
-                depth_loss="L2", # L2, L1, Log_Loss
+                sdf_loss_mult=1.0,
+                depth_loss="L1", # L2, L1, Log_Loss
                 depth_loss_mult=5.0,
                 prob_hit_loss_mult=0.5,
                 normal_loss_mult=1.0,

@@ -198,11 +198,15 @@ class DDFModel(Model):
             ),
         )
 
+        outputs = {}
+
         if self.config.compute_normals:
             ray_samples.frustums.origins.requires_grad = True
 
         field_outputs = self.field.forward(ray_samples)
         expected_termination_dist = field_outputs[RENINeuSFieldHeadNames.TERMINATION_DISTANCE]
+
+        outputs["expected_termination_dist"] = expected_termination_dist
 
         # get sdf at expected termination distance for loss
         if self.config.include_sdf_loss:
@@ -211,14 +215,11 @@ class DDFModel(Model):
                   positions + directions * expected_termination_dist.unsqueeze(-1)
               )
               sdf_at_termination = reni_neus.field.get_sdf_at_pos(termination_points)
-          else:
-              assert 'sdf_at_termination' in batch, 'sdf_at_termination not in batch and reni_neus is None'
+              outputs['sdf_at_termination'] = sdf_at_termination
+          elif batch is not None and 'sdf_at_termination' in batch:
               sdf_at_termination = batch['sdf_at_termination']
+              outputs['sdf_at_termination'] = sdf_at_termination
 
-        outputs = {
-            "sdf_at_termination": sdf_at_termination,
-            "expected_termination_dist": expected_termination_dist,
-        }
 
         if RENINeuSFieldHeadNames.PROBABILITY_OF_HIT in field_outputs:
             outputs["expected_probability_of_hit"] = field_outputs[RENINeuSFieldHeadNames.PROBABILITY_OF_HIT]
@@ -393,7 +394,7 @@ class DDFModel(Model):
 
     @torch.no_grad()
     def get_outputs_for_camera_ray_bundle(
-        self, camera_ray_bundle: RayBundle, reni_neus=None, show_progress=True
+        self, camera_ray_bundle: RayBundle, reni_neus=None, show_progress=False
     ) -> Dict[str, torch.Tensor]:
         """Takes in camera parameters and computes the output of the model.
 
@@ -435,7 +436,7 @@ class DDFModel(Model):
                 start_idx = i
                 end_idx = i + num_rays_per_chunk
                 ray_bundle = camera_ray_bundle.get_row_major_sliced_ray_bundle(start_idx, end_idx)
-                outputs = self.forward(ray_bundle=ray_bundle, reni_neus=reni_neus)
+                outputs = self.forward(ray_bundle=ray_bundle, batch=None, reni_neus=reni_neus)
                 for output_name, output in outputs.items():  # type: ignore
                     if not torch.is_tensor(output):
                         # TODO: handle lists of tensors as well

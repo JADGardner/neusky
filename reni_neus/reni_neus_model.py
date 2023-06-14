@@ -109,6 +109,8 @@ class RENINeuSFactoModelConfig(NeuSFactoModelConfig):
     """Step of the visibility checkpoint"""
     only_upperhemisphere_visibility: bool = False
     """Lower hemisphere visibility will always be 1.0 if this is True"""
+    fix_test_illumination_directions: bool = False
+    """Fix the test illumination directions"""
 
 
 class RENINeuSFactoModel(NeuSFactoModel):
@@ -213,7 +215,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
 
         return illumination_field
     
-    def forward(self, ray_bundle: RayBundle, batch: Union[Dict, None] = None) -> Dict[str, torch.Tensor]:
+    def forward(self, ray_bundle: RayBundle, batch: Union[Dict, None] = None, rotation: Union[torch.Tensor, None]= None) -> Dict[str, torch.Tensor]:
         """Run forward starting with a ray bundle. This outputs different things depending on the configuration
         of the model and whether or not the batch is provided (whether or not we are training basically)
 
@@ -225,9 +227,9 @@ class RENINeuSFactoModel(NeuSFactoModel):
         if self.collider is not None:
             ray_bundle = self.collider(ray_bundle)
 
-        return self.get_outputs(ray_bundle, batch)
+        return self.get_outputs(ray_bundle, batch=batch, rotation=rotation)
 
-    def sample_and_forward_field(self, ray_bundle: RayBundle, batch: Union[Dict, None] = None) -> Dict[str, Any]:
+    def sample_and_forward_field(self, ray_bundle: RayBundle, batch: Union[Dict, None] = None, rotation: Union[torch.Tensor, None]= None) -> Dict[str, Any]:
         """Sample rays using proposal networks and compute the corresponding field outputs."""
         ray_samples, weights_list, ray_samples_list = self.proposal_sampler(ray_bundle, density_fns=self.density_fns)
 
@@ -245,7 +247,11 @@ class RENINeuSFactoModel(NeuSFactoModel):
 
         illumination_field = self.get_illumination_field()
 
-        illumination_directions = self.illumination_sampler()
+        if not self.training and self.config.fix_test_illumination_directions:
+            illumination_directions = self.illumination_sampler(apply_random_rotation=False)
+        else:
+            illumination_directions = self.illumination_sampler()
+
         illumination_directions = illumination_directions.to(self.device)
 
         # Get environment illumination for samples along the rays for each unique camera
@@ -253,6 +259,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
             camera_indices=camera_indices,
             positions=None,
             directions=illumination_directions,
+            rotation=rotation,
             illumination_type="illumination",
         )
 
@@ -261,6 +268,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
             camera_indices=camera_indices,
             positions=None,
             directions=ray_samples.frustums.directions[:, 0, :],
+            rotation=rotation,
             illumination_type="background",
         )
 
@@ -282,14 +290,19 @@ class RENINeuSFactoModel(NeuSFactoModel):
             # the rendered depth is point-to-point distance and we should convert to depth
             depth = p2p_dist / ray_bundle.metadata["directions_norm"]
 
+            # we need accumulation so we can ignore samples that don't hit the scene
+            accumulation = self.renderer_accumulation(weights=weights)
+
             visibility_dict = self.compute_visibility(ray_samples=ray_samples,
                                                       p2p_dist=p2p_dist,
                                                       illumination_directions=illumination_directions,
                                                       threshold_distance=self.visibility_threshold,
+                                                      accumulation=accumulation,
                                                       batch=batch)
             
             samples_and_field_outputs["p2p_dist"] = p2p_dist
             samples_and_field_outputs["depth"] = depth
+            samples_and_field_outputs["accumulation"] = accumulation
             samples_and_field_outputs["visibility_dict"] = visibility_dict
 
         if self.config.include_hashgrid_density_loss and self.training:
@@ -346,7 +359,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
 
         return samples_and_field_outputs
 
-    def get_outputs(self, ray_bundle: RayBundle, batch: Union[Dict, None] = None) -> Dict[str, torch.Tensor]:
+    def get_outputs(self, ray_bundle: RayBundle, batch: Union[Dict, None] = None, rotation: Union[torch.Tensor, None]= None) -> Dict[str, torch.Tensor]:
         """Takes in a Ray Bundle and returns a dictionary of outputs.
 
         Args:
@@ -356,7 +369,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
         Returns:
             Outputs of model. (ie. rendered colors)
         """
-        samples_and_field_outputs = self.sample_and_forward_field(ray_bundle=ray_bundle, batch=batch)
+        samples_and_field_outputs = self.sample_and_forward_field(ray_bundle=ray_bundle, batch=batch, rotation=rotation)
 
         # shortcuts
         field_outputs = samples_and_field_outputs["field_outputs"]
@@ -369,7 +382,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
 
         visibility = None
         if 'visibility_dict' in samples_and_field_outputs:
-            visibility = field_outputs['visibility_dict']['expected_termination_dist']
+            visibility = samples_and_field_outputs["visibility_dict"]["visibility"]
             
         if self.render_rgb_static:
             rgb = self.lambertian_renderer(
@@ -384,22 +397,25 @@ class RENINeuSFactoModel(NeuSFactoModel):
         else:
             rgb = torch.zeros((ray_bundle.shape[0], 3)).to(self.device)
 
-        if self.render_accumulation_static:
-            accumulation = self.renderer_accumulation(weights=weights)
+        if 'accumulation' in samples_and_field_outputs:
+            accumulation = samples_and_field_outputs["accumulation"]
         else:
-            accumulation = torch.zeros((ray_bundle.shape[0], 1)).to(self.device)
+            if self.render_accumulation_static:
+                accumulation = self.renderer_accumulation(weights=weights)
+            else:
+                accumulation = torch.zeros((ray_bundle.shape[0], 1)).to(self.device)
 
         if 'p2p_dist' in samples_and_field_outputs:
             p2p_dist = samples_and_field_outputs["p2p_dist"]
             depth = samples_and_field_outputs["depth"]
         else:
-          if self.render_depth_static:
-              p2p_dist = self.renderer_depth(weights=weights, ray_samples=ray_samples)
-              # the rendered depth is point-to-point distance and we should convert to depth
-              depth = p2p_dist / ray_bundle.metadata["directions_norm"]
-          else:
-              p2p_dist = torch.zeros((ray_bundle.shape[0], 1)).to(self.device)
-              depth = torch.zeros((ray_bundle.shape[0], 1)).to(self.device)
+            if self.render_depth_static:
+                p2p_dist = self.renderer_depth(weights=weights, ray_samples=ray_samples)
+                # the rendered depth is point-to-point distance and we should convert to depth
+                depth = p2p_dist / ray_bundle.metadata["directions_norm"]
+            else:
+                p2p_dist = torch.zeros((ray_bundle.shape[0], 1)).to(self.device)
+                depth = torch.zeros((ray_bundle.shape[0], 1)).to(self.device)
 
         if self.render_normal_static:
             normal = self.renderer_normal(semantics=field_outputs[FieldHeadNames.NORMALS], weights=weights)
@@ -509,7 +525,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
             W = 512
             H = W // 2
             D = get_directions(W).to(self.device)  # [B, H*W, 3]
-            envmap, _ = illumination_field(idx, None, D, "envmap")
+            envmap, _ = illumination_field(idx, None, D, None, "envmap")
             envmap = envmap.reshape(1, H, W, 3).squeeze(0)
             images_dict["RENI"] = envmap
 
@@ -517,7 +533,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
 
     @torch.no_grad()
     def get_outputs_for_camera_ray_bundle(
-        self, camera_ray_bundle: RayBundle, show_progress=False
+        self, camera_ray_bundle: RayBundle, show_progress=False, rotation=None
     ) -> Dict[str, torch.Tensor]:
         """Takes in camera parameters and computes the output of the model.
 
@@ -548,7 +564,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
                     start_idx = i
                     end_idx = i + num_rays_per_chunk
                     ray_bundle = camera_ray_bundle.get_row_major_sliced_ray_bundle(start_idx, end_idx)
-                    outputs = self.forward(ray_bundle=ray_bundle)
+                    outputs = self.forward(ray_bundle=ray_bundle, rotation=rotation)
                     for output_name, output in outputs.items():  # type: ignore
                         if not torch.is_tensor(output):
                             # TODO: handle lists of tensors as well
@@ -560,7 +576,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
                 start_idx = i
                 end_idx = i + num_rays_per_chunk
                 ray_bundle = camera_ray_bundle.get_row_major_sliced_ray_bundle(start_idx, end_idx)
-                outputs = self.forward(ray_bundle=ray_bundle)
+                outputs = self.forward(ray_bundle=ray_bundle, rotation=rotation)
                 for output_name, output in outputs.items():  # type: ignore
                     if not torch.is_tensor(output):
                         # TODO: handle lists of tensors as well
@@ -747,7 +763,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
 
         return intersection_point
 
-    def compute_visibility(self, ray_samples, p2p_dist, illumination_directions, threshold_distance, batch):
+    def compute_visibility(self, ray_samples, p2p_dist, illumination_directions, threshold_distance, accumulation, batch):
         """Compute visibility"""
         # ddf_model directional distance field model
         # positions is the origins of the rays from the surface of the object
@@ -769,6 +785,8 @@ class RENINeuSFactoModel(NeuSFactoModel):
             dot_products = torch.sum(torch.tensor([0, 0, 1]).type_as(illumination_directions) * illumination_directions, dim=1)
             mask = dot_products > 0
             directions = illumination_directions[mask] # [num_light_directions, xyz]
+        else:
+            directions = illumination_directions
         
         # more shortcuts
         num_light_directions = directions.shape[0]
@@ -806,31 +824,34 @@ class RENINeuSFactoModel(NeuSFactoModel):
             directions=directions,
             pixel_area=torch.ones_like(positions[..., 0]), # not used but required for class
         )
+        
+        ddf_batch = {"termination_dist": termination_dist}
+        
+        if self.training and batch is not None:
+            # we can use the fact that any rays that hit the sky we know
+            fg_mask = batch['fg_mask'].detach().clone()
+            sky_mask = (1.0 - fg_mask).bool().repeat(1, 3) # [num_sky_rays, 3]
 
-        # we can use the fact that any rays that hit the sky we know
-        fg_mask = batch['fg_mask']
-        sky_mask = (1.0 - fg_mask).bool().repeat(1, 3) # [num_sky_rays, 3]
+            sky_origins = ray_samples.frustums.origins[:, 0, :][sky_mask].reshape(-1, 3) # [num_sky_rays, 3]
+            sky_directions = ray_samples.frustums.directions[:, 0, :][sky_mask].reshape(-1, 3) # [num_sky_rays, 3]
+            sky_pixel_ares = torch.ones_like(sky_origins[..., 0]).reshape(-1, 1) # [num_sky_rays, 1]
 
-        sky_origins = ray_samples.frustums.origins[:, 0, :][sky_mask].reshape(-1, 3) # [num_sky_rays, 3]
-        sky_directions = ray_samples.frustums.directions[:, 0, :][sky_mask].reshape(-1, 3) # [num_sky_rays, 3]
-        sky_pixel_ares = torch.ones_like(sky_origins[..., 0]).reshape(-1, 1) # [num_sky_rays, 1]
+            sky_ray_bundle = RayBundle(
+                origins=sky_origins,
+                directions=sky_directions,
+                pixel_area=sky_pixel_ares,
+            )
 
-        sky_ray_bundle = RayBundle(
-            origins=sky_origins,
-            directions=sky_directions,
-            pixel_area=sky_pixel_ares,
-        )
-
-        ddf_batch = {
-            "termination_dist": termination_dist,
-            "sky_ray_bundle": sky_ray_bundle,
-        }
+            ddf_batch["sky_ray_bundle"] = sky_ray_bundle
 
         # Get output of visibility field (DDF)
         outputs = self.visibility_field(visibility_ray_bundle, batch=ddf_batch, reni_neus=self) # [N, 2]
 
-        # the distance from the point on the sphere to the point on the SDF
+        # the ground truth distance from the point on the sphere to the point on the SDF
         dist_to_ray_origins = torch.norm(positions - sphere_intersection_points, dim=-1) # [N]
+
+        # as the DDF can only predict 2*its radius, we need to clamp gt to that
+        dist_to_ray_origins = torch.clamp(dist_to_ray_origins, max=self.ddf_radius * 2.0)
 
         # add threshold_distance extra to the expected_termination_dist (i.e slighly futher into the SDF)
         # and get the difference between it and the distance from the point on the sphere to the point on the SDF
@@ -850,9 +871,15 @@ class RENINeuSFactoModel(NeuSFactoModel):
             # we now need to use the mask we created earlier to select only the upper hemisphere
             # and then use the predicted visibility values there
             total_vis = torch.ones(num_rays, original_num_light_directions, 1).type_as(visibility)
+            # reshape mask to match the total_vis dimensions
+            mask = mask.reshape(1, original_num_light_directions, 1).expand_as(total_vis)
+            # use the mask to replace the values
             total_vis[mask] = visibility
             visibility = total_vis
-            visibility = visibility.unsqueeze(1).repeat(1, num_samples, 1, 1).reshape(-1, 1, 1)
+
+        visibility = visibility.unsqueeze(1).repeat(1, num_samples, 1, 1) # [num_rays, num_samples, num_light_directions, 1]
+        # and reshape so that it is [num_rays * num_samples, original_num_light_directions, 1]
+        visibility = visibility.reshape(-1, original_num_light_directions, 1)
 
         visibility_dict = outputs
         visibility_dict["visibility"] = visibility
