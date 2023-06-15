@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Type, Union
 import copy
+import yaml
 
 import torch
 from rich.progress import Console
@@ -34,6 +35,7 @@ from nerfstudio.cameras.cameras import CameraType
 from nerfstudio.cameras.rays import RayBundle
 from nerfstudio.data.dataparsers.base_dataparser import DataparserOutputs
 from nerfstudio.data.dataparsers.blender_dataparser import BlenderDataParserConfig
+from nerfstudio.data.datamanagers.base_datamanager import VanillaDataManager
 
 from nerfstudio.data.datasets.base_dataset import InputDataset
 from nerfstudio.data.pixel_samplers import (
@@ -77,6 +79,8 @@ class DDFDataManagerConfig(DataManagerConfig):
     """Threshold for accumulation mask"""
     train_data: Literal["rand_pnts_on_sphere", "single_camera"] = "rand_pnts_on_sphere"
     """Type of training data to use"""
+    train_data_idx: int = 0
+    """Index of training data to use if using single_camera"""
     ddf_sampler: DDFSamplerConfig = DDFSamplerConfig()
     """DDF sampler config"""
     num_of_sky_ray_samples: int = 256
@@ -128,51 +132,47 @@ class DDFDataManager(DataManager):  # pylint: disable=abstract-method
         self.ddf_radius = ddf_radius
         self.ddf_sampler = self.config.ddf_sampler.setup(device=self.device)
 
+        config = Path(self.reni_neus_ckpt_path) / "config.yml"
+        config = yaml.load(config.open(), Loader=yaml.Loader)
 
-        self.train_dataset = self.create_train_dataset()
-        self.eval_dataset = self.create_eval_dataset()
+        self.old_datamanager: VanillaDataManager = config.pipeline.datamanager.setup(
+            device=self.device,
+            test_mode="val",
+            world_size=1,
+            local_rank=1,
+        )
+
+        # get average camera position and conver to normalised direction
+        c2w = self.old_datamanager.train_dataset.cameras.camera_to_worlds
+        positions = c2w[:, :3, 3]
+        average_camera_position = torch.mean(positions, dim=0)
+        self.dir_to_average_cam_pos = average_camera_position / torch.norm(
+            average_camera_position
+        )
+
+        self.train_dataset = self.create_dataset()
+        self.eval_dataset = self.train_dataset
 
         # not used just to get rid of error
-        self.train_dataparser_outputs = self.eval_dataset.old_datamanager.train_dataparser_outputs
-        # self.train_dataparser_outputs = copy.deepcopy(self.eval_dataset.old_datamanager.train_dataparser_outputs)
+        self.train_dataparser_outputs = self.train_dataset.dataparser_outputs
 
-        # del self.eval_dataset.old_datamanager
-
-    def create_train_dataset(self) -> DDFDataset:
+    def create_dataset(self) -> DDFDataset:
         # This is used for fitting to a single image for debugging
-        if self.config.train_data == "rand_pnts_on_sphere":
-          test_mode = "train"
-        else:
-          test_mode = "val"
 
         return DDFDataset(
             reni_neus=self.reni_neus,
             reni_neus_ckpt_path=self.reni_neus_ckpt_path,
-            test_mode=test_mode,
+            test_mode=self.config.train_data,
             sampler=self.ddf_sampler,
             scene_box=self.scene_box,
-            num_generated_imgs=1,
+            num_generated_imgs=self.config.num_test_images_to_generate,
             cache_dir=self.config.test_image_cache_dir,
             num_rays_per_batch=self.config.train_num_rays_per_batch,
             ddf_sphere_radius=self.ddf_radius,
             accumulation_mask_threshold=self.config.accumulation_mask_threshold,
             num_sky_ray_samples=self.config.num_of_sky_ray_samples,
-            device=self.device,
-        )
-
-    def create_eval_dataset(self) -> DDFDataset:
-        return DDFDataset(
-            reni_neus=self.reni_neus,
-            reni_neus_ckpt_path=self.reni_neus_ckpt_path,
-            test_mode=self.test_mode,
-            sampler=self.ddf_sampler,
-            scene_box=self.scene_box,
-            num_generated_imgs=self.config.num_test_images_to_generate,
-            cache_dir=self.config.test_image_cache_dir,
-            num_rays_per_batch=self.config.eval_num_rays_per_batch,
-            ddf_sphere_radius=self.ddf_radius,
-            accumulation_mask_threshold=self.config.accumulation_mask_threshold,
-            num_sky_ray_samples=self.config.num_of_sky_ray_samples,
+            old_datamanager=self.old_datamanager,
+            dir_to_average_cam_pos=self.dir_to_average_cam_pos,
             device=self.device,
         )
 
@@ -195,7 +195,10 @@ class DDFDataManager(DataManager):  # pylint: disable=abstract-method
     def next_train(self, step: int) -> Tuple[RayBundle, Dict]:
         """Returns the next batch of data from the train dataloader."""
         self.train_count += 1
-        batch = self.train_dataset[len(self.train_dataset) + 1] # idx + 1 larger than len as flag, viewer needs img and will use actual idx
+        if self.config.train_data == "rand_pnts_on_sphere":
+            batch = self.train_dataset[len(self.train_dataset) + 1] # idx + 1 larger than len as flag, viewer needs img and will use actual idx
+        else:
+            batch = self.train_dataset[self.config.train_data_idx]
         ray_bundle = batch["ray_bundle"]
         return ray_bundle, batch
 
@@ -209,10 +212,11 @@ class DDFDataManager(DataManager):  # pylint: disable=abstract-method
 
     def next_eval_image(self, step: int) -> Tuple[int, RayBundle, Dict]:
         """Returns the next batch of data from the eval dataloader."""
-        for idx, batch in enumerate(self.eval_dataset):
-            ray_bundle = batch["ray_bundle"]
-            return idx, ray_bundle, batch       
-        raise ValueError("No more eval images")
+        self.eval_count += 1
+        idx = self.eval_count % self.config.num_test_images_to_generate
+        batch = self.eval_dataset[idx]
+        ray_bundle = batch["ray_bundle"]
+        return idx, ray_bundle, batch
 
     def get_train_rays_per_batch(self) -> int:
         return self.config.train_num_rays_per_batch

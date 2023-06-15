@@ -78,10 +78,10 @@ class DDFSampler(nn.Module):
         return torch.stack([theta, phi], dim=1)
 
     @abstractmethod
-    def generate_ddf_samples(self, num_positions, num_directions) -> RayBundle:
+    def generate_ddf_samples(self, num_positions, num_directions, positions=None) -> RayBundle:
         """Generate Direction Samples"""
 
-    def forward(self, num_positions, num_directions) -> RayBundle:
+    def forward(self, num_positions, num_directions, positions=None) -> RayBundle:
         """Returns directions for each position.
 
         Args:
@@ -92,7 +92,7 @@ class DDFSampler(nn.Module):
             directions: [num_directions, 3]
         """
 
-        return self.generate_ddf_samples(num_positions, num_directions)
+        return self.generate_ddf_samples(num_positions, num_directions, positions)
 
 # Field related configs
 @dataclass
@@ -135,10 +135,12 @@ class UniformDDFSampler(DDFSampler):
 
         return directions
 
-    def generate_ddf_samples(self, num_positions, num_directions) -> RayBundle:
+    def generate_ddf_samples(self, num_positions, num_directions, positions=None) -> RayBundle:
         """Generate Direction Samples"""
 
-        positions = self.random_points_on_unit_sphere(num_positions, cartesian=True)  # (1, 3)
+        if positions is None:
+            positions = self.random_points_on_unit_sphere(num_positions, cartesian=True)  # (1, 3)
+
         directions = self.random_inward_facing_directions(num_directions, normals=-positions)  # (1, num_directions, 3)
 
         positions = positions * self.ddf_sphere_radius
@@ -227,10 +229,12 @@ class VMFDDFSampler(DDFSampler):
         x = z * sin[:, None] + cos[:, None] * mu[None, :]
         return x.reshape((*shape, d))
 
-    def generate_ddf_samples(self, num_positions, num_directions) -> RayBundle:
+    def generate_ddf_samples(self, num_positions, num_directions, positions=None) -> RayBundle:
         """Generate Direction Samples"""
 
-        positions = self.random_points_on_unit_sphere(1, cartesian=True)  # (1, 3)
+        if positions is None:
+            positions = self.random_points_on_unit_sphere(1, cartesian=True)  # (1, 3)
+            
         directions = self.random_vmf(mu=-positions.squeeze(), kappa=self.concentration, size=num_directions) # (N, 3)
 
         # # identify any directions that are not in the hemisphere of the associated normal

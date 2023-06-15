@@ -70,6 +70,8 @@ class DDFDataset(Dataset):
         ddf_sphere_radius: float = 1.0,
         accumulation_mask_threshold: float = 0.7,
         num_sky_ray_samples: int = 256,
+        old_datamanager: VanillaDataManager = None,
+        dir_to_average_cam_pos: torch.Tensor = None,
         device: Union[torch.device, str] = "cpu",
     ):
         super().__init__()
@@ -87,7 +89,8 @@ class DDFDataset(Dataset):
         self.scale_factor = 1.0
         self.scene_box = scene_box
         self.num_sky_ray_samples = num_sky_ray_samples
-        self.old_datamanager = None
+        self.old_datamanager = old_datamanager
+        self.dir_to_average_cam_pos = dir_to_average_cam_pos
         
         camera_sampler_config = IcosahedronSamplerConfig(icosphere_order=1, apply_random_rotation=True, remove_lower_hemisphere=True)
         self.camera_sampler = camera_sampler_config.setup()
@@ -101,15 +104,24 @@ class DDFDataset(Dataset):
         if os.path.exists(data_file):
             self.cached_images = torch.load(data_file)
         else:
-            self._setup_previous_datamanager(config)
+            self.camera = Cameras(
+                camera_to_worlds=torch.eye(4).unsqueeze(0)[:, :3, :4].to(self.device),
+                fx=torch.tensor([1007]).unsqueeze(0).to(self.device),
+                fy=torch.tensor([1007]).unsqueeze(0).to(self.device),
+                cx=torch.tensor([640]).unsqueeze(0).to(self.device),
+                cy=torch.tensor([411.5]).unsqueeze(0).to(self.device),
+                camera_type=CameraType.PERSPECTIVE,
+
+            )
             self.cached_images = self._generate_images()
             os.makedirs(self.cache_dir, exist_ok=True)
             torch.save(
-                self.cached_images, str(self.cache_dir / f"{self.old_datamanager.dataparser.config.scene}_data.pt")
+                self.cached_images, str(self.cache_dir / f"{scene_name}_data.pt")
             )
 
-        camera_to_worlds = self.cached_images[0]["c2w"].unsqueeze(0)
-        intrinsics = self.cached_images[0]["intrinsics"]
+        # get all the c2w from self.cached_images and concatenate them, same with intrinsics
+        camera_to_worlds = torch.cat([img["c2w"] for img in self.cached_images], dim=0)
+        intrinsics = torch.cat([img["intrinsics"] for img in self.cached_images], dim=0)
 
         self.cameras = Cameras(
             camera_to_worlds=camera_to_worlds[:, :3, :4],
@@ -120,54 +132,44 @@ class DDFDataset(Dataset):
             camera_type=CameraType.PERSPECTIVE,
         )
 
-        if self.old_datamanager is None:
-            self._setup_previous_datamanager(config)
+        self.dataparser_outputs = DataparserOutputs(image_filenames=['filename']*len(self.cached_images), cameras=self.cameras)
 
     def __len__(self):
         return self.num_generated_imgs
 
-    def _setup_previous_datamanager(self, config):
-        pipeline_config = config.pipeline
-
-        self.old_datamanager: VanillaDataManager = pipeline_config.datamanager.setup(
-            device=self.device,
-            test_mode="test",
-            world_size=1,
-            local_rank=1,
-        )
-
     def _generate_images(self):
         # setup old data
-        original_data_c2w = self.old_datamanager.eval_dataloader.cameras.camera_to_worlds
         intrinsics = torch.zeros((1, 3, 3), device=self.device)
-        intrinsics[0, 0, 0] = self.old_datamanager.eval_dataloader.cameras.fx[0]
-        intrinsics[0, 1, 1] = self.old_datamanager.eval_dataloader.cameras.fy[0]
-        intrinsics[0, 0, 2] = self.old_datamanager.eval_dataloader.cameras.cx[0]
-        intrinsics[0, 1, 2] = self.old_datamanager.eval_dataloader.cameras.cy[0]
+        intrinsics[0, 0, 0] = self.camera.fx[0]
+        intrinsics[0, 1, 1] = self.camera.fy[0]
+        intrinsics[0, 0, 2] = self.camera.cx[0]
+        intrinsics[0, 1, 2] = self.camera.cy[0]
         
         batch_list = []
 
+        # TODO this is a bodge due to illumination sampler not being regactored
         # positions is an empyty tensor
-        positions = torch.empty((0, 3), device=self.device)
-        # keep sampling and concatenating positions until > num_generated_imgs
-        while positions.shape[0] < self.num_generated_imgs:
-            position_sample = self.camera_sampler.sample()
-            positions = torch.cat([positions, position_sample], dim=0)
-        
-        # select only the first num_generated_imgs positions
-        positions = positions[:self.num_generated_imgs]
+        ddf_sample_positions = torch.empty((0, 3), device=self.device)
 
-        for i in range(self.num_generated_imgs):
-            position = positions[i]
+        # keep sampling and concatenating positions until > num_generated_imgs
+        while ddf_sample_positions.shape[0] < self.num_generated_imgs:
+            position_sample = self.camera_sampler()
+            position_sample = position_sample.type_as(ddf_sample_positions)
+            ddf_sample_positions = torch.cat([ddf_sample_positions, position_sample], dim=0)
+        
+        # select only the first num_generated_imgs positions if we've gone over
+        ddf_sample_positions = ddf_sample_positions[:self.num_generated_imgs]
+
+        for _, position in enumerate(ddf_sample_positions):
+            position = position.unsqueeze(0)  # [1, 3]
 
             # generate c2w looking at the origin
             c2w = look_at_target(position, torch.zeros_like(position).type_as(position))[..., :3, :4]  # (3, 4)
 
-            # update c2w in dataloader.cameras use index 0
-            original_data_c2w[0] = c2w
+            # update self.camera.camera_to_worlds
+            self.camera.camera_to_worlds[0] = c2w.type_as(self.camera.camera_to_worlds)
 
-            # use index 0 (new c2w) to generate new camera ray bundle
-            camera_ray_bundle, _ = self.old_datamanager.eval_dataloader.get_data_from_image_idx(0)
+            camera_ray_bundle = self.camera.generate_rays(0)
 
             outputs = self.reni_neus.get_outputs_for_camera_ray_bundle(camera_ray_bundle, show_progress=True)
 
@@ -199,14 +201,14 @@ class DDFDataset(Dataset):
             )
 
             data = {
-                "c2w": c2w,
-                "intrinsics": intrinsics,
-                "image": outputs["rgb"],
+                "c2w": c2w.cpu(),
+                "intrinsics": intrinsics.cpu(),
+                "image": outputs["rgb"].cpu(),
                 "ray_bundle": ray_bundle,
-                "accumulations": accumulations,
-                "mask": mask,
-                "termination_dist": termination_dist,
-                "normals": normals,
+                "accumulations": accumulations.cpu(),
+                "mask": mask.cpu(),
+                "termination_dist": termination_dist.cpu(),
+                "normals": normals.cpu(),
                 "H": H,
                 "W": W,
             }
@@ -259,7 +261,7 @@ class DDFDataset(Dataset):
         Args:
             image_idx: The image index in the dataset.
         """
-        if self.test_mode == "train":
+        if self.test_mode == "rand_pnts_on_sphere":
             if image_idx == len(self) + 1:
                 data = self._ddf_rays()
             else:

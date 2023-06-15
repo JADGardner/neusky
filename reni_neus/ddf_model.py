@@ -88,6 +88,12 @@ class DDFModelConfig(ModelConfig):
     """Multiplier for the sky ray loss"""
     include_sdf_loss: bool = True # perhaps make all losses a union of literals with none as option
     """Whether to include sdf loss"""
+    include_depth_loss_scene_center_weight: bool = False
+    """Whether to include depth loss scene center weight"""
+    scene_center_weight_exp: float = 1.0
+    """Exponent for the scene center weight"""
+    scene_center_use_xyz: bool = False
+    """Whether to use xyz or xy for the scene center weight"""
 
 class DDFModel(Model):
     """Directional Distance Field model
@@ -170,7 +176,7 @@ class DDFModel(Model):
         rotation_matrices = torch.stack((x_local, y_local, z_local), dim=-1)
 
         return rotation_matrices
- 
+
 
     def get_outputs(self, ray_bundle: RayBundle, batch, reni_neus):
         if self.field is None:
@@ -207,6 +213,22 @@ class DDFModel(Model):
         expected_termination_dist = field_outputs[RENINeuSFieldHeadNames.TERMINATION_DISTANCE]
 
         outputs["expected_termination_dist"] = expected_termination_dist
+
+        if self.config.include_depth_loss_scene_center_weight and batch is not None:
+            gt_termination_points = positions + directions * batch["termination_dist"].unsqueeze(-1)
+            
+            if self.config.scene_center_use_xyz:
+                # use XYZ
+                distance_from_center = torch.norm(positions, dim=-1)
+            else:
+                # use only the XY plane, ignoring the Z coordinate
+                distance_from_center = torch.norm(positions[..., :2], dim=-1)
+
+            # normalize to [0, 1]
+            distance_from_center = distance_from_center / self.ddf_radius
+            # invert so that points closer to the center have higher weight
+            distance_weight = 1.0 - distance_from_center**self.config.scene_center_weight_exp
+            outputs['distance_weight'] = distance_weight
 
         # get sdf at expected termination distance for loss
         if self.config.include_sdf_loss:
@@ -334,8 +356,8 @@ class DDFModel(Model):
             ray_bundle: containing all the information needed to render that ray latents included
         """
 
-        if self.collider is not None:
-            ray_bundle = self.collider(ray_bundle)
+        # if self.collider is not None:
+        #     ray_bundle = self.collider(ray_bundle)
 
         return self.get_outputs(ray_bundle, batch, reni_neus)
 
@@ -354,10 +376,16 @@ class DDFModel(Model):
 
         # match the depth of the sdf model
         if 'expected_termination_dist' in outputs:
+            if self.config.include_depth_loss_scene_center_weight:
+                mask = batch["mask"] * outputs['distance_weight']
+            else:
+                mask = batch["mask"]
+            
             depth_loss = self.depth_loss(
-                outputs["expected_termination_dist"].squeeze() * batch["mask"],
-                batch["termination_dist"] * batch["mask"],
+                outputs["expected_termination_dist"].squeeze() * mask,
+                batch["termination_dist"] * mask,
             )
+
             loss_dict["depth_loss"] = depth_loss * self.config.depth_loss_mult
 
         if 'expected_probability_of_hit' in outputs:
