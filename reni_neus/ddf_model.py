@@ -215,7 +215,7 @@ class DDFModel(Model):
         outputs["expected_termination_dist"] = expected_termination_dist
 
         if self.config.include_depth_loss_scene_center_weight and batch is not None:
-            gt_termination_points = positions + directions * batch["termination_dist"].unsqueeze(-1)
+            gt_termination_points = positions + directions * batch["termination_dist"].expand_as(positions)
             
             if self.config.scene_center_use_xyz:
                 # use XYZ
@@ -270,7 +270,7 @@ class DDFModel(Model):
             # from the random point to the gt termination point.
 
             # get gt_termination_points using gt_termination_dist
-            gt_termination_points = positions + directions * batch["termination_dist"].unsqueeze(-1)
+            gt_termination_points = positions + directions * batch["termination_dist"].expand_as(positions)
 
             # for every termination point we choose a random other position on the sphere
             points_on_sphere = random_points_on_unit_sphere(num_points=gt_termination_points.shape[0]).type_as(gt_termination_points)

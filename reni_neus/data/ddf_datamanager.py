@@ -196,9 +196,9 @@ class DDFDataManager(DataManager):  # pylint: disable=abstract-method
         """Returns the next batch of data from the train dataloader."""
         self.train_count += 1
         if self.config.train_data == "rand_pnts_on_sphere":
-            batch = self.train_dataset[len(self.train_dataset) + 1] # idx + 1 larger than len as flag, viewer needs img and will use actual idx
+            batch = self.train_dataset[(0, False)] # False is for is_viewer flag, viewer need to call train dataset and still get an image
         else:
-            batch = self.train_dataset[self.config.train_data_idx]
+            batch = self.train_dataset[(self.config.train_data_idx, False)]
         ray_bundle = batch["ray_bundle"]
         return ray_bundle, batch
 
@@ -206,7 +206,7 @@ class DDFDataManager(DataManager):  # pylint: disable=abstract-method
         """Returns the next batch of data from the eval dataloader."""
         self.eval_count += 1
         idx = self.eval_count % self.config.num_test_images_to_generate
-        batch = self.eval_dataset[idx]
+        batch = self.eval_dataset[idx] # in this case no flag as that will return full image
         ray_bundle = batch["ray_bundle"]
         return ray_bundle, batch
 
@@ -214,7 +214,10 @@ class DDFDataManager(DataManager):  # pylint: disable=abstract-method
         """Returns the next batch of data from the eval dataloader."""
         self.eval_count += 1
         idx = self.eval_count % self.config.num_test_images_to_generate
-        batch = self.eval_dataset[idx]
+        if self.config.train_data == "rand_pnts_on_sphere":
+            batch = self.train_dataset[idx]
+        else:
+            batch = self.eval_dataset[self.config.train_data_idx]
         ray_bundle = batch["ray_bundle"]
         return idx, ray_bundle, batch
 

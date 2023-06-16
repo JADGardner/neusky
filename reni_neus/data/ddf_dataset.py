@@ -27,6 +27,7 @@ from PIL import Image
 import yaml
 from pathlib import Path
 import os
+import random
 
 from torch import Tensor
 from torch.utils.data import Dataset
@@ -251,25 +252,52 @@ class DDFDataset(Dataset):
 
         return data
 
-    def _get_generated_image(self, image_idx: int):
+    def _get_generated_image(self, image_idx: int, is_viewer: bool = False) -> Dict:
         data = self.cached_images[image_idx]
-        return data
+        if is_viewer:
+            # return full image data
+            return data
+        else:
+            # we want to select self.num_rays_per_batch rays from the data
+            # and return that
+            num_samples = self.num_rays_per_batch
+            indices = random.sample(range(len(data['ray_bundle'])), k=num_samples)
+            ray_bundle = RayBundle(
+                origins=data['ray_bundle'].origins.reshape(-1, 3)[indices],
+                directions=data['ray_bundle'].directions.reshape(-1, 3)[indices],
+                pixel_area=data['ray_bundle'].pixel_area.reshape(-1, 1)[indices]
+            )
+            new_data = {
+                "ray_bundle": ray_bundle,
+                "accumulations": data["accumulations"].reshape(-1, 1)[indices].to(self.device),
+                "mask": data["mask"].reshape(-1, 1)[indices].to(self.device),
+                "termination_dist": data["termination_dist"].reshape(-1, 1)[indices].to(self.device),
+                "normals": data["normals"].reshape(-1, 3)[indices].to(self.device),
+            }
+            return new_data
+        
 
-    def get_data(self, image_idx: int) -> Dict:
+    def get_data(self, image_idx: int, is_viewer: bool) -> Dict:
         """Returns the ImageDataset data as a dictionary.
 
         Args:
             image_idx: The image index in the dataset.
         """
-        if self.test_mode == "rand_pnts_on_sphere":
-            if image_idx == len(self) + 1:
+        if is_viewer:
+            data = self._get_generated_image(image_idx, is_viewer=is_viewer)
+        else:
+            if self.test_mode == "rand_pnts_on_sphere":
                 data = self._ddf_rays()
             else:
-                data = self._get_generated_image(image_idx)
-        else:
-            data = self._get_generated_image(image_idx)
+                data = self._get_generated_image(image_idx, is_viewer=False)
         return data
 
-    def __getitem__(self, image_idx: int) -> Dict:
-        data = self.get_data(image_idx)
+    def __getitem__(self, idx_flag) -> Dict:
+        if isinstance(idx_flag, tuple):
+            image_idx, flag = idx_flag
+        else:
+            image_idx = idx_flag
+            flag = True
+
+        data = self.get_data(image_idx, is_viewer=flag)
         return data
