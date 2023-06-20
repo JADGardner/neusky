@@ -77,7 +77,7 @@ class DDFDataManagerConfig(DataManagerConfig):
     """Directory to cache test images"""
     accumulation_mask_threshold: float = 0.7
     """Threshold for accumulation mask"""
-    train_data: Literal["rand_pnts_on_sphere", "single_camera"] = "rand_pnts_on_sphere"
+    train_data: Literal["rand_pnts_on_sphere", "single_camera", "all_cameras"] = "rand_pnts_on_sphere"
     """Type of training data to use"""
     train_data_idx: int = 0
     """Index of training data to use if using single_camera"""
@@ -85,6 +85,8 @@ class DDFDataManagerConfig(DataManagerConfig):
     """DDF sampler config"""
     num_of_sky_ray_samples: int = 256
     """Number of sky ray samples"""
+    only_sample_upper_hemisphere: bool = False
+    """Only sample upper hemisphere"""
 
 
 class DDFDataManager(DataManager):  # pylint: disable=abstract-method
@@ -157,7 +159,7 @@ class DDFDataManager(DataManager):  # pylint: disable=abstract-method
         self.train_dataparser_outputs = self.train_dataset.dataparser_outputs
 
     def create_dataset(self) -> DDFDataset:
-        # This is used for fitting to a single image for debugging
+        """Create a single dataset for both train and eval."""
 
         return DDFDataset(
             reni_neus=self.reni_neus,
@@ -173,32 +175,19 @@ class DDFDataManager(DataManager):  # pylint: disable=abstract-method
             num_sky_ray_samples=self.config.num_of_sky_ray_samples,
             old_datamanager=self.old_datamanager,
             dir_to_average_cam_pos=self.dir_to_average_cam_pos,
+            only_sample_upper_hemisphere=self.config.only_sample_upper_hemisphere,
             device=self.device,
         )
-
-    def _get_pixel_sampler(  # pylint: disable=no-self-use
-        self, dataset: InputDataset, *args: Any, **kwargs: Any
-    ) -> PixelSampler:
-        """Infer pixel sampler to use."""
-        if self.config.patch_size > 1:
-            return PatchPixelSampler(*args, **kwargs, patch_size=self.config.patch_size)
-
-        # If all images are equirectangular, use equirectangular pixel sampler
-        is_equirectangular = dataset.cameras.camera_type == CameraType.EQUIRECTANGULAR.value
-        if is_equirectangular.all():
-            return EquirectangularPixelSampler(*args, **kwargs)
-        # Otherwise, use the default pixel sampler
-        if is_equirectangular.any():
-            CONSOLE.print("[bold yellow]Warning: Some cameras are equirectangular, but using default pixel sampler.")
-        return RENINeuSPixelSampler(*args, **kwargs)
 
     def next_train(self, step: int) -> Tuple[RayBundle, Dict]:
         """Returns the next batch of data from the train dataloader."""
         self.train_count += 1
         if self.config.train_data == "rand_pnts_on_sphere":
             batch = self.train_dataset[(0, False)] # False is for is_viewer flag, viewer need to call train dataset and still get an image
-        else:
+        elif self.config.train_data == "single_camera":
             batch = self.train_dataset[(self.config.train_data_idx, False)]
+        elif self.config.train_data == "all_cameras":
+            batch = self.train_dataset[(self.train_count % len(self.train_dataset), False)]
         ray_bundle = batch["ray_bundle"]
         return ray_bundle, batch
 
@@ -206,7 +195,12 @@ class DDFDataManager(DataManager):  # pylint: disable=abstract-method
         """Returns the next batch of data from the eval dataloader."""
         self.eval_count += 1
         idx = self.eval_count % self.config.num_test_images_to_generate
-        batch = self.eval_dataset[idx] # in this case no flag as that will return full image
+        if self.config.train_data == "rand_pnts_on_sphere":
+            batch = self.eval_dataset[(idx, False)]
+        elif self.config.train_data == "single_camera":
+            batch = self.eval_dataset[(self.config.train_data_idx, False)]
+        elif self.config.train_data == "all_cameras":
+            batch = self.eval_dataset[(idx, False)]
         ray_bundle = batch["ray_bundle"]
         return ray_bundle, batch
 
@@ -215,9 +209,11 @@ class DDFDataManager(DataManager):  # pylint: disable=abstract-method
         self.eval_count += 1
         idx = self.eval_count % self.config.num_test_images_to_generate
         if self.config.train_data == "rand_pnts_on_sphere":
-            batch = self.train_dataset[idx]
-        else:
+            batch = self.eval_dataset[idx]
+        elif self.config.train_data == "single_camera":
             batch = self.eval_dataset[self.config.train_data_idx]
+        elif self.config.train_data == "all_cameras":
+            batch = self.eval_dataset[idx]
         ray_bundle = batch["ray_bundle"]
         return idx, ray_bundle, batch
 

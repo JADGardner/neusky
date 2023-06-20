@@ -51,10 +51,10 @@ class IlluminationSampler(nn.Module):
         super().__init__()
 
     @abstractmethod
-    def generate_direction_samples(self, num_directions: Optional[int] = None) -> torch.Tensor:
+    def generate_direction_samples(self, num_directions: Optional[int] = None, apply_random_rotation=None) -> torch.Tensor:
         """Generate Direction Samples"""
 
-    def forward(self, num_directions: Optional[int] = None) -> torch.Tensor:
+    def forward(self, num_directions: Optional[int] = None, apply_random_rotation=None) -> torch.Tensor:
         """Returns directions for each position.
 
         Args:
@@ -64,7 +64,7 @@ class IlluminationSampler(nn.Module):
             directions: [num_directions, 3]
         """
 
-        return self.generate_direction_samples(num_directions)
+        return self.generate_direction_samples(num_directions, apply_random_rotation)
 
 
 # Field related configs

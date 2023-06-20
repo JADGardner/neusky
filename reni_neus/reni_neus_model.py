@@ -740,12 +740,15 @@ class RENINeuSFactoModel(NeuSFactoModel):
         """Ray sphere intersection"""
         # ray-sphere intersection
         # positions is the origins of the rays
-        # directions is the directions of the rays [numbe]
+        # directions is the directions of the rays
         # radius is the radius of the sphere
 
         sphere_origin = torch.zeros_like(positions)
         radius = torch.ones_like(positions[..., 0]) * radius
 
+        # ensure normalized directions
+        directions = directions / torch.norm(directions, dim=-1, keepdim=True)
+        
         a = 1 # direction is normalized
         b = 2 * torch.einsum("ij,ij->i", directions, positions - sphere_origin)
         c = torch.einsum("ij,ij->i", positions - sphere_origin, positions - sphere_origin) - radius**2
@@ -797,8 +800,23 @@ class RENINeuSFactoModel(NeuSFactoModel):
         origins = ray_samples.frustums.origins[:, 0:1, :]  # [num_rays, 1, 3]
         ray_directions = ray_samples.frustums.directions[:, 0:1, :]  # [num_rays, 1, 3]
 
-        # get positions based on p2p distance (expected termination depth)
-        # this is our sample on the surface of the SDF representing the scene
+        # # get positions based on p2p distance (expected termination depth)
+        # # this is our sample on the surface of the SDF representing the scene
+        # positions = origins + ray_directions * p2p_dist.unsqueeze(-1) # [num_rays, 1, 3]
+        
+        # Calculate the distance from each origin to the sphere's center
+        dist_to_center = torch.norm(origins - torch.zeros_like(origins), dim=-1)
+
+        # Check which rays would end up outside the sphere
+        outside_sphere = dist_to_center + p2p_dist > self.ddf_radius
+
+        # Set a small bias
+        bias = 0.01
+
+        # Adjust p2p_dist for those rays so they end up inside the sphere
+        p2p_dist[outside_sphere] = self.ddf_radius - dist_to_center[outside_sphere] - bias
+
+        # Now calculate the new positions
         positions = origins + ray_directions * p2p_dist.unsqueeze(-1) # [num_rays, 1, 3]
 
         positions = positions.unsqueeze(1).repeat(

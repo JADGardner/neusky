@@ -45,6 +45,7 @@ from nerfstudio.model_components.renderers import (
 )
 from nerfstudio.models.base_model import Model, ModelConfig
 from nerfstudio.utils import colormaps, colors, misc
+from nerfstudio.utils.colormaps import ColormapOptions
 from nerfstudio.model_components.scene_colliders import SphereCollider
 from nerfstudio.viewer.server.viewer_elements import ViewerControl, ViewerButton
 
@@ -94,6 +95,8 @@ class DDFModelConfig(ModelConfig):
     """Exponent for the scene center weight"""
     scene_center_use_xyz: bool = False
     """Whether to use xyz or xy for the scene center weight"""
+    mask_depth_to_circumference: bool = False
+    """Whether to set depth under mask to the circumference"""
 
 class DDFModel(Model):
     """Directional Distance Field model
@@ -211,11 +214,13 @@ class DDFModel(Model):
 
         field_outputs = self.field.forward(ray_samples)
         expected_termination_dist = field_outputs[RENINeuSFieldHeadNames.TERMINATION_DISTANCE]
-
         outputs["expected_termination_dist"] = expected_termination_dist
 
+        if RENINeuSFieldHeadNames.PROBABILITY_OF_HIT in field_outputs:
+            outputs["expected_probability_of_hit"] = field_outputs[RENINeuSFieldHeadNames.PROBABILITY_OF_HIT]
+
         if self.config.include_depth_loss_scene_center_weight and batch is not None:
-            gt_termination_points = positions + directions * batch["termination_dist"].expand_as(positions)
+            gt_termination_points = positions + directions * batch["termination_dist"].repeat(1, 3)
             
             if self.config.scene_center_use_xyz:
                 # use XYZ
@@ -243,9 +248,6 @@ class DDFModel(Model):
               outputs['sdf_at_termination'] = sdf_at_termination
 
 
-        if RENINeuSFieldHeadNames.PROBABILITY_OF_HIT in field_outputs:
-            outputs["expected_probability_of_hit"] = field_outputs[RENINeuSFieldHeadNames.PROBABILITY_OF_HIT]
-
         # # Compute the gradient of the depths with respect to the ray origins
         if self.config.compute_normals:
             d_output = torch.ones_like(expected_termination_dist, requires_grad=False, device=expected_termination_dist.device)
@@ -270,7 +272,7 @@ class DDFModel(Model):
             # from the random point to the gt termination point.
 
             # get gt_termination_points using gt_termination_dist
-            gt_termination_points = positions + directions * batch["termination_dist"].expand_as(positions)
+            gt_termination_points = positions + directions * batch["termination_dist"].repeat(1, 3)
 
             # for every termination point we choose a random other position on the sphere
             points_on_sphere = random_points_on_unit_sphere(num_points=gt_termination_points.shape[0]).type_as(gt_termination_points)
@@ -382,7 +384,7 @@ class DDFModel(Model):
                 mask = batch["mask"]
             
             depth_loss = self.depth_loss(
-                outputs["expected_termination_dist"].squeeze() * mask,
+                outputs["expected_termination_dist"].unsqueeze(1) * mask,
                 batch["termination_dist"] * mask,
             )
 
@@ -392,7 +394,7 @@ class DDFModel(Model):
             # this should be matching the mask and use binary cross entropy
             probability_loss = self.probability_loss(
                 outputs["expected_probability_of_hit"],
-                batch["mask"]
+                batch["mask"].squeeze(-1),
             )
             loss_dict["probability_loss"] = probability_loss * self.config.prob_hit_loss_mult
                 
@@ -494,6 +496,9 @@ class DDFModel(Model):
             accumulation=gt_accumulations,
             near_plane=self.collider.near_plane,
             far_plane=self.collider.radius * 2,
+            colormap_options=ColormapOptions(normalize=False,
+                                             colormap_min=0.0,
+                                             colormap_max=2.0)
         )
 
         depth = colormaps.apply_depth_colormap(
@@ -501,6 +506,9 @@ class DDFModel(Model):
             accumulation=gt_accumulations,
             near_plane=self.collider.near_plane,
             far_plane=self.collider.radius * 2,
+            colormap_options=ColormapOptions(normalize=False,
+                                             colormap_min=0.0,
+                                             colormap_max=2.0)
         )
 
         combined_depth = torch.cat([gt_depth, depth], dim=1)
@@ -510,7 +518,7 @@ class DDFModel(Model):
         depth_error_normalized = (depth_error - torch.min(depth_error)) / (torch.max(depth_error) - torch.min(depth_error))
         images_dict["depth_error"] = depth_error_normalized
 
-        if RENINeuSFieldHeadNames.PROBABILITY_OF_HIT in outputs:
+        if "expected_probability_of_hit" in outputs:
             expected_probability_of_hit = outputs["expected_probability_of_hit"]
 
             combined_probability_of_hit = torch.cat([gt_accumulations, expected_probability_of_hit], dim=1)

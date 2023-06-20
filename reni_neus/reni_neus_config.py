@@ -110,7 +110,7 @@ RENINeuS = MethodSpecification(
                 visibility_field=DDFModelConfig( # DDFModelConfig or None
                     ddf_field=DirectionalDistanceFieldConfig(
                         ddf_type="ddf", # pddf
-                        position_encoding_type="nerf", # none, hash, nerf, sh
+                        position_encoding_type="hash", # none, hash, nerf, sh
                         direction_encoding_type="nerf",
                         network_type="film_siren", # siren, film_siren, fused_mlp
                         termination_output_activation="sigmoid",
@@ -173,11 +173,11 @@ RENINeuS = MethodSpecification(
 DirectionalDistanceField = MethodSpecification(
     config=TrainerConfig(
         method_name="ddf",
-        steps_per_eval_image=250,
+        steps_per_eval_image=500,
         steps_per_eval_batch=100000,
         steps_per_save=1000,
         steps_per_eval_all_images=1000000,  # set to a very large model so we don't eval with all images
-        max_num_iterations=10001,
+        max_num_iterations=20001,
         mixed_precision=False,
         pipeline=DDFPipelineConfig(
             datamanager=DDFDataManagerConfig(
@@ -186,41 +186,44 @@ DirectionalDistanceField = MethodSpecification(
                 num_test_images_to_generate=8,
                 test_image_cache_dir=Path("/workspace/outputs/ddf/cache/"),
                 accumulation_mask_threshold=0.7,
-                train_data="single_camera", # "rand_pnts_on_sphere, single_camera"
+                train_data="rand_pnts_on_sphere", # "rand_pnts_on_sphere", "single_camera", "all_cameras"
                 train_data_idx=5, # idx if using single_camera
                 ddf_sampler=VMFDDFSamplerConfig(
                     concentration=20.0,
                 ),
                 num_of_sky_ray_samples=256,
+                only_sample_upper_hemisphere=True,
             ),
             model=DDFModelConfig(
                 ddf_field=DirectionalDistanceFieldConfig(
                     ddf_type="ddf", # pddf
-                    position_encoding_type="none", # none, hash, nerf, sh
-                    direction_encoding_type="none",
-                    network_type="siren", # siren, film_siren, fused_mlp
+                    position_encoding_type="hash", # none, hash, nerf, sh
+                    direction_encoding_type="nerf",
+                    network_type="film_siren", # siren, film_siren, fused_mlp, siren_grid
                     termination_output_activation="sigmoid",
                     probability_of_hit_output_activation="sigmoid",
                     hidden_layers=5,
                     hidden_features=256,
                     predict_probability_of_hit=False,
+                    icosphere_level=8,
                 ),
-                depth_loss="L2", # L2, L1, Log_Loss
-                include_sdf_loss=False,
-                include_multi_view_loss=False,
-                include_sky_ray_loss=False,
+                depth_loss="L1", # L2, L1, Log_Loss
+                include_sdf_loss=True,
+                include_multi_view_loss=True,
+                include_sky_ray_loss=True,
                 multi_view_loss_stop_gradient=False,
-                include_depth_loss_scene_center_weight=False,
-                compute_normals=False, # This currently does not work
-                sdf_loss_mult=1.0,
+                include_depth_loss_scene_center_weight=True,
+                compute_normals=False, # This currently does not work, the input to the network need changing to work with autograd
+                sdf_loss_mult=100.0,
                 multi_view_loss_mult=0.1,
                 sky_ray_loss_mult=1.0,
-                depth_loss_mult=1.0,
-                prob_hit_loss_mult=0.5,
+                depth_loss_mult=20.0,
+                prob_hit_loss_mult=1.0,
                 normal_loss_mult=1.0,
                 eval_num_rays_per_chunk=1024,
                 scene_center_weight_exp=3.0,
                 scene_center_use_xyz=False, # only xy
+                mask_depth_to_circumference=False, # force depth under mask to circumference of ddf (not implemented)
             ),
             reni_neus_ckpt_path=Path("/workspace/outputs/unnamed/reni-neus/2023-06-07_141907"),
             reni_neus_ckpt_step=85000,
@@ -229,7 +232,7 @@ DirectionalDistanceField = MethodSpecification(
         optimizers={
             "ddf_field": {
                 "optimizer": AdamOptimizerConfig(lr=1e-4, eps=1e-15),
-                "scheduler": CosineDecaySchedulerConfig(warm_up_end=500, learning_rate_alpha=0.05, max_steps=10001),
+                "scheduler": CosineDecaySchedulerConfig(warm_up_end=500, learning_rate_alpha=0.05, max_steps=20001),
             },
         },
         viewer=ViewerConfig(num_rays_per_chunk=1 << 15),

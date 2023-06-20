@@ -73,6 +73,7 @@ class DDFDataset(Dataset):
         num_sky_ray_samples: int = 256,
         old_datamanager: VanillaDataManager = None,
         dir_to_average_cam_pos: torch.Tensor = None,
+        only_sample_upper_hemisphere: bool = False,
         device: Union[torch.device, str] = "cpu",
     ):
         super().__init__()
@@ -92,6 +93,7 @@ class DDFDataset(Dataset):
         self.num_sky_ray_samples = num_sky_ray_samples
         self.old_datamanager = old_datamanager
         self.dir_to_average_cam_pos = dir_to_average_cam_pos
+        self.only_sample_upper_hemisphere = only_sample_upper_hemisphere
         
         camera_sampler_config = IcosahedronSamplerConfig(icosphere_order=1, apply_random_rotation=True, remove_lower_hemisphere=True)
         self.camera_sampler = camera_sampler_config.setup()
@@ -221,15 +223,21 @@ class DDFDataset(Dataset):
     def _ddf_rays(self):
         num_samples = self.num_rays_per_batch
 
-        ray_bundle = self.sampler(num_positions=1, num_directions=num_samples)
+        position = None
+        if self.only_sample_upper_hemisphere:
+            position = self.sampler.random_points_on_unit_sphere(1)
+            if position[0, 2] < 0: # flip if z < 0
+                position[0, 2] *= -1
+
+        ray_bundle = self.sampler(num_positions=1, num_directions=num_samples, positions=position)
 
         accumulations = None
         termination_dist = None
         normals = None
 
         field_outputs = self.reni_neus(ray_bundle)
-        accumulations = field_outputs["accumulation"].reshape(-1, 1).squeeze()
-        termination_dist = field_outputs["p2p_dist"].reshape(-1, 1).squeeze()
+        accumulations = field_outputs["accumulation"].reshape(-1, 1)
+        termination_dist = field_outputs["p2p_dist"].reshape(-1, 1)
         normals = field_outputs["normal"].reshape(-1, 3).squeeze()
         mask = (accumulations > self.accumulation_mask_threshold).float()
 
@@ -261,11 +269,11 @@ class DDFDataset(Dataset):
             # we want to select self.num_rays_per_batch rays from the data
             # and return that
             num_samples = self.num_rays_per_batch
-            indices = random.sample(range(len(data['ray_bundle'])), k=num_samples)
+            indices = random.sample(range(data['ray_bundle'].origins.reshape(-1, 3).shape[0]), k=num_samples)
             ray_bundle = RayBundle(
-                origins=data['ray_bundle'].origins.reshape(-1, 3)[indices],
-                directions=data['ray_bundle'].directions.reshape(-1, 3)[indices],
-                pixel_area=data['ray_bundle'].pixel_area.reshape(-1, 1)[indices]
+                origins=data['ray_bundle'].origins.reshape(-1, 3)[indices].to(self.device),
+                directions=data['ray_bundle'].directions.reshape(-1, 3)[indices].to(self.device),
+                pixel_area=data['ray_bundle'].pixel_area.reshape(-1, 1)[indices].to(self.device),
             )
             new_data = {
                 "ray_bundle": ray_bundle,
@@ -284,7 +292,7 @@ class DDFDataset(Dataset):
             image_idx: The image index in the dataset.
         """
         if is_viewer:
-            data = self._get_generated_image(image_idx, is_viewer=is_viewer)
+            data = self._get_generated_image(image_idx, is_viewer=True)
         else:
             if self.test_mode == "rand_pnts_on_sphere":
                 data = self._ddf_rays()
