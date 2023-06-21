@@ -268,3 +268,20 @@ def look_at_target(camera_positions, target_positions, up_vector=torch.tensor([0
 def log_loss(y_true, y_pred):
     diff = torch.log(y_pred + 1e-6) - torch.log(y_true + 1e-6)
     return torch.mean(diff ** 2) - (torch.var(diff) / 2)
+
+def rotation_matrix(axis: np.ndarray, angle: float) -> np.ndarray:
+    """
+    Return 3D rotation matrix for rotating around the given axis by the given angle.
+    """
+    axis = np.asarray(axis)
+    axis = axis / np.sqrt(np.dot(axis, axis))
+    a = np.cos(angle / 2.0)
+    b, c, d = -axis * np.sin(angle / 2.0)
+    aa, bb, cc, dd = a * a, b * b, c * c, d * d
+    bc, ad, ac, ab, bd, cd = b * c, a * d, a * c, a * b, b * d, c * d
+    rotation = np.array([[aa + bb - cc - dd, 2 * (bc + ad), 2 * (bd - ac)],
+                     [2 * (bc - ad), aa + cc - bb - dd, 2 * (cd + ab)],
+                     [2 * (bd + ac), 2 * (cd - ab), aa + dd - bb - cc]])
+    # convert to pytorch
+    rotation = torch.from_numpy(rotation).float()
+    return rotation

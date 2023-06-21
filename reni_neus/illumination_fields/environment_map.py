@@ -27,7 +27,7 @@ import torch
 from torch import nn
 
 from reni_neus.illumination_fields.base_illumination_field import IlluminationFieldConfig, IlluminationField
-
+from reni_neus.utils.utils import sRGB
 # Field related configs
 @dataclass
 class EnvironmentMapConfig(IlluminationFieldConfig):
@@ -114,9 +114,9 @@ class EnvironmentMapField(IlluminationField):
         grid = grid.view(envmaps.shape[0], num_directions, 1, 2)
 
         # Sample colors from the environment maps using bilinear interpolation.
-        colors = torch.nn.functional.grid_sample(envmaps, grid, align_corners=False, mode='bilinear')
+        colors = torch.nn.functional.grid_sample(envmaps, grid, align_corners=False, mode='bilinear') # [unique_indices, 3, num_directions, 1]
 
-        return colors.squeeze(-1)  # [unique_indices, num_directions, 3]
+        return colors.squeeze(-1).permute(0, 2, 1) # [unique_indices, num_directions, 3]
 
     @abstractmethod
     def get_outputs(self, unique_indices, inverse_indices, directions, rotation, illumination_type):
@@ -137,11 +137,11 @@ class EnvironmentMapField(IlluminationField):
             envmaps = self.environment_maps[unique_indices]  # [unique_indices, 3, H, W]
             light_directions = directions.type_as(envmaps)  # [num_directions, 3]
 
-            light_colours = self.sample_envmaps(envmaps, light_directions) # [unique_indices, num_directions, 3]
+            light_colours = self.sample_envmaps(envmaps, light_directions) # [unique_indices, 3, 3]
             light_directions = light_directions.unsqueeze(0).repeat(envmaps.shape[0], 1, 1)  # [unique_indices, num_directions, 3]
 
             light_colours = light_colours[inverse_indices]  # [rays_per_batch, samples_per_ray, 3, num_directions]
-            light_colours = light_colours.permute(0, 1, 3, 2)  # Desired shape: [rays_per_batch, samples_per_ray, num_directions, 3]
+            # light_colours = light_colours.permute(0, 1, 3, 2)  # Desired shape: [rays_per_batch, samples_per_ray, num_directions, 3]
             light_colours = light_colours.reshape(-1, directions.shape[0], 3)  # [rays_per_batch * samples_per_ray, num_directions, 3]
 
             light_directions = light_directions[inverse_indices]  # [rays_per_batch, samples_per_ray, num_directions, 3]
@@ -160,11 +160,11 @@ class EnvironmentMapField(IlluminationField):
             light_colours = self.sample_envmaps(envmaps, light_directions) # [unique_indices, num_directions, 3]
             light_directions = light_directions.unsqueeze(0).repeat(envmaps.shape[0], 1, 1)  # [unique_indices, num_directions, 3]
 
-            light_colours = light_colours[inverse_indices]  # [rays_per_batch, samples_per_ray, 3, num_directions]
-            light_colours = light_colours.permute(0, 1, 3, 2)  # Desired shape: [rays_per_batch, samples_per_ray, num_directions, 3]
-            light_colours = light_colours[:, 0, 0, :]  # [rays_per_batch, num_directions, 3]
-          
-            light_colours = light_colours.to(temp_device) # [rays_per_batch * samples_per_ray, num_directions, 3]
+            # light_colours = light_colours[inverse_indices]  # [rays_per_batch, samples_per_ray, num_directions, 3]
+            # light_colours = light_colours[:, 0, 0, :]  # [rays_per_batch, num_directions, 3]
+            light_colours = light_colours[0, :, :]  # [num_directions, 3]
+            light_colours = sRGB(light_colours) # [num_directions, 3]
+            light_colours = light_colours.to(temp_device) # [num_directions, 3]
             return light_colours, None
         if illumination_type == "envmap":
             envmaps = self.environment_maps[unique_indices]  # [unique_indices, 3, H, W]
@@ -176,6 +176,7 @@ class EnvironmentMapField(IlluminationField):
             light_colours = light_colours[inverse_indices]  # [rays_per_batch, samples_per_ray, 3, num_directions]
             light_colours = light_colours.permute(0, 1, 3, 2)  # Desired shape: [rays_per_batch, samples_per_ray, num_directions, 3]
             light_colours = light_colours.reshape(-1, directions.shape[0], 3)  # [rays_per_batch * samples_per_ray, num_directions, 3]
+            light_colours = sRGB(light_colours)
             light_colours = light_colours.to(temp_device) # [rays_per_batch * samples_per_ray, num_directions, 3]
             return light_colours, None
             

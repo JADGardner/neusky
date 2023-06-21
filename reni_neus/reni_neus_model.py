@@ -26,6 +26,9 @@ import random
 from rich.progress import BarColumn, Console, Progress, TextColumn, TimeRemainingColumn
 from pathlib import Path
 import yaml
+import os
+import numpy as np
+import cv2
 
 import nerfacc
 import torch
@@ -52,7 +55,7 @@ from nerfstudio.viewer.server.viewer_elements import ViewerControl, ViewerButton
 from reni_neus.illumination_fields.base_illumination_field import IlluminationFieldConfig
 from reni_neus.model_components.renderers import RGBLambertianRendererWithVisibility
 from reni_neus.model_components.illumination_samplers import IlluminationSamplerConfig
-from reni_neus.utils.utils import RENITestLossMask, get_directions
+from reni_neus.utils.utils import RENITestLossMask, get_directions, rotation_matrix
 from reni_neus.reni_neus_fieldheadnames import RENINeuSFieldHeadNames
 from reni_neus.ddf_model import DDFModelConfig
 from nerfstudio.model_components.ray_samplers import VolumetricSampler
@@ -139,6 +142,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
         self.num_test_data = num_test_data
         self.test_mode = test_mode
         self.fitting_eval_latents = False
+        self.rendering_animation = False
         super().__init__(config, scene_box, num_train_data, **kwargs)
 
         self.setup_gui()
@@ -461,6 +465,12 @@ class RENINeuSFactoModel(NeuSFactoModel):
 
         if 'visibility_dict' in samples_and_field_outputs:
             outputs['visibility_batch'] = samples_and_field_outputs['visibility_dict']['visibility_batch']
+
+        if self.rendering_animation:
+            outputs['render_albedos'] = field_outputs[RENINeuSFieldHeadNames.ALBEDO]
+            outputs['render_normals'] = field_outputs[FieldHeadNames.NORMALS]
+            outputs['render_visibility'] = visibility
+            outputs['ray_samples'] = ray_samples
 
         return outputs
 
@@ -938,3 +948,129 @@ class RENINeuSFactoModel(NeuSFactoModel):
             visibility_field.to(self.device)
 
             return visibility_field
+        
+    def render_illumination_animation(self, ray_bundle, batch, num_frames, fps, visibility_threshold, output_path):
+        """Render an animation rotating the illumination field around the scene."""
+        temp_visibility_threshold = self.config.visibility_threshold
+        temp_fix_test_illumination_directions = self.config.fix_test_illumination_directions
+        self.visibility_threshold = visibility_threshold
+        self.config.fix_test_illumination_directions = True
+
+        # there is some stuff we can reuse such as albedo and normals
+        path = output_path + 'render_frames'
+        # Creating a directory to save the intermediate .pt files
+        if not os.path.exists(path):
+            os.makedirs(path)
+        
+        saved_data = []
+        # Check if the render_sequence.pt file already exists
+        if os.path.exists(output_path + 'render_sequence.pt'):
+            saved_data = torch.load(output_path + 'render_sequence.pt')
+        else:
+            with Progress(
+              TextColumn("[progress.description]{task.description}"),
+              BarColumn(),
+              TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+              TimeRemainingColumn(),
+          ) as progress:
+              task = progress.add_task("[green]Rendering animation... ", total=num_frames, extra="")
+              for i in range(num_frames):  # Wrap the loop with tqdm for progress bar
+                  angle = i * (360 / num_frames)  # angle in degrees
+                  rotation = rotation_matrix(axis=np.array([0, 1, 0]), angle=np.deg2rad(angle))  # RENI is Y-up
+
+                  pt_file_path = f'{path}/frame_{i}.pt'
+
+                  if os.path.exists(pt_file_path):
+                      # Load already computed frame
+                      frame_data = torch.load(pt_file_path)
+                      rgb = frame_data["rgb"]
+                  else:
+                      # Compute the frame
+                      # if its the first frame we compute everything
+                      if i == 0:
+                          outputs = self.get_outputs_for_camera_ray_bundle(ray_bundle, show_progress=False, rotation=rotation)
+                          # and we can store outputs['albedo'], outputs['normals'], outputs['depth'], outputs['p2p_dist']
+                          # for next iteration as they will be the same
+                          albedos = outputs['render_albedos']
+                          normals = outputs['render_normals']
+                          visibility = outputs['render_visibility']
+                          weights = outputs['weights']
+                          ray_samples = outputs['ray_samples']
+                          camera_indices = ray_samples.camera_indices.squeeze()
+                          rgb = outputs['rgb']
+                      else:
+                          illumination_field = self.get_illumination_field()
+
+                          if not self.training and self.config.fix_test_illumination_directions:
+                              illumination_directions = self.illumination_sampler(apply_random_rotation=False)
+                          else:
+                              illumination_directions = self.illumination_sampler()
+
+                          illumination_directions = illumination_directions.to(self.device)
+
+                          # Get environment illumination for samples along the rays for each unique camera
+                          hdr_illumination_colours, illumination_directions = illumination_field(
+                              camera_indices=camera_indices,
+                              positions=None,
+                              directions=illumination_directions,
+                              rotation=rotation,
+                              illumination_type="illumination",
+                          )
+
+                          # Get LDR colour of the background for rays from the camera that don't hit the scene
+                          background_colours, _ = illumination_field(
+                              camera_indices=camera_indices,
+                              positions=None,
+                              directions=ray_samples.frustums.directions[:, 0, :],
+                              rotation=rotation,
+                              illumination_type="background",
+                          )
+                          rgb = self.lambertian_renderer(
+                              albedos=albedos,
+                              normals=normals,
+                              light_directions=illumination_directions,
+                              light_colors=hdr_illumination_colours,
+                              visibility=visibility,
+                              background_illumination=background_colours,
+                              weights=weights,
+                          )
+
+                      # Saving the outputs and envmap to .pt file for each frame
+                      torch.save({"rgb": rgb}, pt_file_path)
+
+                  # Storing the data in memory for final animation
+                  saved_data.append(rgb.detach().cpu().numpy())
+
+                  # Update the progress bar
+                  progress.update(task, advance=1)
+
+        # Save entire sequence to a .pt file
+        torch.save(saved_data, output_path + 'render_sequence.pt')
+
+        # Create the animation
+        rgb_images = []
+
+        for rgb in saved_data:
+            # ensure no nan or inf values
+            rgb = np.nan_to_num(rgb)
+            rgb_images.append(rgb)
+
+        # Assuming rgb_images are in range [0, 1] and have shape (height, width, channels)
+        rgb_images = np.array(rgb_images)  # convert list to numpy array
+        rgb_images = (rgb_images * 255).astype(np.uint8)  # scale to [0, 255] and convert to uint8
+
+        height, width, channels = rgb_images[0].shape
+
+        # Define the codec using VideoWriter_fourcc and creat7e a VideoWriter object
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v') 
+        video = cv2.VideoWriter('rgb_animation.mp4', fourcc, fps, (width, height))
+
+        for frame in rgb_images:
+            # OpenCV uses BGR format, so we need to convert RGB to BGR
+            frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+            video.write(frame_bgr)
+
+        video.release()
+
+        self.visibility_threshold = temp_visibility_threshold
+        self.config.fix_test_illumination_directions = temp_fix_test_illumination_directions
