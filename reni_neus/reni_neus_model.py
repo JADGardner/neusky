@@ -953,6 +953,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
         """Render an animation rotating the illumination field around the scene."""
         temp_visibility_threshold = self.config.visibility_threshold
         self.visibility_threshold = visibility_threshold
+        self.rendering_animation = True
 
         # there is some stuff we can reuse such as albedo and normals
         path = output_path + 'render_frames'
@@ -1069,3 +1070,4 @@ class RENINeuSFactoModel(NeuSFactoModel):
         video.release()
 
         self.visibility_threshold = temp_visibility_threshold
+        self.rendering_animation = False
