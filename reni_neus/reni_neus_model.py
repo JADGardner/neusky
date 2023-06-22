@@ -952,9 +952,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
     def render_illumination_animation(self, ray_bundle, batch, num_frames, fps, visibility_threshold, output_path):
         """Render an animation rotating the illumination field around the scene."""
         temp_visibility_threshold = self.config.visibility_threshold
-        temp_fix_test_illumination_directions = self.config.fix_test_illumination_directions
         self.visibility_threshold = visibility_threshold
-        self.config.fix_test_illumination_directions = True
 
         # there is some stuff we can reuse such as albedo and normals
         path = output_path + 'render_frames'
@@ -967,82 +965,80 @@ class RENINeuSFactoModel(NeuSFactoModel):
         if os.path.exists(output_path + 'render_sequence.pt'):
             saved_data = torch.load(output_path + 'render_sequence.pt')
         else:
-            with Progress(
-              TextColumn("[progress.description]{task.description}"),
-              BarColumn(),
-              TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-              TimeRemainingColumn(),
-          ) as progress:
-              task = progress.add_task("[green]Rendering animation... ", total=num_frames, extra="")
-              for i in range(num_frames):  # Wrap the loop with tqdm for progress bar
-                  angle = i * (360 / num_frames)  # angle in degrees
-                  rotation = rotation_matrix(axis=np.array([0, 1, 0]), angle=np.deg2rad(angle))  # RENI is Y-up
+          #   with Progress(
+          #     TextColumn("[progress.description]{task.description}"),
+          #     BarColumn(),
+          #     TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+          #     TimeRemainingColumn(),
+          # ) as progress:
+          # task = progress.add_task("[green]Rendering animation... ", total=num_frames, extra="")
+          for i in range(num_frames):  # Wrap the loop with tqdm for progress bar
+              angle = i * (360 / num_frames)  # angle in degrees
+              rotation = rotation_matrix(axis=np.array([0, 1, 0]), angle=np.deg2rad(angle))  # RENI is Y-up
 
-                  pt_file_path = f'{path}/frame_{i}.pt'
+              pt_file_path = f'{path}/frame_{i}.pt'
 
-                  if os.path.exists(pt_file_path):
-                      # Load already computed frame
-                      frame_data = torch.load(pt_file_path)
-                      rgb = frame_data["rgb"]
+              if os.path.exists(pt_file_path):
+                  # Load already computed frame
+                  frame_data = torch.load(pt_file_path)
+                  rgb = frame_data["rgb"]
+              else:
+                  # Compute the frame
+                  # if its the first frame we compute everything
+                  if i == 0:
+                      outputs = self.get_outputs_for_camera_ray_bundle(ray_bundle, show_progress=True, rotation=rotation)
+                      # and we can store outputs['albedo'], outputs['normals'], outputs['depth'], outputs['p2p_dist']
+                      # for next iteration as they will be the same
+                      albedos = outputs['render_albedos']
+                      normals = outputs['render_normals']
+                      visibility = outputs['render_visibility']
+                      weights = outputs['weights']
+                      ray_samples = outputs['ray_samples']
+                      camera_indices = ray_samples.camera_indices.squeeze()
+                      rgb = outputs['rgb']
                   else:
-                      # Compute the frame
-                      # if its the first frame we compute everything
-                      if i == 0:
-                          outputs = self.get_outputs_for_camera_ray_bundle(ray_bundle, show_progress=False, rotation=rotation)
-                          # and we can store outputs['albedo'], outputs['normals'], outputs['depth'], outputs['p2p_dist']
-                          # for next iteration as they will be the same
-                          albedos = outputs['render_albedos']
-                          normals = outputs['render_normals']
-                          visibility = outputs['render_visibility']
-                          weights = outputs['weights']
-                          ray_samples = outputs['ray_samples']
-                          camera_indices = ray_samples.camera_indices.squeeze()
-                          rgb = outputs['rgb']
-                      else:
-                          illumination_field = self.get_illumination_field()
+                      illumination_field = self.get_illumination_field()
 
-                          if not self.training and self.config.fix_test_illumination_directions:
-                              illumination_directions = self.illumination_sampler(apply_random_rotation=False)
-                          else:
-                              illumination_directions = self.illumination_sampler()
+                      illumination_directions = self.illumination_sampler(apply_random_rotation=False)
 
-                          illumination_directions = illumination_directions.to(self.device)
+                      illumination_directions = illumination_directions.to(self.device)
 
-                          # Get environment illumination for samples along the rays for each unique camera
-                          hdr_illumination_colours, illumination_directions = illumination_field(
-                              camera_indices=camera_indices,
-                              positions=None,
-                              directions=illumination_directions,
-                              rotation=rotation,
-                              illumination_type="illumination",
-                          )
+                      # Get environment illumination for samples along the rays for each unique camera
+                      hdr_illumination_colours, illumination_directions = illumination_field(
+                          camera_indices=camera_indices,
+                          positions=None,
+                          directions=illumination_directions,
+                          rotation=rotation,
+                          illumination_type="illumination",
+                      )
 
-                          # Get LDR colour of the background for rays from the camera that don't hit the scene
-                          background_colours, _ = illumination_field(
-                              camera_indices=camera_indices,
-                              positions=None,
-                              directions=ray_samples.frustums.directions[:, 0, :],
-                              rotation=rotation,
-                              illumination_type="background",
-                          )
-                          rgb = self.lambertian_renderer(
-                              albedos=albedos,
-                              normals=normals,
-                              light_directions=illumination_directions,
-                              light_colors=hdr_illumination_colours,
-                              visibility=visibility,
-                              background_illumination=background_colours,
-                              weights=weights,
-                          )
+                      # Get LDR colour of the background for rays from the camera that don't hit the scene
+                      background_colours, _ = illumination_field(
+                          camera_indices=camera_indices,
+                          positions=None,
+                          directions=ray_samples.frustums.directions[:, 0, :],
+                          rotation=rotation,
+                          illumination_type="background",
+                      )
+                      rgb = self.lambertian_renderer(
+                          albedos=albedos,
+                          normals=normals,
+                          light_directions=illumination_directions,
+                          light_colors=hdr_illumination_colours,
+                          visibility=visibility,
+                          background_illumination=background_colours,
+                          weights=weights,
+                      )
 
-                      # Saving the outputs and envmap to .pt file for each frame
-                      torch.save({"rgb": rgb}, pt_file_path)
+                  # Saving the outputs and envmap to .pt file for each frame
+                  torch.save({"rgb": rgb}, pt_file_path)
 
-                  # Storing the data in memory for final animation
-                  saved_data.append(rgb.detach().cpu().numpy())
+              # Storing the data in memory for final animation
+              saved_data.append(rgb.detach().cpu().numpy())
 
-                  # Update the progress bar
-                  progress.update(task, advance=1)
+              # # Update the progress bar
+              # progress.update(task, advance=1)
+              print(f"Rendering frame {i+1}/{num_frames}")
 
         # Save entire sequence to a .pt file
         torch.save(saved_data, output_path + 'render_sequence.pt')
@@ -1063,7 +1059,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
 
         # Define the codec using VideoWriter_fourcc and creat7e a VideoWriter object
         fourcc = cv2.VideoWriter_fourcc(*'mp4v') 
-        video = cv2.VideoWriter('rgb_animation.mp4', fourcc, fps, (width, height))
+        video = cv2.VideoWriter(output_path + 'rgb_animation.mp4', fourcc, fps, (width, height))
 
         for frame in rgb_images:
             # OpenCV uses BGR format, so we need to convert RGB to BGR
@@ -1073,4 +1069,3 @@ class RENINeuSFactoModel(NeuSFactoModel):
         video.release()
 
         self.visibility_threshold = temp_visibility_threshold
-        self.config.fix_test_illumination_directions = temp_fix_test_illumination_directions
