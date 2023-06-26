@@ -327,7 +327,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
 
                 # illumination_directions = [num_rays * num_samples, num_light_directions, xyz]
                 shadow_map = self.compute_visibility(ray_samples=ray_samples[:, 0:1], # Shape: [num_rays, 1]
-                                                     p2p_dist=depth,
+                                                     p2p_dist=p2p_dist,
                                                      illumination_directions=shadow_map_direction,
                                                      threshold_distance=self.shadow_map_threshold_static,
                                                      accumulation=accumulation,
@@ -863,7 +863,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
         # we only want [num_light_directions, xyz]
         illumination_directions = illumination_directions[0, :, :]
 
-        if self.config.only_upperhemisphere_visibility:
+        if self.config.only_upperhemisphere_visibility and not compute_shadow_map:
             # we dot product illumination_directions with the vertical z axis
             # and use it as mask to select only the upper hemisphere
             dot_products = torch.sum(torch.tensor([0, 0, 1]).type_as(illumination_directions) * illumination_directions, dim=1)
@@ -968,7 +968,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
             bias = 0.0
             visibility = torch.sigmoid(scale * (difference - bias))
 
-        if self.config.only_upperhemisphere_visibility:
+        if self.config.only_upperhemisphere_visibility and not compute_shadow_map:
             # we now need to use the mask we created earlier to select only the upper hemisphere
             # and then use the predicted visibility values there
             total_vis = torch.ones(num_rays, original_num_light_directions, 1).type_as(visibility)

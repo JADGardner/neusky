@@ -6,7 +6,8 @@ dependencies=[
     "icosphere",
     "tqdm",
     "wget",
-    "nerfstudio>=0.2.0"
+    "nerfstudio>=0.2.0",
+    "yacs"
 ]
 
 [tool.setuptools.packages.find]

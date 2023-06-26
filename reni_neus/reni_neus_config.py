@@ -138,7 +138,7 @@ RENINeuS = MethodSpecification(
                     mask_depth_to_circumference=False, # force depth under mask to circumference of ddf (not implemented)
                 ),
                 ddf_radius="AABB",
-                use_visibility=True,
+                use_visibility=False,
                 visibility_threshold=1.0, # "learnable", float
                 only_upperhemisphere_visibility=True,
                 optimise_visibility=False,
