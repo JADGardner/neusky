@@ -50,7 +50,7 @@ from nerfstudio.model_components.losses import (
     monosdf_normal_loss,
 )
 
-from nerfstudio.viewer.server.viewer_elements import ViewerControl, ViewerButton, ViewerCheckbox
+from nerfstudio.viewer.server.viewer_elements import *
 
 from reni_neus.illumination_fields.base_illumination_field import IlluminationFieldConfig
 from reni_neus.model_components.renderers import RGBLambertianRendererWithVisibility
@@ -114,6 +114,8 @@ class RENINeuSFactoModelConfig(NeuSFactoModelConfig):
     """Lower hemisphere visibility will always be 1.0 if this is True"""
     fix_test_illumination_directions: bool = False
     """Fix the test illumination directions"""
+    use_visibility: bool = False
+    """Use visibility network output"""
 
 
 class RENINeuSFactoModel(NeuSFactoModel):
@@ -293,21 +295,51 @@ class RENINeuSFactoModel(NeuSFactoModel):
             p2p_dist = self.renderer_depth(weights=weights, ray_samples=ray_samples)
             # the rendered depth is point-to-point distance and we should convert to depth
             depth = p2p_dist / ray_bundle.metadata["directions_norm"]
-
             # we need accumulation so we can ignore samples that don't hit the scene
             accumulation = self.renderer_accumulation(weights=weights)
 
-            visibility_dict = self.compute_visibility(ray_samples=ray_samples,
-                                                      p2p_dist=p2p_dist,
-                                                      illumination_directions=illumination_directions,
-                                                      threshold_distance=self.visibility_threshold,
-                                                      accumulation=accumulation,
-                                                      batch=batch)
+            if self.config.use_visibility:
+                visibility_dict = self.compute_visibility(ray_samples=ray_samples,
+                                                          p2p_dist=depth,
+                                                          illumination_directions=illumination_directions,
+                                                          threshold_distance=self.visibility_threshold,
+                                                          accumulation=accumulation,
+                                                          batch=batch)
+                
+                samples_and_field_outputs["visibility_dict"] = visibility_dict
             
             samples_and_field_outputs["p2p_dist"] = p2p_dist
             samples_and_field_outputs["depth"] = depth
             samples_and_field_outputs["accumulation"] = accumulation
-            samples_and_field_outputs["visibility_dict"] = visibility_dict
+            accumulation_mask = accumulation > self.accumulation_mask_threshold_static
+
+            if self.render_shadow_map_static:
+                # convert self.shadow_map_azimuth_static and self.shadow_map_elevation_static to radians
+                # from degrees to x, y, z direction with z being up
+                azimuth = self.shadow_map_azimuth_static * np.pi / 180
+                elevation = self.shadow_map_elevation_static * np.pi / 180
+                shadow_map_direction = torch.tensor([np.cos(azimuth) * np.cos(elevation),
+                                                      np.sin(azimuth) * np.cos(elevation),
+                                                      np.sin(elevation)]).to(self.device)
+                shadow_map_direction = shadow_map_direction.unsqueeze(0).unsqueeze(0) # Shape: [1, 1, 3]
+                shadow_map_direction = shadow_map_direction.repeat(ray_samples.shape[0], 1, 1) # Shape: [num_rays, 1, 3]
+                shadow_map_direction = shadow_map_direction.type_as(illumination_directions)
+
+                # illumination_directions = [num_rays * num_samples, num_light_directions, xyz]
+                shadow_map = self.compute_visibility(ray_samples=ray_samples[:, 0:1], # Shape: [num_rays, 1]
+                                                     p2p_dist=depth,
+                                                     illumination_directions=shadow_map_direction,
+                                                     threshold_distance=self.shadow_map_threshold_static,
+                                                     accumulation=accumulation,
+                                                     batch=batch,
+                                                     compute_shadow_map=True)
+                
+                # mask using accumulation_mask
+                shadow_map['visibility'] = shadow_map['visibility'] * accumulation_mask.unsqueeze(1).type_as(shadow_map['visibility'])
+                shadow_map['difference'] = shadow_map['difference'] * accumulation_mask.unsqueeze(1).type_as(shadow_map['difference'])
+                
+                samples_and_field_outputs["shadow_map"] = shadow_map
+                
 
         if self.config.include_hashgrid_density_loss and self.training:
             # Get min and max coordinates
@@ -431,6 +463,12 @@ class RENINeuSFactoModel(NeuSFactoModel):
         else:
             albedo = torch.zeros((ray_bundle.shape[0], 3)).to(self.device)
 
+        if self.render_shadow_map_static:
+            shadow_map = samples_and_field_outputs["shadow_map"]['visibility']
+        else:
+            shadow_map = torch.zeros((ray_bundle.shape[0], 1)).to(self.device)
+
+
         outputs = {
             "rgb": rgb,
             "albedo": albedo,
@@ -441,8 +479,13 @@ class RENINeuSFactoModel(NeuSFactoModel):
             "weights": weights,
             "background_colours": background_colours,
             # used to scale z_vals for free space and sdf loss
-            "directions_norm": ray_bundle.metadata["directions_norm"]
+            "directions_norm": ray_bundle.metadata["directions_norm"],
+            "shadow_map": shadow_map,
         }
+
+        # if self.render_shadow_map_static:
+        #     if 'difference' in samples_and_field_outputs["shadow_map"]:
+        #         outputs["difference"] = samples_and_field_outputs["shadow_map"]['difference']
 
         if self.training:
             grad_points = field_outputs[FieldHeadNames.GRADIENT]
@@ -470,7 +513,8 @@ class RENINeuSFactoModel(NeuSFactoModel):
             outputs['render_albedos'] = field_outputs[RENINeuSFieldHeadNames.ALBEDO]
             outputs['render_normals'] = field_outputs[FieldHeadNames.NORMALS]
             outputs['render_visibility'] = visibility
-            outputs['ray_samples'] = ray_samples
+            outputs['directions'] = ray_samples.frustums.directions[:, 0, :]
+            outputs['camera_indices'] = ray_samples.camera_indices[0, 0]
 
         return outputs
 
@@ -482,12 +526,12 @@ class RENINeuSFactoModel(NeuSFactoModel):
 
         if self.training:
             if "fg_mask" in batch:
-                fg_label = batch["fg_mask"].float().to(self.device)
+                fg_label = batch["fg_mask"].float()
                 sky_label = 1 - fg_label
                 loss_dict["illumination_loss"] = (
                     self.direct_illumination_loss(
                         inputs=outputs["background_colours"],
-                        targets=batch["image"].to(self.device),
+                        targets=batch["image"].type_as(sky_label),
                         mask=sky_label,
                         Z=self.illumination_field_train.get_latents(),
                     )
@@ -505,7 +549,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
                     monosdf_normal_loss(normal_pred * batch["ground_mask"], normal_gt * batch["ground_mask"]) * self.config.ground_plane_normal_alignment_multi
                 )
 
-        if self.config.visibility_field is not None:
+        if self.config.visibility_field is not None and self.config.use_visibility:
             # add the loss_dict from the visibility field
             loss_dict.update(self.visibility_field.get_loss_dict(outputs, outputs["visibility_batch"]))
 
@@ -543,7 +587,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
 
     @torch.no_grad()
     def get_outputs_for_camera_ray_bundle(
-        self, camera_ray_bundle: RayBundle, show_progress=False, rotation=None
+        self, camera_ray_bundle: RayBundle, show_progress=False, rotation=None, to_cpu=False
     ) -> Dict[str, torch.Tensor]:
         """Takes in camera parameters and computes the output of the model.
 
@@ -555,12 +599,17 @@ class RENINeuSFactoModel(NeuSFactoModel):
         num_rays = len(camera_ray_bundle)
         outputs_lists = defaultdict(list)
 
-        # This handles thread 
+        # This handles thread issues as viewer may change states during rendering of the whole frame
         self.render_rgb_static = self.render_rgb
         self.render_accumulation_static = self.render_accumulation
         self.render_depth_static = self.render_depth
         self.render_normal_static = self.render_normal
         self.render_albedo_static = self.render_albedo
+        self.render_shadow_map_static = self.render_shadow_map
+        self.shadow_map_threshold_static = self.shadow_map_threshold.value
+        self.shadow_map_azimuth_static = self.shadow_map_azimuth.value
+        self.shadow_map_elevation_static = self.shadow_map_elevation.value
+        self.accumulation_mask_threshold_static = self.accumulation_mask_threshold.value
 
         if show_progress:
             with Progress(
@@ -579,6 +628,9 @@ class RENINeuSFactoModel(NeuSFactoModel):
                         if not torch.is_tensor(output):
                             # TODO: handle lists of tensors as well
                             continue
+                        else:
+                            if to_cpu:
+                                output = output.cpu()
                         outputs_lists[output_name].append(output)
                     progress.update(task, completed=i)
         else:
@@ -700,6 +752,18 @@ class RENINeuSFactoModel(NeuSFactoModel):
         self.render_albedo = True
         self.render_albedo_static = True
 
+        self.render_shadow_map = True
+        self.render_shadow_map_static = False
+        self.shadow_map_threshold = ViewerSlider(name="Shadowmap Threshold", default_value=1.0, min_value=0.0, max_value=2.0)
+        self.shadow_map_azimuth = ViewerSlider(name="Shadow Map Azimuth", default_value=0.0, min_value=-180.0, max_value=180.0)
+        self.shadow_map_elevation = ViewerSlider(name="Shadow Map Elevation", default_value=0.0, min_value=-90.0, max_value=90.0)
+        self.shadow_map_threshold_static = 0.5
+        self.shadow_map_azimuth_static = 0.5
+        self.shadow_map_elevation_static = 0.5
+
+        self.accumulation_mask_threshold = ViewerSlider(name="Accumulation Mask Threshold", default_value=0.0, min_value=0.0, max_value=1.0)
+        self.accumulation_mask_threshold_static = 0.0
+
         def render_rgb_callback(handle: ViewerCheckbox) -> None:
             self.render_rgb = handle.value
 
@@ -737,6 +801,13 @@ class RENINeuSFactoModel(NeuSFactoModel):
                                                      default_value=True,
                                                      cb_hook=render_albedo_callback)
         
+
+        def render_shadow_map_callback(handle: ViewerCheckbox) -> None:
+            self.render_shadow_map = handle.value
+
+        self.render_shadow_map_checkbox = ViewerCheckbox(name="Render Shadow Map",
+                                                         default_value=True,
+                                                         cb_hook=render_shadow_map_callback)
         
         def on_sphere_look_at_origin(button):
             # instant=False means the camera smoothly animates
@@ -776,7 +847,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
 
         return intersection_point
 
-    def compute_visibility(self, ray_samples, p2p_dist, illumination_directions, threshold_distance, accumulation, batch):
+    def compute_visibility(self, ray_samples, p2p_dist, illumination_directions, threshold_distance, accumulation, batch, compute_shadow_map=False):
         """Compute visibility"""
         # ddf_model directional distance field model
         # positions is the origins of the rays from the surface of the object
@@ -888,12 +959,14 @@ class RENINeuSFactoModel(NeuSFactoModel):
         # if the difference is positive then the expected termination distance
         # is greater than the distance from the point on the sphere to the point on the SDF
         # so the point on the sphere is visible to it
-        # visibility = (difference > 0).float() # TODO make soft for training???
-        # Use a large scale to make the transition steep
-        scale = 50.0
-        # Adjust the bias to control the point at which the transition happens
-        bias = 0.0
-        visibility = torch.sigmoid(scale * (difference - bias))
+        if compute_shadow_map:
+            visibility = (difference > 0).float()
+        else:
+            # Use a large scale to make the transition steep
+            scale = 50.0
+            # Adjust the bias to control the point at which the transition happens
+            bias = 0.0
+            visibility = torch.sigmoid(scale * (difference - bias))
 
         if self.config.only_upperhemisphere_visibility:
             # we now need to use the mask we created earlier to select only the upper hemisphere
@@ -911,6 +984,8 @@ class RENINeuSFactoModel(NeuSFactoModel):
 
         visibility_dict = outputs
         visibility_dict["visibility"] = visibility
+        if compute_shadow_map:
+            visibility_dict["difference"] = difference
         visibility_dict["visibility_batch"] = {
             "termination_dist": termination_dist,
             "mask": torch.ones_like(termination_dist),
@@ -942,6 +1017,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
             )
 
             visibility_field.load_state_dict(model_dict)
+
             if not self.config.optimise_visibility:
               visibility_field.eval()
 
@@ -953,7 +1029,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
         """Render an animation rotating the illumination field around the scene."""
         temp_visibility_threshold = self.config.visibility_threshold
         self.visibility_threshold = visibility_threshold
-        self.rendering_animation = True
+        self.rendering_animation = False
 
         # there is some stuff we can reuse such as albedo and normals
         path = output_path + 'render_frames'
@@ -984,53 +1060,9 @@ class RENINeuSFactoModel(NeuSFactoModel):
                   frame_data = torch.load(pt_file_path)
                   rgb = frame_data["rgb"]
               else:
-                  # Compute the frame
-                  # if its the first frame we compute everything
-                  if i == 0:
-                      outputs = self.get_outputs_for_camera_ray_bundle(ray_bundle, show_progress=True, rotation=rotation)
-                      # and we can store outputs['albedo'], outputs['normals'], outputs['depth'], outputs['p2p_dist']
-                      # for next iteration as they will be the same
-                      albedos = outputs['render_albedos']
-                      normals = outputs['render_normals']
-                      visibility = outputs['render_visibility']
-                      weights = outputs['weights']
-                      ray_samples = outputs['ray_samples']
-                      camera_indices = ray_samples.camera_indices.squeeze()
-                      rgb = outputs['rgb']
-                  else:
-                      illumination_field = self.get_illumination_field()
-
-                      illumination_directions = self.illumination_sampler(apply_random_rotation=False)
-
-                      illumination_directions = illumination_directions.to(self.device)
-
-                      # Get environment illumination for samples along the rays for each unique camera
-                      hdr_illumination_colours, illumination_directions = illumination_field(
-                          camera_indices=camera_indices,
-                          positions=None,
-                          directions=illumination_directions,
-                          rotation=rotation,
-                          illumination_type="illumination",
-                      )
-
-                      # Get LDR colour of the background for rays from the camera that don't hit the scene
-                      background_colours, _ = illumination_field(
-                          camera_indices=camera_indices,
-                          positions=None,
-                          directions=ray_samples.frustums.directions[:, 0, :],
-                          rotation=rotation,
-                          illumination_type="background",
-                      )
-                      rgb = self.lambertian_renderer(
-                          albedos=albedos,
-                          normals=normals,
-                          light_directions=illumination_directions,
-                          light_colors=hdr_illumination_colours,
-                          visibility=visibility,
-                          background_illumination=background_colours,
-                          weights=weights,
-                      )
-
+                  print(f"Rendering frame {i}/{num_frames}")
+                  outputs = self.get_outputs_for_camera_ray_bundle(ray_bundle, show_progress=True, rotation=rotation)
+                  rgb = outputs['rgb']
                   # Saving the outputs and envmap to .pt file for each frame
                   torch.save({"rgb": rgb}, pt_file_path)
 
@@ -1039,7 +1071,6 @@ class RENINeuSFactoModel(NeuSFactoModel):
 
               # # Update the progress bar
               # progress.update(task, advance=1)
-              print(f"Rendering frame {i+1}/{num_frames}")
 
         # Save entire sequence to a .pt file
         torch.save(saved_data, output_path + 'render_sequence.pt')

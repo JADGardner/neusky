@@ -49,6 +49,15 @@ def rotation_matrix(axis: np.ndarray, angle: float) -> np.ndarray:
     rotation = torch.from_numpy(rotation).float()
     return rotation
 
+def get_reni_image(model, outputs, batch, R):
+    idx = torch.tensor(batch["image_idx"], device=model.device)
+    W = 512
+    H = W // 2
+    D = get_directions(W).to(model.device)  # [B, H*W, 3]
+    envmap, _ = model.get_illumination_field()(idx, None, D, R, "envmap")
+    envmap = envmap.reshape(1, H, W, 3).squeeze(0)
+    return envmap
+
 # setup config
 test_mode = 'val'
 world_size = 1
@@ -79,7 +88,7 @@ for key in vision_model_dict.keys():
     reni_neus_model_dict['visibility_field.' + key] = vision_model_dict[key]
 
 datamanager: RENINeuSDataManager = RENINeuS.config.pipeline.datamanager.setup(
-    device=device, test_mode=test_mode, world_size=world_size, local_rank=local_rank,
+    device=device, test_mode=test_mode, world_size=world_size, local_rank=local_rank, 
 )
 datamanager.to(device)
 
@@ -99,15 +108,15 @@ model.eval()
 print('Model loaded')
 
 ray_bundle, batch = datamanager.fixed_indices_eval_dataloader.get_data_from_image_idx(3)
-model.config.use_visibility = True
-model.render_shadow_map = False
-model.visibility_threshold = 0.1
-model.shadow_map_threshold.value = 0.1
 model.config.fix_test_illumination_directions = True
-model.accumulation_mask_threshold.value = 0.7 
-model.render_illumination_animation(ray_bundle=ray_bundle,
-                                    batch=None,
-                                    num_frames=100,
-                                    fps=20,
-                                    visibility_threshold=0.1,
-                                    output_path='/workspace/outputs/renders/')
+model.render_rgb = False
+model.render_accumulation = True
+model.render_depth = True
+model.render_normal = False
+model.render_albedo = False
+model.render_shadow_map = True
+model.render_shadow_map_static = True
+model.shadow_map_threshold.value = 1.0
+model.shadow_map_azimuth.value = 90.0
+model.shadow_map_elevation.value = 45.0
+outputs = model.get_outputs_for_camera_ray_bundle(ray_bundle, show_progress=True, rotation=None)
