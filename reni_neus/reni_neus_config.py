@@ -89,7 +89,7 @@ RENINeuS = MethodSpecification(
                     optimise_exposure_scale=True,
                 ),
                 illumination_sampler=IcosahedronSamplerConfig(
-                    icosphere_order=5,
+                    icosphere_order=6,
                     apply_random_rotation=True,
                     remove_lower_hemisphere=False,
                 ),
