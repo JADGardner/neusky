@@ -236,7 +236,7 @@ class DDFModel(Model):
             outputs['distance_weight'] = distance_weight
 
         # get sdf at expected termination distance for loss
-        if self.config.include_sdf_loss:
+        if self.config.include_sdf_loss and batch is not None:
           if reni_neus is not None:
               termination_points = (
                   positions + directions * expected_termination_dist.unsqueeze(-1)
@@ -264,8 +264,7 @@ class DDFModel(Model):
 
             outputs["predicted_normals"] = n_hat
 
-        if self.config.include_multi_view_loss and self.training:
-            assert batch is not None
+        if self.config.include_multi_view_loss and self.training and batch is not None:
             # for every gt termination point we choose a random other position on the sphere
             # we the the ddf to predict the termination distance from the random
             # point to the termination point. This distance should be no greater than the distance
@@ -305,7 +304,7 @@ class DDFModel(Model):
             outputs["multi_view_termintation_dist"] = batch["termination_dist"]
             outputs["multi_view_expected_termination_dist"] = field_outputs[RENINeuSFieldHeadNames.TERMINATION_DISTANCE]
 
-        if self.config.include_sky_ray_loss and self.training:
+        if self.config.include_sky_ray_loss and self.training and batch is not None:
             # all rays that go from cameras into the sky don't intersect the scene
             # so we know that in the opposite direction the DDF should predict the
             # distance from the DDF sphere to the camera origin, this is a ground truth

@@ -144,7 +144,7 @@ class DDFDataManager(DataManager):  # pylint: disable=abstract-method
             local_rank=1,
         )
 
-        # get average camera position and conver to normalised direction
+        # get average camera position and convert to normalised direction
         c2w = self.old_datamanager.train_dataset.cameras.camera_to_worlds
         positions = c2w[:, :3, 3]
         average_camera_position = torch.mean(positions, dim=0)

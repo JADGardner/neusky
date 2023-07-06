@@ -46,14 +46,14 @@ from reni_neus.model_components.ddf_sampler import DDFSamplerConfig, VMFDDFSampl
 RENINeuS = MethodSpecification(
     config=TrainerConfig(
         method_name="reni-neus",
-        steps_per_eval_image=100,
+        steps_per_eval_image=5000,
         steps_per_eval_batch=100000,
         steps_per_save=5000,
         steps_per_eval_all_images=1000000,  # set to a very large model so we don't eval with all images
         max_num_iterations=100001,
         mixed_precision=False,
-        load_dir=Path("/workspace/outputs/nerfstudio_models/"),
-        load_step=85000,
+        # load_dir=Path("/workspace/outputs/unnamed/reni-neus/2023-07-05_064750/nerfstudio_models"),
+        # load_step=95000,
         pipeline=RENINeuSPipelineConfig(
             eval_latent_optimisation_source="image_full",
             eval_latent_optimisation_epochs=50,
@@ -89,7 +89,7 @@ RENINeuS = MethodSpecification(
                     optimise_exposure_scale=True,
                 ),
                 illumination_sampler=IcosahedronSamplerConfig(
-                    icosphere_order=6,
+                    icosphere_order=5,
                     apply_random_rotation=True,
                     remove_lower_hemisphere=False,
                 ),
@@ -106,45 +106,52 @@ RENINeuS = MethodSpecification(
                 hashgrid_density_loss_sample_resolution=10,
                 include_ground_plane_normal_alignment=True,
                 ground_plane_normal_alignment_multi=0.1,
-                # visibility_field=None,
-                visibility_field=DDFModelConfig( # DDFModelConfig or None
-                    ddf_field=DirectionalDistanceFieldConfig(
-                        ddf_type="ddf", # pddf
-                        position_encoding_type="hash", # none, hash, nerf, sh
-                        direction_encoding_type="nerf",
-                        network_type="film_siren", # siren, film_siren, fused_mlp
-                        termination_output_activation="sigmoid",
-                        probability_of_hit_output_activation="sigmoid",
-                        hidden_layers=5,
-                        hidden_features=256,
-                        predict_probability_of_hit=False,
-                    ),
-                    depth_loss="L1", # L2, L1, Log_Loss
-                    include_sdf_loss=False,
-                    include_multi_view_loss=False,
-                    include_sky_ray_loss=False,
-                    multi_view_loss_stop_gradient=False,
-                    include_depth_loss_scene_center_weight=False,
-                    compute_normals=False, # This currently does not work, the input to the network need changing to work with autograd
-                    sdf_loss_mult=100.0,
-                    multi_view_loss_mult=0.1,
-                    sky_ray_loss_mult=1.0,
-                    depth_loss_mult=20.0,
-                    prob_hit_loss_mult=1.0,
-                    normal_loss_mult=1.0,
-                    eval_num_rays_per_chunk=1024,
-                    scene_center_weight_exp=3.0,
-                    scene_center_use_xyz=False, # only xy
-                    mask_depth_to_circumference=False, # force depth under mask to circumference of ddf (not implemented)
-                ),
-                ddf_radius="AABB",
                 use_visibility=False,
-                visibility_threshold=1.0, # "learnable", float
+                visibility_threshold=(1.0, 0.1), # "learnable", float, tuple(start, end)
+                steps_till_min_visibility_threshold=10000,
                 only_upperhemisphere_visibility=True,
-                optimise_visibility=False,
-                visibility_ckpt_path=None,
-                visibility_ckpt_step=0,
+                scene_contraction_order="L2",
+                collider_shape="sphere",
             ),
+            visibility_field=DDFModelConfig( # DDFModelConfig or None
+              ddf_field=DirectionalDistanceFieldConfig(
+                  ddf_type="ddf", # pddf
+                  position_encoding_type="hash", # none, hash, nerf, sh
+                  direction_encoding_type="nerf",
+                  network_type="film_siren", # siren, film_siren, fused_mlp
+                  termination_output_activation="sigmoid",
+                  probability_of_hit_output_activation="sigmoid",
+                  hidden_layers=5,
+                  hidden_features=256,
+                  predict_probability_of_hit=False,
+              ),
+              depth_loss="L1", # L2, L1, Log_Loss
+              include_sdf_loss=True,
+              include_multi_view_loss=True,
+              include_sky_ray_loss=True,
+              multi_view_loss_stop_gradient=False,
+              include_depth_loss_scene_center_weight=True,
+              compute_normals=False, # This currently does not work, the input to the network need changing to work with autograd
+              sdf_loss_mult=100.0,
+              multi_view_loss_mult=0.1,
+              sky_ray_loss_mult=1.0,
+              depth_loss_mult=20.0,
+              prob_hit_loss_mult=1.0,
+              normal_loss_mult=1.0,
+              eval_num_rays_per_chunk=1024,
+              scene_center_weight_exp=3.0,
+              scene_center_use_xyz=False, # only xy
+              mask_depth_to_circumference=False, # force depth under mask to circumference of ddf (not implemented)
+          ),
+          visibility_train_sampler=VMFDDFSamplerConfig(
+              concentration=20.0,
+          ),
+          # visibility_ckpt_path=Path('/workspace/outputs/unnamed/ddf/2023-06-20_085448/'),
+          # visibility_ckpt_step=20000,
+          # reni_neus_ckpt_path=Path('/workspace/outputs/unnamed/reni-neus/2023-06-07_141907/'),
+          # reni_neus_ckpt_step=85000,
+          fit_visibility_field=False, # if true, train visibility field, else visibility is static
+          visibility_field_radius="AABB",
         ),
         optimizers={
             "proposal_networks": {
@@ -169,7 +176,7 @@ RENINeuS = MethodSpecification(
             },
         },
         viewer=ViewerConfig(num_rays_per_chunk=1 << 15),
-        vis="viewer",
+        vis="wandb",
     ),
     description="Base config for RENI-NeuS.",
 )

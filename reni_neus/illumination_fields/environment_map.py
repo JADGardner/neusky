@@ -37,10 +37,16 @@ class EnvironmentMapConfig(IlluminationFieldConfig):
     """target class to instantiate"""
     path: Path = Path('path/to/environment_map/s.pt')
     """path to environment map"""
-    resolution: Tuple[int, int] = (512, 256)
+    resolution: Tuple[int, int] = (1024, 512)
     """resolution of environment map"""
     trainable: bool = False
     """whether to train the environment map or not"""
+    apply_padding: bool = True
+    """whether to apply padding to the environment map or not"""
+    padding: int = 1
+    """padding to apply to the environment map"""
+    scale: float = 1.0
+    """scale to apply to the environment map"""
 
 
 class EnvironmentMapField(IlluminationField):
@@ -53,6 +59,9 @@ class EnvironmentMapField(IlluminationField):
     ) -> None:
         super().__init__()
         self.config = config
+        self.num_latent_codes = num_latent_codes
+        self.scale = config.scale
+        self.padding = config.padding
         if self.config.trainable:
             self.environment_maps = nn.Parameter(torch.randn(num_latent_codes, 3, self.config.resolution[0], self.config.resolution[1]))
         else:
@@ -77,6 +86,20 @@ class EnvironmentMapField(IlluminationField):
                 # just repeat the first environment map
                 self.environment_maps = self.environment_maps.repeat(num_latent_codes, 1, 1, 1)
 
+            # Apply padding to the environment maps to avoid artifacts at the borders.
+            if self.config.apply_padding:
+              self.environment_maps = self.environment_maps.permute(0, 2, 3, 1)  # Change dimensions to [B, W, H, C]
+              self.environment_maps = torch.nn.functional.pad(
+                  self.environment_maps,
+                  (0, 0, self.padding, self.padding),  # padding on either side of width dimension
+                  mode='replicate'
+              )
+              self.environment_maps = self.environment_maps.permute(0, 3, 1, 2)  # Change dimensions back to [B, C, H, W]
+
+            # ensure envmap is only 3 channels
+            self.environment_maps = self.environment_maps[:, :3, :, :]
+            self.scale = torch.tensor(self.scale).type_as(self.environment_maps)
+
     def sample_envmaps(self, envmaps, directions):
         """Sample colors from the environment maps given a set of 3D directions.
 
@@ -100,7 +123,12 @@ class EnvironmentMapField(IlluminationField):
         v = theta / math.pi  # vertical coordinate between 0 and 1
 
         # Rescale and shift coordinates to match the grid_sample convention.
-        u = 2 * u - 1  # horizontal coordinate between -1 and 1
+        if self.config.apply_padding:
+            u = u * (envmaps.shape[-1] - 2 * self.padding) / envmaps.shape[-1]  # Remap u to consider padding
+            u = u + self.padding / envmaps.shape[-1]  # Shift u to consider padding
+            u = 2 * u - 1  # Convert u to range [-1, 1] for grid sampling.
+        else:
+            u = 2 * u - 1  # horizontal coordinate between -1 and 1
         v = 2 * v - 1  # vertical coordinate between -1 and 1
 
         # Repeat coordinates for each environment map.
@@ -133,11 +161,16 @@ class EnvironmentMapField(IlluminationField):
         directions = directions.to(self.environment_maps.device)
         inverse_indices = inverse_indices.to(self.environment_maps.device)
 
+        if rotation is not None:
+            directions = torch.matmul(directions, rotation)  # [num_directions, 3]
+
         if illumination_type == "illumination":
             envmaps = self.environment_maps[unique_indices]  # [unique_indices, 3, H, W]
             light_directions = directions.type_as(envmaps)  # [num_directions, 3]
 
             light_colours = self.sample_envmaps(envmaps, light_directions) # [unique_indices, 3, 3]
+            light_colours = light_colours * self.scale.expand_as(light_colours)  # [unique_indices, 3, 3]
+
             light_directions = light_directions.unsqueeze(0).repeat(envmaps.shape[0], 1, 1)  # [unique_indices, num_directions, 3]
 
             light_colours = light_colours[inverse_indices]  # [rays_per_batch, samples_per_ray, 3, num_directions]
@@ -158,6 +191,7 @@ class EnvironmentMapField(IlluminationField):
             light_directions = directions.type_as(envmaps)  # [num_directions, 3]
 
             light_colours = self.sample_envmaps(envmaps, light_directions) # [unique_indices, num_directions, 3]
+            light_colours = light_colours * self.scale.expand_as(light_colours)  # [unique_indices, 3, 3]
             light_directions = light_directions.unsqueeze(0).repeat(envmaps.shape[0], 1, 1)  # [unique_indices, num_directions, 3]
 
             # light_colours = light_colours[inverse_indices]  # [rays_per_batch, samples_per_ray, num_directions, 3]
@@ -173,6 +207,7 @@ class EnvironmentMapField(IlluminationField):
             )
             light_directions = light_directions.type_as(envmaps)  # [num_directions, 3]
             light_colours = self.sample_envmaps(envmaps, light_directions) # [unique_indices, num_directions, 3]
+            light_colours = light_colours * self.scale.expand_as(light_colours)  # [unique_indices, 3, 3]
             light_colours = light_colours[inverse_indices]  # [rays_per_batch, samples_per_ray, 3, num_directions]
             light_colours = light_colours.permute(0, 1, 3, 2)  # Desired shape: [rays_per_batch, samples_per_ray, num_directions, 3]
             light_colours = light_colours.reshape(-1, directions.shape[0], 3)  # [rays_per_batch * samples_per_ray, num_directions, 3]

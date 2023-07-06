@@ -111,7 +111,14 @@ class DDFPipeline(VanillaPipeline):
             self.ddf_radius = self.config.ddf_radius
 
         self.datamanager: DDFDataManager = config.datamanager.setup(
-            device=device, test_mode=test_mode, world_size=world_size, local_rank=local_rank, reni_neus=self.reni_neus, reni_neus_ckpt_path=self.config.reni_neus_ckpt_path, scene_box=scene_box, ddf_radius=self.ddf_radius
+            device=device, 
+            test_mode=test_mode, 
+            world_size=world_size, 
+            local_rank=local_rank, 
+            reni_neus=self.reni_neus, 
+            reni_neus_ckpt_path=self.config.reni_neus_ckpt_path, 
+            scene_box=scene_box, 
+            ddf_radius=self.ddf_radius
         )
         self.datamanager.to(device)
         assert self.datamanager.train_dataset is not None, "Missing input dataset"
