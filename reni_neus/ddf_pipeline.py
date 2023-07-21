@@ -164,6 +164,7 @@ class DDFPipeline(VanillaPipeline):
             num_val_data=num_val_data,
             num_test_data=num_test_data,
             test_mode="train",
+            visibility_field=None,
         )
 
         self.reni_neus.load_state_dict(model_dict)
