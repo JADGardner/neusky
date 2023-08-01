@@ -57,13 +57,18 @@ from nerfstudio.model_components.losses import (
 
 from nerfstudio.viewer.server.viewer_elements import *
 
-from reni_neus.illumination_fields.base_illumination_field import IlluminationFieldConfig
 from reni_neus.model_components.renderers import RGBLambertianRendererWithVisibility
-from reni_neus.model_components.illumination_samplers import IlluminationSamplerConfig
+# from reni_neus.model_components.illumination_samplers import IlluminationSamplerConfig
 from reni_neus.utils.utils import RENITestLossMask, get_directions, rotation_matrix
 from reni_neus.reni_neus_fieldheadnames import RENINeuSFieldHeadNames
 from reni_neus.ddf_model import DDFModelConfig, DDFModel
 from reni_neus.model_components.ddf_sampler import DDFSamplerConfig
+
+from reni.illumination_fields.base_spherical_field import SphericalFieldConfig
+from reni.illumination_fields.reni_illumination_field import RENIField, RENIFieldConfig
+from reni.model_components.illumination_samplers import IlluminationSamplerConfig
+from reni.field_components.field_heads import RENIFieldHeadNames
+from reni.utils.colourspace import linear_to_sRGB
 
 CONSOLE = Console(width=120)
 
@@ -73,8 +78,12 @@ class RENINeuSFactoModelConfig(NeuSFactoModelConfig):
     """NeusFacto Model Config"""
 
     _target: Type = field(default_factory=lambda: RENINeuSFactoModel)
-    illumination_field: IlluminationFieldConfig = IlluminationFieldConfig()
+    illumination_field: SphericalFieldConfig = SphericalFieldConfig()
     """Illumination Field"""
+    illumination_field_ckpt_path: Path = Path('/path/to/ckpt.pt')
+    """Path of pretrained illumination field"""
+    illumination_field_ckpt_step: int = 0
+    """Step of pretrained illumination field"""
     illumination_sampler: IlluminationSamplerConfig = IlluminationSamplerConfig()
     """Illumination sampler to use"""
     illumination_field_prior_loss_weight: float = 1e-7
@@ -186,9 +195,31 @@ class RENINeuSFactoModel(NeuSFactoModel):
         """Instantiate modules and fields, including proposal networks."""
         super().populate_modules()
 
-        self.illumination_field_train = self.config.illumination_field.setup(num_latent_codes=self.num_train_data)
-        self.illumination_field_val = self.config.illumination_field.setup(num_latent_codes=self.num_val_data)
-        self.illumination_field_test = self.config.illumination_field.setup(num_latent_codes=self.num_test_data)
+        # Three seperate illumination fields for train, val and test, we are using a fixed decoder so
+        # train_data for the illumination field is none and we are optimising the eval latents instead.
+
+        # TODO Get from checkpoint
+        normalisations = {'min_max': (-4.5, 9.0),
+                          'log_domain': True}
+
+        self.illumination_field_train = self.config.illumination_field.setup(num_train_data=None, num_eval_data=self.num_train_data, normalisations=normalisations)
+        self.illumination_field_val = self.config.illumination_field.setup(num_train_data=None, num_eval_data=self.num_val_data, normalisations=normalisations)
+        self.illumination_field_test = self.config.illumination_field.setup(num_train_data=None, num_eval_data=self.num_test_data, normalisations=normalisations)
+
+        # if self.illumination_field_train is of type RENIFieldConfig
+        if isinstance(self.illumination_field_train, RENIField):
+            ckpt_path = self.config.illumination_field_ckpt_path / 'nerfstudio_models' / f'step-{self.config.illumination_field_ckpt_step:09d}.ckpt'
+            ckpt = torch.load(ckpt_path)
+            illumination_field_dict = {}
+            match_str = '_model.field.network.'
+            for key in ckpt['pipeline'].keys():
+                if key.startswith(match_str):
+                    illumination_field_dict[key[len(match_str):]] = ckpt['pipeline'][key]
+
+            # load weights of the decoder
+            self.illumination_field_train.network.load_state_dict(illumination_field_dict)
+            self.illumination_field_val.network.load_state_dict(illumination_field_dict)
+            self.illumination_field_test.network.load_state_dict(illumination_field_dict)
 
         self.illumination_sampler = self.config.illumination_sampler.setup()
 
@@ -276,29 +307,40 @@ class RENINeuSFactoModel(NeuSFactoModel):
         illumination_field = self.get_illumination_field()
 
         if not self.training and self.config.fix_test_illumination_directions:
-            illumination_directions = self.illumination_sampler(apply_random_rotation=False)
+            illumination_ray_samples = self.illumination_sampler(apply_random_rotation=False) # [num_illumination_direction]
         else:
-            illumination_directions = self.illumination_sampler()
+            illumination_ray_samples = self.illumination_sampler() # [num_illumination_direction]
 
-        illumination_directions = illumination_directions.to(self.device)
+        illumination_ray_samples = illumination_ray_samples.to(self.device)
 
-        # Get environment illumination for samples along the rays for each unique camera
-        hdr_illumination_colours, illumination_directions = illumination_field(
-            camera_indices=camera_indices,
-            positions=None,
-            directions=illumination_directions,
-            rotation=rotation,
-            illumination_type="illumination",
-        )
+        # we want unique camera indices and for each one to sample illumination directions
+        unique_indices, inverse_indices = torch.unique(camera_indices, return_inverse=True) # [num_unique_camera_indices], [num_rays, samples_per_ray]
+        num_unique_camera_indices = unique_indices.shape[0]
+        num_illumination_directions = illumination_ray_samples.shape[0]
+        unique_indices = unique_indices.unsqueeze(1).repeat(1, num_illumination_directions) # [num_unique_camera_indices, num_illumination_directions]
+        # illumination_ray_samples.frustums.directions # shape [num_illumination_directions, 3] we need to repeat this for each unique camera index
+        directions = illumination_ray_samples.frustums.directions.unsqueeze(0).repeat(num_unique_camera_indices, 1, 1) # [num_unique_camera_indices, num_illumination_directions, 3]
+        # now reshape both and put into ray_samples
+        illumination_ray_samples.camera_indices = unique_indices.reshape(-1) # [num_unique_camera_indices * num_illumination_directions]
+        illumination_ray_samples.frustums.directions = directions.reshape(-1, 3) # [num_unique_camera_indices * num_illumination_directions, 3]
+        illuination_field_outputs = illumination_field.forward(illumination_ray_samples, rotation=rotation) # [num_unique_camera_indices * num_illumination_directions, 3]
+        hdr_illumination_colours = illuination_field_outputs[RENIFieldHeadNames.RGB] # [num_unique_camera_indices * num_illumination_directions, 3]
+        hdr_illumination_colours = illumination_field.unnormalise(hdr_illumination_colours) # [num_unique_camera_indices * num_illumination_directions, 3]
+        # so now we reshape back to [num_unique_camera_indices, num_illumination_directions, 3]
+        hdr_illumination_colours = hdr_illumination_colours.reshape(num_unique_camera_indices, num_illumination_directions, 3)
+        # and use inverse indices to get back to [num_rays, num_illumination_directions, 3]
+        hdr_illumination_colours = hdr_illumination_colours[inverse_indices] # [num_rays, samples_per_ray, num_illumination_directions, 3]
+        # and then unsqueeze, repeat and reshape to get to [num_rays * samples_per_ray, num_illumination_directions, 3]
+        hdr_illumination_colours = hdr_illumination_colours.reshape(-1, num_illumination_directions, 3) # [num_rays * samples_per_ray, num_illumination_directions, 3]
+        # same for illumination directions
+        illumination_directions = directions[inverse_indices] # [num_rays, samples_per_ray, num_illumination_directions, 3]
+        illumination_directions = illumination_directions.reshape(-1, num_illumination_directions, 3) # [num_rays * samples_per_ray, num_illumination_directions, 3]
 
-        # Get LDR colour of the background for rays from the camera that don't hit the scene
-        background_colours, _ = illumination_field(
-            camera_indices=camera_indices,
-            positions=None,
-            directions=ray_samples.frustums.directions[:, 0, :],
-            rotation=rotation,
-            illumination_type="background",
-        )
+        # now get background colours for cameras
+        illumination_ray_samples = illumination_field.forward(ray_samples[:, 0], rotation=rotation)
+        hdr_background_colours = illumination_ray_samples[RENIFieldHeadNames.RGB]
+        hdr_background_colours = illumination_field.unnormalise(hdr_background_colours)
+        
 
         samples_and_field_outputs = {
             "ray_samples": ray_samples,
@@ -309,7 +351,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
             "ray_samples_list": ray_samples_list,
             "illumination_directions": illumination_directions,
             "hdr_illumination_colours": hdr_illumination_colours,
-            "background_colours": background_colours,
+            "hdr_background_colours": hdr_background_colours,
         }
 
         if self.visibility_field is not None:
@@ -439,7 +481,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
         ray_samples = samples_and_field_outputs["ray_samples"]
         illumination_directions = samples_and_field_outputs["illumination_directions"]
         hdr_illumination_colours = samples_and_field_outputs["hdr_illumination_colours"]
-        background_colours = samples_and_field_outputs["background_colours"]
+        hdr_background_colours = samples_and_field_outputs["hdr_background_colours"]
 
         visibility = None
         if 'visibility_dict' in samples_and_field_outputs:
@@ -452,7 +494,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
                 light_directions=illumination_directions,
                 light_colors=hdr_illumination_colours,
                 visibility=visibility,
-                background_illumination=background_colours,
+                background_illumination=hdr_background_colours,
                 weights=weights,
             )
         else:
@@ -497,7 +539,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
             "p2p_dist": p2p_dist,
             "normal": normal,
             "weights": weights,
-            "background_colours": background_colours,
+            "hdr_background_colours": hdr_background_colours,
             # used to scale z_vals for free space and sdf loss
             "directions_norm": ray_bundle.metadata["directions_norm"],
         }
@@ -553,10 +595,9 @@ class RENINeuSFactoModel(NeuSFactoModel):
                 sky_label = 1 - fg_label
                 loss_dict["illumination_loss"] = (
                     self.direct_illumination_loss(
-                        inputs=outputs["background_colours"],
+                        inputs=linear_to_sRGB(outputs["hdr_background_colours"]),
                         targets=batch["image"].type_as(sky_label),
                         mask=sky_label,
-                        Z=self.illumination_field_train.get_latents(),
                     )
                     * self.config.illumination_field_loss_weight
                 )

@@ -22,5 +22,5 @@
       ]
     }
   },
-  "postCreateCommand": "cd /workspace && pip install -e . && cd /workspace/reni_neus/ && pip install -e ."
+  "postCreateCommand": "cd /workspace && pip install -e . && cd /workspace/reni_neus/ && pip install -e . && cd /workspace/reni_neus/ViT-Adapter/segmentation && ln -s ../detection/ops ./ && cd /ops && python setup.py build install --user"
 }

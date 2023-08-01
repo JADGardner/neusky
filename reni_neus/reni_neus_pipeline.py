@@ -149,13 +149,14 @@ class RENINeuSPipeline(VanillaPipeline):
             metadata=self.datamanager.train_dataset.metadata,
         )
 
-        if self.config.visibility_ckpt_path is not None:
+        if self.config.reni_neus_ckpt_path is not None:
+            assert self.config.reni_neus_ckpt_step is not None, "Invalid reni_neus_ckpt_step"
             ckpt = torch.load(self.config.reni_neus_ckpt_path / 'nerfstudio_models' / f'step-{self.config.reni_neus_ckpt_step:09d}.ckpt', map_location=device)
             model_dict = {}
             for key in ckpt['pipeline'].keys():
                 if key.startswith('_model.'):
                     model_dict[key[7:]] = ckpt['pipeline'][key]
-            self.model.load_state_dict(model_dict, strict=False)
+            self.model.load_state_dict(model_dict, strict=False) # false as it will be loading the visibility field weights too # TODO is there a better way to share visibility field?
         self.model.to(device)
 
         self.world_size = world_size

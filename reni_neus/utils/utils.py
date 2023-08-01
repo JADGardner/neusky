@@ -81,13 +81,12 @@ class RENITestLossMask(object):
         self.beta = beta
         self.mse = torch.nn.MSELoss(reduction="mean")
 
-    def __call__(self, inputs, targets, mask, Z):
+    def __call__(self, inputs, targets, mask):
         inputs = inputs * mask
         targets = targets * mask
         mse = self.mse(inputs, targets)
-        prior = self.alpha * torch.pow(Z, 2).sum()
         cosine = self.beta * CosineSimilarity(inputs, targets)
-        loss = mse + prior + cosine
+        loss = mse + cosine
         return loss
 
 

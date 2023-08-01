@@ -151,6 +151,76 @@ def get_sh_order(ndims):
         order += 1
     return order
 
+# Misc functions
+def resizeImage(img, width, height, interpolation=cv2.INTER_CUBIC):
+    if img.shape[1] < width:  # up res
+        if interpolation == "max_pooling":
+            return cv2.resize(img, (width, height), interpolation=cv2.INTER_CUBIC)
+        else:
+            return cv2.resize(img, (width, height), interpolation=interpolation)
+    if interpolation == "max_pooling":  # down res, max pooling
+        try:
+            import skimage.measure
+
+            scaleFactor = int(float(img.shape[1]) / width)
+            factoredWidth = width * scaleFactor
+            img = cv2.resize(
+                img,
+                (factoredWidth, int(factoredWidth / 2)),
+                interpolation=cv2.INTER_CUBIC,
+            )
+            blockSize = scaleFactor
+            r = skimage.measure.block_reduce(
+                img[:, :, 0], (blockSize, blockSize), np.max
+            )
+            g = skimage.measure.block_reduce(
+                img[:, :, 1], (blockSize, blockSize), np.max
+            )
+            b = skimage.measure.block_reduce(
+                img[:, :, 2], (blockSize, blockSize), np.max
+            )
+            img = np.dstack((np.dstack((r, g)), b)).astype(np.float32)
+            return img
+        except:
+            print("Failed to do max_pooling, using default")
+            return cv2.resize(img, (width, height), interpolation=cv2.INTER_CUBIC)
+    else:  # down res, using interpolation
+        return cv2.resize(img, (width, height), interpolation=interpolation)
+
+
+def getCoefficientsFromImage(ibl, lmax=2, resizeWidth=None, filterAmount=None):
+    # Resize if necessary (I recommend it for large images)
+    if resizeWidth is not None:
+        # ibl = cv2.resize(ibl, dsize=(resizeWidth,int(resizeWidth/2)), interpolation=cv2.INTER_CUBIC)
+        ibl = resizeImage(ibl, resizeWidth, int(resizeWidth / 2), cv2.INTER_CUBIC)
+    elif ibl.shape[1] > 1000:
+        # print("Input resolution is large, reducing for efficiency")
+        # ibl = cv2.resize(ibl, dsize=(1000,500), interpolation=cv2.INTER_CUBIC)
+        ibl = resizeImage(ibl, 1000, 500, cv2.INTER_CUBIC)
+        
+    xres = ibl.shape[1]
+    yres = ibl.shape[0]
+
+    # Pre-filtering, windowing
+    if filterAmount is not None:
+        ibl = blurIBL(ibl, amount=filterAmount)
+
+    # Compute sh coefficients
+    sh_basis_matrix = getCoefficientsMatrix(xres, lmax)
+
+    # Sampling weights
+    solidAngles = getSolidAngleMap(xres)
+    
+    # Project IBL into SH basis
+    nCoeffs = shTerms(lmax)
+    iblCoeffs = torch.zeros((nCoeffs, 3), device=device)
+    for i in range(0, shTerms(lmax)):
+        iblCoeffs[i, 0] = torch.sum(ibl[:, :, 0] * sh_basis_matrix[:, :, i] * solidAngles)
+        iblCoeffs[i, 1] = torch.sum(ibl[:, :, 1] * sh_basis_matrix[:, :, i] * solidAngles)
+        iblCoeffs[i, 2] = torch.sum(ibl[:, :, 2] * sh_basis_matrix[:, :, i] * solidAngles)
+
+    return iblCoeffs
+
 def get_spherical_harmonic_representation(img, nBands):
     # img: (H, W, 3), nBands: int
     iblCoeffs = getCoefficientsFromImage(img, nBands)
