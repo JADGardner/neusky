@@ -1,0 +1,3 @@
+[submodule "ViT-Adapter"]
+	path = ViT-Adapter
+	url = https://github.com/czczup/ViT-Adapter.git
