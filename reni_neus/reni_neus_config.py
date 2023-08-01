@@ -31,8 +31,8 @@ from nerfstudio.models.nerfacto import NerfactoModelConfig
 
 from reni_neus.data.nerfosr_cityscapes_dataparser import NeRFOSRCityScapesDataParserConfig
 from reni_neus.reni_neus_model import RENINeuSFactoModelConfig
-from reni_neus.illumination_fields.reni_field import RENIFieldConfig
-from reni_neus.model_components.illumination_samplers import IcosahedronSamplerConfig
+# from reni_neus.illumination_fields.reni_field import RENIFieldConfig
+# from reni_neus.model_components.illumination_samplers import IcosahedronSamplerConfig
 from reni_neus.reni_neus_pipeline import RENINeuSPipelineConfig
 from reni_neus.data.reni_neus_datamanager import RENINeuSDataManagerConfig
 from reni_neus.fields.sdf_albedo_field import SDFAlbedoFieldConfig
@@ -41,6 +41,10 @@ from reni_neus.fields.directional_distance_field import DirectionalDistanceField
 from reni_neus.ddf_pipeline import DDFPipelineConfig
 from reni_neus.data.ddf_datamanager import DDFDataManagerConfig
 from reni_neus.model_components.ddf_sampler import DDFSamplerConfig, VMFDDFSamplerConfig
+
+from reni.illumination_fields.reni_illumination_field import RENIFieldConfig
+from reni.model_components.illumination_samplers import IcosahedronSamplerConfig
+from reni.illumination_fields.reni_illumination_field import RENIFieldConfig
 
 
 RENINeuS = MethodSpecification(
@@ -84,15 +88,28 @@ RENINeuS = MethodSpecification(
                     inside_outside=False,
                 ),
                 illumination_field=RENIFieldConfig(
-                    checkpoint_path="/workspace/reni_neus/checkpoints/reni_weights/latent_dim_36_net_5_256_vad_cbc_tanh_hdr/version_0/checkpoints/fit_decoder_epoch=1589.ckpt",
+                    conditioning='Concat',
+                    equivariance="SO2",
+                    axis_of_invariance="z", # Nerfstudio world space is z-up
+                    positional_encoding="NeRF",
+                    encoded_input="Directions",
+                    latent_dim=100,
+                    hidden_features=256,
+                    hidden_layers=9,
+                    mapping_layers=5,
+                    mapping_features=128,
+                    output_activation="None",
+                    last_layer_linear=True,
                     fixed_decoder=True,
-                    optimise_exposure_scale=True,
+                    trainable_scale=True,
                 ),
                 illumination_sampler=IcosahedronSamplerConfig(
-                    icosphere_order=5,
+                    num_directions=300,
                     apply_random_rotation=True,
                     remove_lower_hemisphere=False,
                 ),
+                illumination_field_ckpt_path=Path("/workspace/outputs/unnamed/reni/2023-07-28_135306/"),
+                illumination_field_ckpt_step=50000,
                 eval_num_rays_per_chunk=256,
                 illumination_field_prior_loss_weight=1e-7,
                 illumination_field_cosine_loss_weight=1e-1,
@@ -107,10 +124,10 @@ RENINeuS = MethodSpecification(
                 include_ground_plane_normal_alignment=True,
                 ground_plane_normal_alignment_multi=0.1,
                 use_visibility=False,
-                visibility_threshold=(1.0, 0.1), # "learnable", float, tuple(start, end)
+                visibility_threshold=(1.0, 0.1), # "learnable", float, tuple(start, end) ... tuple will exponentially decay from start to end
                 steps_till_min_visibility_threshold=10000,
                 only_upperhemisphere_visibility=True,
-                scene_contraction_order="L2",
+                scene_contraction_order="L2", # L2, Linf
                 collider_shape="sphere",
             ),
             visibility_field=DDFModelConfig( # DDFModelConfig or None
@@ -176,7 +193,7 @@ RENINeuS = MethodSpecification(
             },
         },
         viewer=ViewerConfig(num_rays_per_chunk=1 << 15),
-        vis="wandb",
+        vis="viewer",
     ),
     description="Base config for RENI-NeuS.",
 )
