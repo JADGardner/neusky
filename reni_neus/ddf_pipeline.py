@@ -103,7 +103,7 @@ class DDFPipeline(VanillaPipeline):
         self.config = config
         self.test_mode = test_mode
 
-        scene_box = self._setup_reni(device)
+        scene_box = self._setup_reni_neus_model(device)
 
         if self.config.ddf_radius == "AABB":
             self.ddf_radius = torch.abs(scene_box.aabb[0, 0]).item()
@@ -139,7 +139,7 @@ class DDFPipeline(VanillaPipeline):
             self._model = typing.cast(Model, DDP(self._model, device_ids=[local_rank], find_unused_parameters=True))
             dist.barrier(device_ids=[local_rank])
 
-    def _setup_reni(self, device):
+    def _setup_reni_neus_model(self, device):
         # setting up reni_neus for pseudo ground truth
         ckpt_path = self.config.reni_neus_ckpt_path / "nerfstudio_models" / f"step-{self.config.reni_neus_ckpt_step:09d}.ckpt"
         ckpt = torch.load(str(ckpt_path))
@@ -150,9 +150,11 @@ class DDFPipeline(VanillaPipeline):
                 model_dict[key[7:]] = ckpt["pipeline"][key]
 
         scene_box = SceneBox(aabb=model_dict["field.aabb"])
-        num_train_data = model_dict["illumination_field_train.reni.mu"].shape[0]
-        num_val_data = model_dict["illumination_field_val.reni.mu"].shape[0]
-        num_test_data = model_dict["illumination_field_test.reni.mu"].shape[0]
+
+        # SHOULD BE ABLE TO GET THIS FROM ckpt["pipeline"].num_train_data.item() but only after retraining
+        # num_train_data = model_dict["illumination_field_train.reni.mu"].shape[0]
+        # num_val_data = model_dict["illumination_field_val.reni.mu"].shape[0]
+        # num_test_data = model_dict["illumination_field_test.reni.mu"].shape[0]
 
         # load yaml checkpoint config
         reni_neus_config = Path(self.config.reni_neus_ckpt_path) / "config.yml"

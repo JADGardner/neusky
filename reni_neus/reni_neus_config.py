@@ -31,8 +31,6 @@ from nerfstudio.models.nerfacto import NerfactoModelConfig
 
 from reni_neus.data.nerfosr_cityscapes_dataparser import NeRFOSRCityScapesDataParserConfig
 from reni_neus.reni_neus_model import RENINeuSFactoModelConfig
-# from reni_neus.illumination_fields.reni_field import RENIFieldConfig
-# from reni_neus.model_components.illumination_samplers import IcosahedronSamplerConfig
 from reni_neus.reni_neus_pipeline import RENINeuSPipelineConfig
 from reni_neus.data.reni_neus_datamanager import RENINeuSDataManagerConfig
 from reni_neus.fields.sdf_albedo_field import SDFAlbedoFieldConfig
@@ -108,7 +106,7 @@ RENINeuS = MethodSpecification(
                     apply_random_rotation=True,
                     remove_lower_hemisphere=False,
                 ),
-                illumination_field_ckpt_path=Path("/workspace/outputs/unnamed/reni/2023-07-28_135306/"),
+                illumination_field_ckpt_path=Path("/workspace/outputs/unnamed/reni/2023-08-02_073038/"),
                 illumination_field_ckpt_step=50000,
                 eval_num_rays_per_chunk=256,
                 illumination_field_prior_loss_weight=1e-7,
@@ -123,7 +121,7 @@ RENINeuS = MethodSpecification(
                 hashgrid_density_loss_sample_resolution=10,
                 include_ground_plane_normal_alignment=True,
                 ground_plane_normal_alignment_multi=0.1,
-                use_visibility=False,
+                use_visibility=True,
                 visibility_threshold=(1.0, 0.1), # "learnable", float, tuple(start, end) ... tuple will exponentially decay from start to end
                 steps_till_min_visibility_threshold=10000,
                 only_upperhemisphere_visibility=True,
@@ -165,9 +163,9 @@ RENINeuS = MethodSpecification(
           ),
           # visibility_ckpt_path=Path('/workspace/outputs/unnamed/ddf/2023-06-20_085448/'),
           # visibility_ckpt_step=20000,
-          # reni_neus_ckpt_path=Path('/workspace/outputs/unnamed/reni-neus/2023-06-07_141907/'),
-          # reni_neus_ckpt_step=85000,
-          fit_visibility_field=False, # if true, train visibility field, else visibility is static
+          reni_neus_ckpt_path=Path('/workspace/outputs/unnamed/reni-neus/2023-08-02_102036/'),
+          reni_neus_ckpt_step=55000,
+          fit_visibility_field=True, # if true, train visibility field, else visibility is static
           visibility_field_radius="AABB",
         ),
         optimizers={
@@ -254,8 +252,8 @@ DirectionalDistanceField = MethodSpecification(
                 scene_center_use_xyz=False, # only xy
                 mask_depth_to_circumference=False, # force depth under mask to circumference of ddf (not implemented)
             ),
-            reni_neus_ckpt_path=Path("/workspace/outputs/unnamed/reni-neus/2023-06-07_141907"),
-            reni_neus_ckpt_step=85000,
+            reni_neus_ckpt_path=Path("/workspace/outputs/unnamed/reni-neus/2023-08-02_102036"),
+            reni_neus_ckpt_step=55000,
             ddf_radius="AABB",
         ),
         optimizers={

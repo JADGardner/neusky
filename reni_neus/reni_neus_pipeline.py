@@ -127,9 +127,10 @@ class RENINeuSPipeline(VanillaPipeline):
         if test_mode in ["val", "test"]:
             assert self.datamanager.eval_dataset is not None, "Missing validation dataset"
 
-        self.num_train_data = len(self.datamanager.train_dataset)
-        self.num_test_data = self.datamanager.num_test
-        self.num_val_data = self.datamanager.num_val
+        # register buffers
+        self.register_buffer("num_train_data", torch.tensor(len(self.datamanager.train_dataset)))
+        self.register_buffer("num_test_data", torch.tensor(self.datamanager.num_test))
+        self.register_buffer("num_val_data", torch.tensor(self.datamanager.num_val))
 
         self.scene_box = self.datamanager.train_dataset.scene_box
 
@@ -141,9 +142,9 @@ class RENINeuSPipeline(VanillaPipeline):
 
         self._model = config.model.setup(
             scene_box=self.scene_box,
-            num_train_data=self.num_train_data,
-            num_val_data=self.num_val_data,
-            num_test_data=self.num_test_data,
+            num_train_data=self.num_train_data.item(),
+            num_val_data=self.num_val_data.item(),
+            num_test_data=self.num_test_data.item(),
             visibility_field=self.visibility_field,
             test_mode=test_mode,
             metadata=self.datamanager.train_dataset.metadata,
@@ -173,7 +174,7 @@ class RENINeuSPipeline(VanillaPipeline):
                 epochs=self.config.eval_latent_optimisation_epochs,
                 learning_rate=self.config.eval_latent_optimisation_lr,
                 step=step,
-            )
+            ) 
 
     def get_param_groups(self) -> Dict[str, List[Parameter]]:
         """Get the param groups for the pipeline.
