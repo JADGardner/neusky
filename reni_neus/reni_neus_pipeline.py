@@ -406,17 +406,21 @@ class RENINeuSPipeline(VanillaPipeline):
         sky_pixel_ares = torch.ones_like(sky_origins[..., 0]).reshape(-1, 1) # [num_sky_rays, 1] # not used but needed for RayBundle
 
         sky_ray_bundle = RayBundle(
-            origins=sky_origins,
-            directions=sky_directions,
-            pixel_area=sky_pixel_ares,
+            origins=sky_origins.detach(),
+            directions=sky_directions.detach(),
+            pixel_area=sky_pixel_ares.detach(),
         )
+
+        ray_bundle.origins = ray_bundle.origins.detach()
+        ray_bundle.directions = ray_bundle.directions.detach()
+        ray_bundle.pixel_area = ray_bundle.pixel_area.detach()
 
         data = {
             "ray_bundle": ray_bundle,
-            "accumulations": accumulations,
-            "mask": mask,
-            "termination_dist": termination_dist,
-            "normals": normals,
+            "accumulations": accumulations.detach(),
+            "mask": mask.detach(),
+            "termination_dist": termination_dist.detach(),
+            "normals": normals.detach(),
             "sky_ray_bundle": sky_ray_bundle,
         }
 

@@ -79,7 +79,6 @@ class RENINeuSDataset(InputDataset):
         return image
 
     def get_metadata(self, data: Dict) -> Dict:
-        # TODO supports foreground_masks
         metadata = {}
         # if self.include_mono_prior:
         #     depth_filepath = self.depth_filenames[data["image_idx"]]

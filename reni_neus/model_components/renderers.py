@@ -266,8 +266,8 @@ class RGBBlinnPhongRendererWithVisibility(nn.Module):
 
         assert isinstance(background_illumination, torch.Tensor)
 
-        comp_rgb = sRGB(comp_rgb)  # background_illumination is already sRGB
         comp_rgb = comp_rgb + background_illumination.to(weights.device) * (1.0 - accumulated_weight)
+        comp_rgb = sRGB(comp_rgb)
 
         return comp_rgb
 

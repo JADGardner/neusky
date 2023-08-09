@@ -204,10 +204,6 @@ class NeRFOSRCityScapes(DataParser):
             camera_to_worlds = camera_to_worlds[n_train + n_val :]
             intrinsics = intrinsics[n_train + n_val :]
 
-        # c2w_colmap = camera_to_worlds.detach().clone()
-        # # convert to COLMAP/OpenCV convention from NeRFStudio
-        # c2w_colmap[:, 0:3, 1:3] *= -1
-
         cameras = Cameras(
             camera_to_worlds=camera_to_worlds[:, :3, :4],
             fx=intrinsics[:, 0, 0],

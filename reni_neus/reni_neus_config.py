@@ -54,8 +54,8 @@ RENINeuS = MethodSpecification(
         steps_per_eval_all_images=1000000,  # set to a very large model so we don't eval with all images
         max_num_iterations=100001,
         mixed_precision=False,
-        # load_dir=Path("/workspace/outputs/unnamed/reni-neus/2023-07-05_064750/nerfstudio_models"),
-        # load_step=95000,
+        load_dir=Path("/workspace/outputs/unnamed/reni-neus/2023-08-09_075320/nerfstudio_models"),
+        load_step=50000,
         pipeline=RENINeuSPipelineConfig(
             eval_latent_optimisation_source="image_full",
             eval_latent_optimisation_epochs=50,
@@ -86,16 +86,19 @@ RENINeuS = MethodSpecification(
                     inside_outside=False,
                 ),
                 illumination_field=RENIFieldConfig(
-                    conditioning='Concat',
+                    conditioning='Attention',
+                    invariant_function="VN",
                     equivariance="SO2",
                     axis_of_invariance="z", # Nerfstudio world space is z-up
                     positional_encoding="NeRF",
                     encoded_input="Directions",
                     latent_dim=100,
-                    hidden_features=256,
+                    hidden_features=128,
                     hidden_layers=9,
                     mapping_layers=5,
                     mapping_features=128,
+                    num_attention_heads=8,
+                    num_attention_layers=6,
                     output_activation="None",
                     last_layer_linear=True,
                     fixed_decoder=True,
@@ -106,7 +109,7 @@ RENINeuS = MethodSpecification(
                     apply_random_rotation=True,
                     remove_lower_hemisphere=False,
                 ),
-                illumination_field_ckpt_path=Path("/workspace/outputs/unnamed/reni/2023-08-02_073038/"),
+                illumination_field_ckpt_path=Path("/workspace/outputs/unnamed/reni/2023-08-07_154753/"),
                 illumination_field_ckpt_step=50000,
                 eval_num_rays_per_chunk=256,
                 illumination_field_prior_loss_weight=1e-7,
@@ -121,7 +124,7 @@ RENINeuS = MethodSpecification(
                 hashgrid_density_loss_sample_resolution=10,
                 include_ground_plane_normal_alignment=True,
                 ground_plane_normal_alignment_multi=0.1,
-                use_visibility=True,
+                use_visibility=False,
                 visibility_threshold=(1.0, 0.1), # "learnable", float, tuple(start, end) ... tuple will exponentially decay from start to end
                 steps_till_min_visibility_threshold=10000,
                 only_upperhemisphere_visibility=True,
@@ -146,7 +149,7 @@ RENINeuS = MethodSpecification(
               include_sky_ray_loss=True,
               multi_view_loss_stop_gradient=False,
               include_depth_loss_scene_center_weight=True,
-              compute_normals=False, # This currently does not work, the input to the network need changing to work with autograd
+              compute_normals=False, # This currently does not work, the input to the network needs changing to work with autograd
               sdf_loss_mult=100.0,
               multi_view_loss_mult=0.1,
               sky_ray_loss_mult=1.0,
@@ -163,9 +166,9 @@ RENINeuS = MethodSpecification(
           ),
           # visibility_ckpt_path=Path('/workspace/outputs/unnamed/ddf/2023-06-20_085448/'),
           # visibility_ckpt_step=20000,
-          reni_neus_ckpt_path=Path('/workspace/outputs/unnamed/reni-neus/2023-08-02_102036/'),
-          reni_neus_ckpt_step=55000,
-          fit_visibility_field=True, # if true, train visibility field, else visibility is static
+          # reni_neus_ckpt_path=Path('/workspace/outputs/unnamed/reni-neus/2023-08-02_102036/'),
+          # reni_neus_ckpt_step=55000,
+          fit_visibility_field=False, # if true, train visibility field, else visibility is static
           visibility_field_radius="AABB",
         ),
         optimizers={
@@ -179,7 +182,7 @@ RENINeuS = MethodSpecification(
             },
             "illumination_field": {
                 "optimizer": AdamOptimizerConfig(lr=1e-2, eps=1e-15),
-                "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-4, max_steps=100001),
+                "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-5, max_steps=100001),
             },
             "visibility_threshold": {
                 "optimizer": AdamOptimizerConfig(lr=1e-6, eps=1e-15),
