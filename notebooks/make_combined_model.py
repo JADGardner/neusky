@@ -1,10 +1,4 @@
 # %%|
-import os
-os.chdir("/workspace/")
-import sys
-sys.path.append("/workspace/reni_neus")
-
-
 import torch
 import yaml
 from pathlib import Path

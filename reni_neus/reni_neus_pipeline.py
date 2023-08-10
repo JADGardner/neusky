@@ -128,6 +128,7 @@ class RENINeuSPipeline(VanillaPipeline):
             assert self.datamanager.eval_dataset is not None, "Missing validation dataset"
 
         # register buffers
+        # this is for access when training DDF seperately
         self.register_buffer("num_train_data", torch.tensor(len(self.datamanager.train_dataset)))
         self.register_buffer("num_test_data", torch.tensor(self.datamanager.num_test))
         self.register_buffer("num_val_data", torch.tensor(self.datamanager.num_val))

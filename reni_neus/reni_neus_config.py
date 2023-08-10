@@ -29,7 +29,7 @@ from nerfstudio.fields.sdf_field import SDFFieldConfig
 from nerfstudio.models.neus_facto import NeuSFactoModelConfig
 from nerfstudio.models.nerfacto import NerfactoModelConfig
 
-from reni_neus.data.nerfosr_cityscapes_dataparser import NeRFOSRCityScapesDataParserConfig
+from .data.nerfosr_cityscapes_dataparser import NeRFOSRCityScapesDataParserConfig
 from reni_neus.reni_neus_model import RENINeuSFactoModelConfig
 from reni_neus.reni_neus_pipeline import RENINeuSPipelineConfig
 from reni_neus.data.reni_neus_datamanager import RENINeuSDataManagerConfig
@@ -54,8 +54,8 @@ RENINeuS = MethodSpecification(
         steps_per_eval_all_images=1000000,  # set to a very large model so we don't eval with all images
         max_num_iterations=100001,
         mixed_precision=False,
-        load_dir=Path("/workspace/outputs/unnamed/reni-neus/2023-08-09_075320/nerfstudio_models"),
-        load_step=50000,
+        # load_dir=Path("/workspace/outputs/unnamed/reni-neus/2023-08-09_075320/nerfstudio_models"),
+        # load_step=50000,
         pipeline=RENINeuSPipelineConfig(
             eval_latent_optimisation_source="image_full",
             eval_latent_optimisation_epochs=50,
@@ -109,7 +109,7 @@ RENINeuS = MethodSpecification(
                     apply_random_rotation=True,
                     remove_lower_hemisphere=False,
                 ),
-                illumination_field_ckpt_path=Path("/workspace/outputs/unnamed/reni/2023-08-07_154753/"),
+                illumination_field_ckpt_path=Path("outputs/unnamed/reni/2023-08-07_154753/"),
                 illumination_field_ckpt_step=50000,
                 eval_num_rays_per_chunk=256,
                 illumination_field_prior_loss_weight=1e-7,
@@ -213,8 +213,8 @@ DirectionalDistanceField = MethodSpecification(
             datamanager=DDFDataManagerConfig(
                 train_num_rays_per_batch=1024,
                 eval_num_rays_per_batch=1024,
-                num_test_images_to_generate=8,
-                test_image_cache_dir=Path("/workspace/outputs/ddf/cache/"),
+                num_test_images_to_generate=1,
+                test_image_cache_dir=Path("outputs/ddf/cache/"),
                 accumulation_mask_threshold=0.7,
                 train_data="rand_pnts_on_sphere", # "rand_pnts_on_sphere", "single_camera", "all_cameras"
                 train_data_idx=5, # idx if using single_camera
@@ -255,8 +255,8 @@ DirectionalDistanceField = MethodSpecification(
                 scene_center_use_xyz=False, # only xy
                 mask_depth_to_circumference=False, # force depth under mask to circumference of ddf (not implemented)
             ),
-            reni_neus_ckpt_path=Path("/workspace/outputs/unnamed/reni-neus/2023-08-02_102036"),
-            reni_neus_ckpt_step=55000,
+            reni_neus_ckpt_path=Path("outputs/unnamed/reni-neus/2023-08-09_150349"),
+            reni_neus_ckpt_step=85000,
             ddf_radius="AABB",
         ),
         optimizers={

@@ -23,6 +23,7 @@ from time import time
 from typing import Optional, Type, Union
 import yaml
 from pathlib import Path
+import sys
 
 import torch
 import torch.distributed as dist
@@ -140,8 +141,17 @@ class DDFPipeline(VanillaPipeline):
             dist.barrier(device_ids=[local_rank])
 
     def _setup_reni_neus_model(self, device):
-        # setting up reni_neus for pseudo ground truth
-        ckpt_path = self.config.reni_neus_ckpt_path / "nerfstudio_models" / f"step-{self.config.reni_neus_ckpt_step:09d}.ckpt"
+        relative_path = self.config.reni_neus_ckpt_path / 'nerfstudio_models' / f'step-{self.config.reni_neus_ckpt_step:09d}.ckpt'
+        sys_paths = sys.path
+        # concatenate the path to the illumination field checkpoint and see if it exists
+        exists = False
+        for path in sys_paths:
+            ckpt_path = Path(path) / relative_path
+            if ckpt_path.exists():
+                exists = True
+                break
+        if not exists:
+            raise ValueError(f'Could not find illumination field checkpoint at {ckpt_path}')
         ckpt = torch.load(str(ckpt_path))
 
         model_dict = {}
@@ -151,10 +161,9 @@ class DDFPipeline(VanillaPipeline):
 
         scene_box = SceneBox(aabb=model_dict["field.aabb"])
 
-        # SHOULD BE ABLE TO GET THIS FROM ckpt["pipeline"].num_train_data.item() but only after retraining
-        # num_train_data = model_dict["illumination_field_train.reni.mu"].shape[0]
-        # num_val_data = model_dict["illumination_field_val.reni.mu"].shape[0]
-        # num_test_data = model_dict["illumination_field_test.reni.mu"].shape[0]
+        num_train_data = ckpt["pipeline"]['num_train_data'].item()
+        num_val_data = ckpt["pipeline"]['num_val_data'].item()
+        num_test_data = ckpt["pipeline"]['num_test_data'].item()
 
         # load yaml checkpoint config
         reni_neus_config = Path(self.config.reni_neus_ckpt_path) / "config.yml"
@@ -169,7 +178,7 @@ class DDFPipeline(VanillaPipeline):
             visibility_field=None,
         )
 
-        self.reni_neus.load_state_dict(model_dict)
+        self.reni_neus.load_state_dict(model_dict, strict=False) # no visiblity field
         self.reni_neus.eval()
         self.reni_neus.to(device)
 

@@ -27,6 +27,7 @@ from PIL import Image
 import yaml
 from pathlib import Path
 import os
+import sys
 import random
 
 from torch import Tensor
@@ -101,6 +102,19 @@ class DDFDataset(Dataset):
         config = Path(self.reni_neus_ckpt_path) / "config.yml"
         config = yaml.load(config.open(), Loader=yaml.Loader)
         scene_name = config.pipeline.datamanager.dataparser.scene
+
+        sys_paths = sys.path
+        # Look for the base path that ends with /nerfstudio and construct the checkpoint path
+        exists = False
+        for path in sys_paths:
+            if path.endswith('/nerfstudio'):
+                self.cache_dir = Path(path) / self.cache_dir
+                exists = True
+                break
+        if not exists:
+            raise ValueError(f'Could not find a base path ending with /nerfstudio')
+
+        print(self.cache_dir)
 
         data_file = str(self.cache_dir / f"{scene_name}_data.pt")
 
@@ -305,7 +319,7 @@ class DDFDataset(Dataset):
             image_idx, flag = idx_flag
         else:
             image_idx = idx_flag
-            flag = True
+            flag = True # the viewer needs to have a full image returned
 
         data = self.get_data(image_idx, is_viewer=flag)
         return data

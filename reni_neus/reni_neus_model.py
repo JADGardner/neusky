@@ -30,6 +30,7 @@ import os
 import numpy as np
 import cv2
 from PIL import Image
+import sys
 
 import nerfacc
 import torch
@@ -209,7 +210,18 @@ class RENINeuSFactoModel(NeuSFactoModel):
 
         # if self.illumination_field_train is of type RENIFieldConfig
         if isinstance(self.illumination_field_train, RENIField):
-            ckpt_path = self.config.illumination_field_ckpt_path / 'nerfstudio_models' / f'step-{self.config.illumination_field_ckpt_step:09d}.ckpt'
+            relative_path = self.config.illumination_field_ckpt_path / 'nerfstudio_models' / f'step-{self.config.illumination_field_ckpt_step:09d}.ckpt'
+            sys_paths = sys.path
+            # concatenate the path to the illumination field checkpoint and see if it exists
+            exists = False
+            for path in sys_paths:
+                ckpt_path = Path(path) / relative_path
+                if ckpt_path.exists():
+                    exists = True
+                    break
+            if not exists:
+                raise ValueError(f'Could not find illumination field checkpoint at {ckpt_path}')
+                
             ckpt = torch.load(ckpt_path)
             illumination_field_dict = {}
             match_str = '_model.field.network.'
@@ -386,7 +398,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
             samples_and_field_outputs["depth"] = depth
             samples_and_field_outputs["accumulation"] = accumulation
 
-            if not self.training and self.render_shadow_map_static:
+            if not self.training and self.render_shadow_map_static_flag:
                 accumulation_mask = accumulation > self.accumulation_mask_threshold_static
                 # convert self.shadow_map_azimuth_static and self.shadow_map_elevation_static to radians
                 # from degrees to x, y, z direction with z being up
@@ -512,7 +524,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
                 weights=weights,
             )
             if accumulation is None:
-                accumulation = self.render_accumulation(weights=weights)
+                accumulation = self.renderer_accumulation(weights=weights)
             if p2p_dist is None:
                 p2p_dist = self.renderer_depth(weights=weights, ray_samples=ray_samples)
                 # the rendered depth is point-to-point distance and we should convert to depth
@@ -520,7 +532,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
             normal = self.renderer_normal(semantics=field_outputs[FieldHeadNames.NORMALS], weights=weights)
             albedo = self.albedo_renderer(rgb=field_outputs[RENINeuSFieldHeadNames.ALBEDO], weights=weights)
         else:
-            if self.render_rgb_static:
+            if self.render_rgb_static_flag:
                 rgb = self.lambertian_renderer(
                     albedos=field_outputs[RENINeuSFieldHeadNames.ALBEDO],
                     normals=field_outputs[FieldHeadNames.NORMALS],
@@ -533,25 +545,25 @@ class RENINeuSFactoModel(NeuSFactoModel):
             else:
                 rgb = torch.zeros((ray_bundle.shape[0], 3)).to(self.device)
 
-            if accumulation is None and self.render_accumulation_static:
+            if accumulation is None and self.render_accumulation_static_flag:
                 accumulation = self.renderer_accumulation(weights=weights)
-            elif accumulation is None and not self.render_accumulation_static:
+            elif accumulation is None and not self.render_accumulation_static_flag:
                 accumulation = torch.zeros((ray_bundle.shape[0], 1)).to(self.device)
 
-            if p2p_dist is None and self.render_depth_static:
+            if p2p_dist is None and self.render_depth_static_flag:
                 p2p_dist = self.renderer_depth(weights=weights, ray_samples=ray_samples)
                 # the rendered depth is point-to-point distance and we should convert to depth
                 depth = p2p_dist / ray_bundle.metadata["directions_norm"]
-            elif p2p_dist is None and not self.render_depth_static:
+            elif p2p_dist is None and not self.render_depth_static_flag:
                 p2p_dist = torch.zeros((ray_bundle.shape[0], 1)).to(self.device)
                 depth = torch.zeros((ray_bundle.shape[0], 1)).to(self.device)
                 
-            if self.render_normal_static:
+            if self.render_normal_static_flag:
                 normal = self.renderer_normal(semantics=field_outputs[FieldHeadNames.NORMALS], weights=weights)
             else:
                 normal = torch.zeros((ray_bundle.shape[0], 3)).to(self.device)
 
-            if self.render_albedo_static:
+            if self.render_albedo_static_flag:
                 albedo = self.albedo_renderer(rgb=field_outputs[RENINeuSFieldHeadNames.ALBEDO], weights=weights)
             else:
                 albedo = torch.zeros((ray_bundle.shape[0], 3)).to(self.device)
@@ -570,7 +582,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
             "directions_norm": ray_bundle.metadata["directions_norm"],
         }
 
-        if not self.training and self.render_shadow_map_static:
+        if not self.training and self.render_shadow_map_static_flag:
             shadow_map = samples_and_field_outputs["shadow_map"]['visibility']
             outputs["shadow_map"] = shadow_map
 
@@ -691,17 +703,17 @@ class RENINeuSFactoModel(NeuSFactoModel):
         outputs_lists = defaultdict(list)
 
         # This handles thread issues as viewer may change states during rendering of the whole frame
-        self.render_rgb_static = self.render_rgb
-        self.render_accumulation_static = self.render_accumulation
-        self.render_depth_static = self.render_depth
-        self.render_normal_static = self.render_normal
-        self.render_albedo_static = self.render_albedo
-        self.render_shadow_map_static = self.render_shadow_map
+        self.render_rgb_static_flag = self.render_rgb_flag
+        self.render_accumulation_static_flag = self.render_accumulation_flag
+        self.render_depth_static_flag = self.render_depth_flag
+        self.render_normal_static_flag = self.render_normal_flag
+        self.render_albedo_static_flag = self.render_albedo_flag
+        self.render_shadow_map_static_flag = self.render_shadow_map_flag
         self.shadow_map_threshold_static = self.shadow_map_threshold.value
         self.shadow_map_azimuth_static = self.shadow_map_azimuth.value
         self.shadow_map_elevation_static = self.shadow_map_elevation.value
         self.accumulation_mask_threshold_static = self.accumulation_mask_threshold.value
-        self.render_shadow_envmap_overlay_static = self.render_shadow_envmap_overlay
+        self.render_shadow_envmap_overlay_static_flag = self.render_shadow_envmap_overlay_flag
         self.shadow_envmap_overlay_pos_static = self.shadow_envmap_overlay_pos
         self.shadow_envmap_overlay_dir_static = self.shadow_envmap_overlay_dir
 
@@ -891,18 +903,18 @@ class RENINeuSFactoModel(NeuSFactoModel):
         """Setup the GUI."""
         self.viewer_control = ViewerControl()  # no arguments
 
-        self.render_rgb = True
-        self.render_rgb_static = True
-        self.render_accumulation = True
-        self.render_accumulation_static = True
-        self.render_depth = True
-        self.render_depth_static = True
-        self.render_normal = True
-        self.render_normal_static = True
-        self.render_albedo = True
-        self.render_albedo_static = True
-        self.render_shadow_envmap_overlay = False
-        self.render_shadow_envmap_overlay_static = False
+        self.render_rgb_flag = True
+        self.render_rgb_static_flag = True
+        self.render_accumulation_flag = True
+        self.render_accumulation_static_flag = True
+        self.render_depth_flag = True
+        self.render_depth_static_flag = True
+        self.render_normal_flag = True
+        self.render_normal_static_flag = True
+        self.render_albedo_flag = True
+        self.render_albedo_static_flag = True
+        self.render_shadow_envmap_overlay_flag = False
+        self.render_shadow_envmap_overlay_static_flag = False
         self.shadow_envmap_overlay_pos = [0,0,0]
         self.shadow_envmap_overlay_pos_static = None
         self.shadow_envmap_overlay_dir = [0,1,0]
@@ -914,8 +926,8 @@ class RENINeuSFactoModel(NeuSFactoModel):
 
         self.viewer_control.register_click_cb(click_cb)
 
-        self.render_shadow_map = False
-        self.render_shadow_map_static = False
+        self.render_shadow_map_flag = False
+        self.render_shadow_map_static_flag = False
         self.shadow_map_threshold = ViewerSlider(name="Shadowmap Threshold", default_value=1.0, min_value=0.0, max_value=2.0)
         self.shadow_map_azimuth = ViewerSlider(name="Shadow Map Azimuth", default_value=0.0, min_value=-180.0, max_value=180.0)
         self.shadow_map_elevation = ViewerSlider(name="Shadow Map Elevation", default_value=0.0, min_value=-90.0, max_value=90.0)
@@ -927,14 +939,14 @@ class RENINeuSFactoModel(NeuSFactoModel):
         self.accumulation_mask_threshold_static = 0.0
 
         def render_rgb_callback(handle: ViewerCheckbox) -> None:
-            self.render_rgb = handle.value
+            self.render_rgb_flag = handle.value
 
         self.render_rgb_checkbox = ViewerCheckbox(name="Render RGB",
                                                      default_value=True,
                                                      cb_hook=render_rgb_callback)
         
         def render_accumulation_callback(handle: ViewerCheckbox) -> None:
-            self.render_accumulation = handle.value
+            self.render_accumulation_flag = handle.value
         
         self.render_accumulation_checkbox = ViewerCheckbox(name="Render Accumulation",
                                                      default_value=True,
@@ -942,14 +954,14 @@ class RENINeuSFactoModel(NeuSFactoModel):
         
         if self.visibility_field is None:
             def render_depth_callback(handle: ViewerCheckbox) -> None:
-                self.render_depth = handle.value
+                self.render_depth_flag = handle.value
 
             self.render_depth_checkbox = ViewerCheckbox(name="Render Depth",
                                                         default_value=True,
                                                         cb_hook=render_depth_callback)
         
         def render_normal_callback(handle: ViewerCheckbox) -> None:
-            self.render_normal = handle.value
+            self.render_normal_flag = handle.value
 
         self.render_normal_checkbox = ViewerCheckbox(name="Render Normal",
                                                     default_value=True,
@@ -957,7 +969,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
         
       
         def render_albedo_callback(handle: ViewerCheckbox) -> None:
-            self.render_albedo = handle.value
+            self.render_albedo_flag = handle.value
         
         self.render_albedo_checkbox = ViewerCheckbox(name="Render Albedo",
                                                      default_value=True,
@@ -965,14 +977,14 @@ class RENINeuSFactoModel(NeuSFactoModel):
         
 
         def render_shadow_map_callback(handle: ViewerCheckbox) -> None:
-            self.render_shadow_map = handle.value
+            self.render_shadow_map_flag = handle.value
 
         self.render_shadow_map_checkbox = ViewerCheckbox(name="Render Shadow Map",
                                                          default_value=False,
                                                          cb_hook=render_shadow_map_callback)
         
         def render_shadow_envmap_overlay_callback(handle: ViewerCheckbox) -> None:
-            self.render_shadow_envmap_overlay = handle.value
+            self.render_shadow_envmap_overlay_flag = handle.value
 
         self.render_shadow_envmap_overlay_checkbox = ViewerCheckbox(name="Render Shadow Envmap Overlay",
                                                           default_value=False,
