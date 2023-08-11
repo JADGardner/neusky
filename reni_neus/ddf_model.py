@@ -179,7 +179,7 @@ class DDFModel(Model):
         rotation_matrices = torch.stack((x_local, y_local, z_local), dim=-1)
 
         return rotation_matrices
-
+    
 
     def get_outputs(self, ray_bundle: RayBundle, batch, reni_neus):
         if self.field is None:
@@ -489,6 +489,25 @@ class DDFModel(Model):
         # ensure gt is on the same device as the model
         gt_accumulations = gt_accumulations.to(expected_termination_dist.device)
         gt_termination_dist = gt_termination_dist.to(expected_termination_dist.device)
+
+        masked_depth = expected_termination_dist * gt_accumulations + (1 - gt_accumulations)
+        masked_gt_depth = gt_termination_dist * gt_accumulations + (1 - gt_accumulations)
+
+        # need to reshape for metrics from H, W, C to B, C, H, W
+        masked_depth = masked_depth.unsqueeze(0).permute(0, 3, 1, 2)
+        masked_gt_depth = masked_gt_depth.unsqueeze(0).permute(0, 3, 1, 2)
+
+        depth_psnr = self.psnr(masked_depth, masked_gt_depth)
+        depth_ssim = self.ssim(masked_depth, masked_gt_depth)
+        
+        # # lpips expects images in range 0 - 1 so we need to normalize
+        # masked_depth = (masked_depth - torch.min(masked_depth)) / (torch.max(masked_depth) - torch.min(masked_depth))
+        # masked_gt_depth = (masked_gt_depth - torch.min(masked_gt_depth)) / (torch.max(masked_gt_depth) - torch.min(masked_gt_depth))
+        # depth_lpips = self.lpips(masked_depth, masked_gt_depth)
+
+        metrics_dict["depth_psnr"] = depth_psnr
+        metrics_dict["depth_ssim"] = depth_ssim
+        # metrics_dict["depth_lpips"] = depth_lpips
 
         gt_depth = colormaps.apply_depth_colormap(
             gt_termination_dist,

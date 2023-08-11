@@ -42,6 +42,12 @@ class DDFSamplerConfig(InstantiateConfig):
 
     _target: Type = field(default_factory=lambda: DDFSampler)
     """target class to instantiate"""
+    num_samples_on_sphere: int = 1,
+    """Number of samples on sphere"""
+    num_rays_per_sample: int = 1024
+    """Number of inward facing rays per sample"""
+    only_sample_upper_hemisphere: bool = False
+    """Only sample upper hemisphere for positions"""
 
 
 class DDFSampler(nn.Module):
@@ -61,6 +67,7 @@ class DDFSampler(nn.Module):
         self.config = config
         self.ddf_sphere_radius = ddf_sphere_radius
         self.device = device
+        self.num_rays = self.config.num_samples_on_sphere * self.config.num_rays_per_sample
 
     def random_points_on_unit_sphere(self, num_points, cartesian=True):
         """
@@ -78,19 +85,26 @@ class DDFSampler(nn.Module):
         return torch.stack([theta, phi], dim=1)
 
     @abstractmethod
-    def generate_ddf_samples(self, num_positions, num_directions, positions=None) -> RayBundle:
+    def generate_ddf_samples(self, num_positions, num_directions, positions) -> RayBundle:
         """Generate Direction Samples"""
+        raise NotImplementedError
 
-    def forward(self, num_positions, num_directions, positions=None) -> RayBundle:
+    def forward(self, num_positions: Optional[int] = None, num_directions: Optional[int] = None, positions: Optional[torch.Tensor] = None) -> RayBundle:
         """Returns directions for each position.
 
         Args:
-            num_positions: number of positions to sample
-            num_directions: number of directions to sample
+            num_positions: Optional[int] number of positions on ddf sphere to sample
+            num_directions: Optional[int] number of directions to sample for each position
+            positions: Optional[torch.Tensor] positions on ddf sphere to sample
 
         Returns:
-            directions: [num_directions, 3]
+            RayBundle: ray bundle with origins and directions
         """
+
+        if num_positions is None:
+            num_positions = self.config.num_samples_on_sphere
+        if num_directions is None:
+            num_directions = self.config.num_rays_per_sample
 
         return self.generate_ddf_samples(num_positions, num_directions, positions)
 
@@ -139,9 +153,13 @@ class UniformDDFSampler(DDFSampler):
         """Generate Direction Samples"""
 
         if positions is None:
-            positions = self.random_points_on_unit_sphere(num_positions, cartesian=True)  # (1, 3)
+            positions = self.random_points_on_unit_sphere(num_positions, cartesian=True)  # (num_positions, 3)
 
-        directions = self.random_inward_facing_directions(num_directions, normals=-positions)  # (1, num_directions, 3)
+        if self.config.only_sample_upper_hemisphere:
+            # negate any z values that are negative
+            positions[positions[:, 2] < 0] = -positions[positions[:, 2] < 0]
+
+        directions = self.random_inward_facing_directions(num_directions, normals=-positions)  # (num_positions, num_directions, 3)
 
         positions = positions * self.ddf_sphere_radius
 
@@ -189,7 +207,6 @@ class VMFDDFSampler(DDFSampler):
         Generate n iid samples t with density function given by
         p(t) = some constant * (1 - t**2)**((d - 2)/2) * exp(kappa*t)
         """
-        # b = Eq. 4 of https://doi.org/10.1080/03610919408813161
         b = (d - 1) / (2 * kappa + (4 * kappa ** 2 + (d - 1) ** 2) ** 0.5)
         x0 = torch.tensor((1 - b) / (1 + b))
         c = kappa * x0 + (d - 1) * torch.log(1 - x0 ** 2)
@@ -204,57 +221,63 @@ class VMFDDFSampler(DDFSampler):
             out.append(t[accept])
             found += len(out[-1])
         return torch.cat(out)[:n]
-
-    def random_vmf(self, mu, kappa, size=None):
+    
+    def random_vmf(self, normals: torch.Tensor, kappa: int, num_samples: int = 10):
         """
         Von Mises - Fisher distribution sampler with
         mean direction mu and concentration kappa.
         Source : https://hal.science/hal-04004568
         """
-        # parse input parameters
-        n = 1 if size is None else torch.prod(torch.tensor(size))
-        shape = () if size is None else tuple(torch.flatten(torch.tensor(size)))
-        mu = mu.clone().detach()
-        mu = mu / torch.norm(mu) # shape (N, 3)
-        (d,) = mu.shape
+        normals = normals / torch.norm(normals, dim=-1, keepdim=True) # shape (N, d) # ensure normalised
+        (N, d) = normals.shape # N = number of normals, d = dimension of normals
         # z component : radial samples perpendicular to mu
-        z = torch.normal(0, 1, (n, d))
-        z = z / torch.norm(z, dim=1, keepdim=True)
-        z = z - (torch.mm(z, mu[:, None])) * mu[None, :]
-        z = z / torch.norm(z, dim=1, keepdim=True)
+        z = torch.normal(0, 1, (N, num_samples, d)) # shape (N, num_samples, d)
+        z = z / torch.norm(z, dim=-1, keepdim=True) # normalise
+        # project z onto the plane perpendicular to normals
+        z = z - (torch.einsum('nij,nj->ni', z, normals))[..., None] * normals[:, None, :]
+        z = z / torch.norm(z, dim=-1, keepdim=True)
         # sample angles (in cos and sin form)
-        cos = self._random_vmf_cos(d, kappa, n)
-        sin = torch.sqrt(1 - cos ** 2)
+        cos = self._random_vmf_cos(d, kappa, N * num_samples) # shape (N * num_samples)
+        cos = cos.reshape(N, num_samples)
+        sin = torch.sqrt(1 - cos ** 2) # shape (N, num_samples)
         # combine angles with the z component
-        x = z * sin[:, None] + cos[:, None] * mu[None, :]
-        return x.reshape((*shape, d))
+        x = z * sin[..., None] + cos[..., None] * normals[:, None, :] # shape (N, num_samples, d)
+        # ensure normalised
+        x = x / torch.norm(x, dim=-1, keepdim=True)
+        return x
 
     def generate_ddf_samples(self, num_positions, num_directions, positions=None) -> RayBundle:
         """Generate Direction Samples"""
 
         if positions is None:
-            positions = self.random_points_on_unit_sphere(1, cartesian=True)  # (1, 3)
+            positions = self.random_points_on_unit_sphere(num_positions, cartesian=True)  # (num_positions, 3)
+
+        if self.config.only_sample_upper_hemisphere:
+            # negate any z values that are negative
+            positions[positions[:, 2] < 0] = -positions[positions[:, 2] < 0]
             
-        directions = self.random_vmf(mu=-positions.squeeze(), kappa=self.concentration, size=num_directions) # (N, 3)
+        directions = self.random_vmf(normals=-positions, kappa=self.concentration, num_samples=num_directions) # (num_positions, num_directions, 3)
 
         # # identify any directions that are not in the hemisphere of the associated normal
-        dot_products = torch.sum(-positions * directions, dim=1)
+        dot_products = torch.einsum('nij,nj->ni', directions, -positions) # (num_positions, num_directions)
         mask = dot_products < 0
 
         # negate the directions that are not in the hemisphere
-        directions[mask] = -directions[mask]
+        directions[mask] = -directions[mask] # (num_positions, num_directions, 3)
 
-        positions = positions * self.ddf_sphere_radius
+        positions = positions * self.ddf_sphere_radius # (num_positions, 3)
 
-        pos_ray = positions.repeat(num_directions, 1).to(self.device)
-        dir_ray = directions.reshape(-1, 3).to(self.device)
-        pixel_area = torch.ones(num_directions, 1, device=self.device)
-        camera_indices = torch.zeros(num_directions, 1, device=self.device, dtype=torch.int64)
-        metadata = {"directions_norm": torch.ones(num_directions, 1, device=self.device)}
+        positions = positions.unsqueeze(1).repeat(1, num_directions, 1).reshape(-1, 3) # (num_positions * num_directions, 3)
+        directions = directions.reshape(-1, 3) # (num_positions * num_directions, 3)
+        positions = positions.to(self.device)
+        directions = directions.to(self.device)
+        pixel_area = torch.ones(positions.shape[0], 1, device=self.device)
+        camera_indices = torch.zeros(positions.shape[0], 1, device=self.device, dtype=torch.int64)
+        metadata = {"directions_norm": torch.ones(positions.shape[0], 1, device=self.device)}
 
         ray_bundle = RayBundle(
-            origins=pos_ray,
-            directions=dir_ray,
+            origins=positions,
+            directions=directions,
             pixel_area=pixel_area,
             camera_indices=camera_indices,
             metadata=metadata,

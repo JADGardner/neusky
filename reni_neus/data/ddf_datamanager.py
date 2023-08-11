@@ -67,17 +67,13 @@ class DDFDataManagerConfig(DataManagerConfig):
 
     _target: Type = field(default_factory=lambda: DDFDataManager)
     """Target class to instantiate."""
-    train_num_rays_per_batch: int = 1024
-    """Number of rays per batch to use per training iteration."""
-    eval_num_rays_per_batch: int = 1024
-    """Number of rays per batch to use per eval iteration."""
     num_test_images_to_generate: int = 1
     """Number of test images to generate"""
     test_image_cache_dir: Path = Path("test_images")
     """Directory to cache test images"""
     accumulation_mask_threshold: float = 0.7
     """Threshold for accumulation mask"""
-    train_data: Literal["rand_pnts_on_sphere", "single_camera", "all_cameras"] = "rand_pnts_on_sphere"
+    training_data_type: Literal["rand_pnts_on_sphere", "single_camera", "all_cameras"] = "rand_pnts_on_sphere"
     """Type of training data to use"""
     train_data_idx: int = 0
     """Index of training data to use if using single_camera"""
@@ -85,8 +81,6 @@ class DDFDataManagerConfig(DataManagerConfig):
     """DDF sampler config"""
     num_of_sky_ray_samples: int = 256
     """Number of sky ray samples"""
-    only_sample_upper_hemisphere: bool = False
-    """Only sample upper hemisphere"""
 
 
 class DDFDataManager(DataManager):  # pylint: disable=abstract-method
@@ -114,7 +108,6 @@ class DDFDataManager(DataManager):  # pylint: disable=abstract-method
         scene_box,
         ddf_radius: float,
         device: Union[torch.device, str] = "cpu",
-        test_mode: Literal["test", "val", "inference"] = "val",
         world_size: int = 1,
         local_rank: int = 0,
         **kwargs,  # pylint: disable=unused-argument
@@ -123,10 +116,6 @@ class DDFDataManager(DataManager):  # pylint: disable=abstract-method
         self.device = device
         self.world_size = world_size
         self.local_rank = local_rank
-        self.sampler = None
-        self.test_mode = test_mode
-        self.test_split = "test" if test_mode in ["test", "inference"] else "val"
-
         super().__init__()
         self.reni_neus = reni_neus
         self.reni_neus_ckpt_path = reni_neus_ckpt_path
@@ -164,29 +153,27 @@ class DDFDataManager(DataManager):  # pylint: disable=abstract-method
         return DDFDataset(
             reni_neus=self.reni_neus,
             reni_neus_ckpt_path=self.reni_neus_ckpt_path,
-            test_mode=self.config.train_data,
-            sampler=self.ddf_sampler,
             scene_box=self.scene_box,
+            sampler=self.ddf_sampler,
+            training_data_type=self.config.training_data_type,
             num_generated_imgs=self.config.num_test_images_to_generate,
             cache_dir=self.config.test_image_cache_dir,
-            num_rays_per_batch=self.config.train_num_rays_per_batch,
             ddf_sphere_radius=self.ddf_radius,
             accumulation_mask_threshold=self.config.accumulation_mask_threshold,
             num_sky_ray_samples=self.config.num_of_sky_ray_samples,
             old_datamanager=self.old_datamanager,
             dir_to_average_cam_pos=self.dir_to_average_cam_pos,
-            only_sample_upper_hemisphere=self.config.only_sample_upper_hemisphere,
             device=self.device,
         )
 
     def next_train(self, step: int) -> Tuple[RayBundle, Dict]:
         """Returns the next batch of data from the train dataloader."""
         self.train_count += 1
-        if self.config.train_data == "rand_pnts_on_sphere":
+        if self.config.training_data_type == "rand_pnts_on_sphere":
             batch = self.train_dataset[(0, False)] # False is for is_viewer flag, viewer need to call train dataset and still get an image
-        elif self.config.train_data == "single_camera":
+        elif self.config.training_data_type == "single_camera":
             batch = self.train_dataset[(self.config.train_data_idx, False)]
-        elif self.config.train_data == "all_cameras":
+        elif self.config.training_data_type == "all_cameras":
             batch = self.train_dataset[(self.train_count % len(self.train_dataset), False)]
         ray_bundle = batch["ray_bundle"]
         return ray_bundle, batch
@@ -195,11 +182,11 @@ class DDFDataManager(DataManager):  # pylint: disable=abstract-method
         """Returns the next batch of data from the eval dataloader."""
         self.eval_count += 1
         idx = self.eval_count % self.config.num_test_images_to_generate
-        if self.config.train_data == "rand_pnts_on_sphere":
+        if self.config.training_data_type == "rand_pnts_on_sphere":
             batch = self.eval_dataset[(idx, False)]
-        elif self.config.train_data == "single_camera":
+        elif self.config.training_data_type == "single_camera":
             batch = self.eval_dataset[(self.config.train_data_idx, False)]
-        elif self.config.train_data == "all_cameras":
+        elif self.config.training_data_type == "all_cameras":
             batch = self.eval_dataset[(idx, False)]
         ray_bundle = batch["ray_bundle"]
         return ray_bundle, batch
@@ -208,17 +195,17 @@ class DDFDataManager(DataManager):  # pylint: disable=abstract-method
         """Returns the next batch of data from the eval dataloader."""
         self.eval_count += 1
         idx = self.eval_count % self.config.num_test_images_to_generate
-        if self.config.train_data == "rand_pnts_on_sphere":
+        if self.config.training_data_type == "rand_pnts_on_sphere":
             batch = self.eval_dataset[idx]
-        elif self.config.train_data == "single_camera":
+        elif self.config.training_data_type == "single_camera":
             batch = self.eval_dataset[self.config.train_data_idx]
-        elif self.config.train_data == "all_cameras":
+        elif self.config.training_data_type == "all_cameras":
             batch = self.eval_dataset[idx]
         ray_bundle = batch["ray_bundle"]
         return idx, ray_bundle, batch
 
     def get_train_rays_per_batch(self) -> int:
-        return self.config.train_num_rays_per_batch
+        return self.ddf_sampler.num_rays
 
     def get_eval_rays_per_batch(self) -> int:
         return self.config.eval_num_rays_per_batch

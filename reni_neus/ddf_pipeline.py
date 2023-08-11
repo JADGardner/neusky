@@ -113,7 +113,6 @@ class DDFPipeline(VanillaPipeline):
 
         self.datamanager: DDFDataManager = config.datamanager.setup(
             device=device, 
-            test_mode=test_mode, 
             world_size=world_size, 
             local_rank=local_rank, 
             reni_neus=self.reni_neus, 
@@ -181,6 +180,9 @@ class DDFPipeline(VanillaPipeline):
         self.reni_neus.load_state_dict(model_dict, strict=False) # no visiblity field
         self.reni_neus.eval()
         self.reni_neus.to(device)
+        # things we don't need to render
+        self.reni_neus.render_rgb_flag = False
+        self.reni_neus.render_albedo_flag = False
 
         return scene_box
     
@@ -259,7 +261,7 @@ class DDFPipeline(VanillaPipeline):
         """
         self.eval()
         metrics_dict_list = []
-        num_images = len(self.datamanager.fixed_indices_eval_dataloader)
+        num_images = self.datamanager.config.num_test_images_to_generate
         with Progress(
             TextColumn("[progress.description]{task.description}"),
             BarColumn(),
@@ -268,12 +270,13 @@ class DDFPipeline(VanillaPipeline):
             transient=True,
         ) as progress:
             task = progress.add_task("[green]Evaluating all eval images...", total=num_images)
-            for camera_ray_bundle, batch in self.datamanager.fixed_indices_eval_dataloader:
+            for i in range(num_images):
+                _, camera_ray_bundle, batch = self.datamanager.next_eval_image(i)
                 # time this the following line
                 inner_start = time()
                 height, width = camera_ray_bundle.shape
                 num_rays = height * width
-                outputs = self.model.get_outputs_for_camera_ray_bundle(camera_ray_bundle, self.reni_neus, show_progress=True)
+                outputs = self.model.get_outputs_for_camera_ray_bundle(camera_ray_bundle, self.reni_neus, show_progress=False)
                 metrics_dict, _ = self.model.get_image_metrics_and_images(outputs, batch)
                 assert "num_rays_per_sec" not in metrics_dict
                 metrics_dict["num_rays_per_sec"] = num_rays / (time() - inner_start)

@@ -65,26 +65,23 @@ class DDFDataset(Dataset):
         reni_neus_ckpt_path: Path,
         scene_box: SceneBox,
         sampler: DDFSampler,
-        test_mode: Literal["train", "test", "val"] = "train",
+        training_data_type: Literal["rand_pnts_on_sphere", "single_camera", "all_cameras"] = "rand_pnts_on_sphere",
         num_generated_imgs: int = 10,
         cache_dir: Path = Path("path_to_img_cache"),
-        num_rays_per_batch: int = 1024,
         ddf_sphere_radius: float = 1.0,
         accumulation_mask_threshold: float = 0.7,
         num_sky_ray_samples: int = 256,
         old_datamanager: VanillaDataManager = None,
         dir_to_average_cam_pos: torch.Tensor = None,
-        only_sample_upper_hemisphere: bool = False,
         device: Union[torch.device, str] = "cpu",
     ):
         super().__init__()
         self.reni_neus = reni_neus
         self.reni_neus_ckpt_path = reni_neus_ckpt_path
-        self.test_mode = test_mode
+        self.training_data_type = training_data_type
         self.sampler = sampler
         self.num_generated_imgs = num_generated_imgs
         self.cache_dir = cache_dir
-        self.num_rays_per_batch = num_rays_per_batch
         self.ddf_sphere_radius = ddf_sphere_radius
         self.accumulation_mask_threshold = accumulation_mask_threshold
         self.device = device
@@ -94,8 +91,8 @@ class DDFDataset(Dataset):
         self.num_sky_ray_samples = num_sky_ray_samples
         self.old_datamanager = old_datamanager
         self.dir_to_average_cam_pos = dir_to_average_cam_pos
-        self.only_sample_upper_hemisphere = only_sample_upper_hemisphere
         
+        # for creating eval images
         camera_sampler_config = IcosahedronSamplerConfig(icosphere_order=1, apply_random_rotation=True, remove_lower_hemisphere=True)
         self.camera_sampler = camera_sampler_config.setup()
 
@@ -113,8 +110,6 @@ class DDFDataset(Dataset):
                 break
         if not exists:
             raise ValueError(f'Could not find a base path ending with /nerfstudio')
-
-        print(self.cache_dir)
 
         data_file = str(self.cache_dir / f"{scene_name}_data.pt")
 
@@ -164,7 +159,7 @@ class DDFDataset(Dataset):
         
         batch_list = []
 
-        # TODO this is a bodge due to illumination sampler not being regactored
+        # TODO this is a bodge due to illumination sampler not being refactored
         # positions is an empyty tensor
         ddf_sample_positions = torch.empty((0, 3), device=self.device)
 
@@ -220,7 +215,7 @@ class DDFDataset(Dataset):
             data = {
                 "c2w": c2w.cpu(),
                 "intrinsics": intrinsics.cpu(),
-                "image": outputs["rgb"].cpu(),
+                "image": outputs["p2p_dist"].cpu(),
                 "ray_bundle": ray_bundle,
                 "accumulations": accumulations.cpu(),
                 "mask": mask.cpu(),
@@ -235,15 +230,7 @@ class DDFDataset(Dataset):
         return batch_list
 
     def _ddf_rays(self):
-        num_samples = self.num_rays_per_batch
-
-        position = None
-        if self.only_sample_upper_hemisphere:
-            position = self.sampler.random_points_on_unit_sphere(1)
-            if position[0, 2] < 0: # flip if z < 0
-                position[0, 2] *= -1
-
-        ray_bundle = self.sampler(num_positions=1, num_directions=num_samples, positions=position)
+        ray_bundle = self.sampler()
 
         accumulations = None
         termination_dist = None
@@ -308,7 +295,7 @@ class DDFDataset(Dataset):
         if is_viewer:
             data = self._get_generated_image(image_idx, is_viewer=True)
         else:
-            if self.test_mode == "rand_pnts_on_sphere":
+            if self.training_data_type == "rand_pnts_on_sphere":
                 data = self._ddf_rays()
             else:
                 data = self._get_generated_image(image_idx, is_viewer=False)

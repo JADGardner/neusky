@@ -206,23 +206,23 @@ DirectionalDistanceField = MethodSpecification(
         steps_per_eval_image=500,
         steps_per_eval_batch=100000,
         steps_per_save=1000,
-        steps_per_eval_all_images=1000000,  # set to a very large model so we don't eval with all images
+        steps_per_eval_all_images=1000,  # set to a very large model so we don't eval with all images
         max_num_iterations=20001,
         mixed_precision=False,
         pipeline=DDFPipelineConfig(
             datamanager=DDFDataManagerConfig(
-                train_num_rays_per_batch=1024,
-                eval_num_rays_per_batch=1024,
-                num_test_images_to_generate=1,
+                num_test_images_to_generate=8,
                 test_image_cache_dir=Path("outputs/ddf/cache/"),
                 accumulation_mask_threshold=0.7,
-                train_data="rand_pnts_on_sphere", # "rand_pnts_on_sphere", "single_camera", "all_cameras"
-                train_data_idx=5, # idx if using single_camera
+                training_data_type="rand_pnts_on_sphere", # "rand_pnts_on_sphere", "single_camera", "all_cameras"
+                train_data_idx=5, # idx if using single_camera for training data
                 ddf_sampler=VMFDDFSamplerConfig(
+                    num_samples_on_sphere=8,
+                    num_rays_per_sample=128, # 8 * 128 = 1024 rays per batch
+                    only_sample_upper_hemisphere=True,
                     concentration=20.0,
                 ),
                 num_of_sky_ray_samples=256,
-                only_sample_upper_hemisphere=True,
             ),
             model=DDFModelConfig(
                 ddf_field=DirectionalDistanceFieldConfig(
