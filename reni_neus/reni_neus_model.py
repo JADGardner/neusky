@@ -61,7 +61,7 @@ from nerfstudio.viewer.server.viewer_elements import *
 
 from reni_neus.model_components.renderers import RGBLambertianRendererWithVisibility
 # from reni_neus.model_components.illumination_samplers import IlluminationSamplerConfig
-from reni_neus.utils.utils import RENITestLossMask, get_directions, rotation_matrix
+from reni_neus.utils.utils import RENITestLossMask
 from reni_neus.reni_neus_fieldheadnames import RENINeuSFieldHeadNames
 from reni_neus.ddf_model import DDFModelConfig, DDFModel
 from reni_neus.model_components.ddf_sampler import DDFSamplerConfig
@@ -71,7 +71,7 @@ from reni.illumination_fields.reni_illumination_field import RENIField, RENIFiel
 from reni.model_components.illumination_samplers import IlluminationSamplerConfig, EquirectangularSamplerConfig
 from reni.field_components.field_heads import RENIFieldHeadNames
 from reni.utils.colourspace import linear_to_sRGB
-from reni_neus.utils.utils import find_nerfstudio_project_root
+from reni_neus.utils.utils import find_nerfstudio_project_root, rot_z
 
 CONSOLE = Console(width=120)
 
@@ -1148,46 +1148,46 @@ class RENINeuSFactoModel(NeuSFactoModel):
 
         return visibility_dict
         
-    def render_illumination_animation(self, ray_bundle, batch, num_frames, fps, visibility_threshold, output_path):
+    def render_illumination_animation(self, ray_bundle: RayBundle, batch: Dict, num_frames: int, fps: float, visibility_threshold: float, output_path: Path, start_frame: Optional[int] = None, end_frame: Optional[int] = None):
         """Render an animation rotating the illumination field around the scene."""
         temp_visibility_threshold = self.config.visibility_threshold
         self.visibility_threshold = visibility_threshold
         self.rendering_animation = False
 
-        # there is some stuff we can reuse such as albedo and normals
-        path = output_path + 'render_frames'
+        if start_frame is None:
+            start_frame = 0
+        if end_frame is None:
+            end_frame = num_frames
+
+        project_root = find_nerfstudio_project_root()
+
+        path = project_root / output_path / 'render_frames'
         # Creating a directory to save the intermediate .pt files
-        if not os.path.exists(path):
-            os.makedirs(path)
+        if not path.exists():
+            path.mkdir(parents=True)
         
         saved_data = []
         # Check if the render_sequence.pt file already exists
-        if os.path.exists(output_path + 'render_sequence.pt'):
-            saved_data = torch.load(output_path + 'render_sequence.pt')
+        render_sequence_path = path / 'render_sequence.pt'
+        if render_sequence_path.exists():
+            saved_data = torch.load(str(render_sequence_path))
         else:
-          #   with Progress(
-          #     TextColumn("[progress.description]{task.description}"),
-          #     BarColumn(),
-          #     TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-          #     TimeRemainingColumn(),
-          # ) as progress:
-          # task = progress.add_task("[green]Rendering animation... ", total=num_frames, extra="")
-          for i in range(num_frames):  # Wrap the loop with tqdm for progress bar
+          for i in range(start_frame, end_frame):
               angle = i * (360 / num_frames)  # angle in degrees
-              rotation = rotation_matrix(axis=np.array([0, 1, 0]), angle=np.deg2rad(angle))  # RENI is Y-up
+              rotation = rot_z(torch.tensor(angle)).to(self.device)
 
-              pt_file_path = f'{path}/frame_{i}.pt'
+              pt_file_path = path / f'frame_{i}.pt'
 
-              if os.path.exists(pt_file_path):
+              if pt_file_path.exists():
                   # Load already computed frame
-                  frame_data = torch.load(pt_file_path)
+                  frame_data = torch.load(str(pt_file_path))
                   rgb = frame_data["rgb"]
               else:
                   print(f"Rendering frame {i}/{num_frames}")
                   outputs = self.get_outputs_for_camera_ray_bundle(ray_bundle, show_progress=True, rotation=rotation)
                   rgb = outputs['rgb']
                   # Saving the outputs and envmap to .pt file for each frame
-                  torch.save({"rgb": rgb}, pt_file_path)
+                  torch.save({"rgb": rgb}, str(pt_file_path))
 
               # Storing the data in memory for final animation
               saved_data.append(rgb.detach().cpu().numpy())
@@ -1196,7 +1196,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
               # progress.update(task, advance=1)
 
         # Save entire sequence to a .pt file
-        torch.save(saved_data, output_path + 'render_sequence.pt')
+        torch.save(saved_data, str(render_sequence_path))
 
         # Create the animation
         rgb_images = []
@@ -1214,7 +1214,8 @@ class RENINeuSFactoModel(NeuSFactoModel):
 
         # Define the codec using VideoWriter_fourcc and creat7e a VideoWriter object
         fourcc = cv2.VideoWriter_fourcc(*'mp4v') 
-        video = cv2.VideoWriter(output_path + 'rgb_animation.mp4', fourcc, fps, (width, height))
+        video_output_path = path / 'rgb_animation.mp4'
+        video = cv2.VideoWriter(str(video_output_path), fourcc, fps, (width, height))
 
         for frame in rgb_images:
             # OpenCV uses BGR format, so we need to convert RGB to BGR

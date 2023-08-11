@@ -2,6 +2,7 @@ import torch
 from functools import singledispatch, update_wrapper
 import numpy as np
 import torch.nn.functional as F
+from torch import sin, cos, atan2, acos
 
 from typing import Literal
 from pathlib import Path
@@ -296,3 +297,11 @@ def find_nerfstudio_project_root(start_dir: Path = Path(".")) -> Path:
             return path
     # If we didn't find it, raise an error
     raise ValueError("Project root not found.")
+
+
+def rot_z(gamma: torch.Tensor):
+    return torch.tensor([
+        [cos(gamma), -sin(gamma), 0],
+        [sin(gamma), cos(gamma), 0],
+        [0, 0, 1]
+    ], dtype=gamma.dtype)
