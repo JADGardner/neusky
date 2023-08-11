@@ -129,8 +129,8 @@ class DDFDataManager(DataManager):  # pylint: disable=abstract-method
         self.old_datamanager: VanillaDataManager = config.pipeline.datamanager.setup(
             device=self.device,
             test_mode="val",
-            world_size=1,
-            local_rank=1,
+            world_size=world_size,
+            local_rank=local_rank,
         )
 
         # get average camera position and convert to normalised direction

@@ -48,6 +48,7 @@ from nerfstudio.data.scene_box import SceneBox
 
 from reni_neus.data.reni_neus_datamanager import RENINeuSDataManagerConfig, RENINeuSDataManager
 from reni_neus.data.ddf_datamanager import DDFDataManagerConfig, DDFDataManager
+from reni_neus.utils.utils import find_nerfstudio_project_root
 
 
 @dataclass
@@ -134,23 +135,22 @@ class DDFPipeline(VanillaPipeline):
         )
         self.model.to(device)
 
+
         self.world_size = world_size
         if world_size > 1:
             self._model = typing.cast(Model, DDP(self._model, device_ids=[local_rank], find_unused_parameters=True))
             dist.barrier(device_ids=[local_rank])
 
     def _setup_reni_neus_model(self, device):
+        
+        # Now you can use this to construct paths:
+        project_root = find_nerfstudio_project_root(Path(__file__))
         relative_path = self.config.reni_neus_ckpt_path / 'nerfstudio_models' / f'step-{self.config.reni_neus_ckpt_step:09d}.ckpt'
-        sys_paths = sys.path
-        # concatenate the path to the illumination field checkpoint and see if it exists
-        exists = False
-        for path in sys_paths:
-            ckpt_path = Path(path) / relative_path
-            if ckpt_path.exists():
-                exists = True
-                break
-        if not exists:
+        ckpt_path = project_root / relative_path
+
+        if not ckpt_path.exists():
             raise ValueError(f'Could not find illumination field checkpoint at {ckpt_path}')
+        
         ckpt = torch.load(str(ckpt_path))
 
         model_dict = {}

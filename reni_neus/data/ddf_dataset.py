@@ -46,6 +46,7 @@ from reni_neus.utils.utils import random_points_on_unit_sphere, random_inward_fa
 from reni_neus.reni_neus_model import RENINeuSFactoModel
 from reni_neus.model_components.ddf_sampler import DDFSampler
 from reni_neus.model_components.illumination_samplers import IcosahedronSamplerConfig
+from reni_neus.utils.utils import find_nerfstudio_project_root
 
 class DDFDataset(Dataset):
     """Dataset that returns images.
@@ -100,16 +101,8 @@ class DDFDataset(Dataset):
         config = yaml.load(config.open(), Loader=yaml.Loader)
         scene_name = config.pipeline.datamanager.dataparser.scene
 
-        sys_paths = sys.path
-        # Look for the base path that ends with /nerfstudio and construct the checkpoint path
-        exists = False
-        for path in sys_paths:
-            if path.endswith('/nerfstudio'):
-                self.cache_dir = Path(path) / self.cache_dir
-                exists = True
-                break
-        if not exists:
-            raise ValueError(f'Could not find a base path ending with /nerfstudio')
+        project_root = find_nerfstudio_project_root()
+        self.cache_dir = project_root / self.cache_dir
 
         data_file = str(self.cache_dir / f"{scene_name}_data.pt")
 

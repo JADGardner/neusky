@@ -71,6 +71,7 @@ from reni.illumination_fields.reni_illumination_field import RENIField, RENIFiel
 from reni.model_components.illumination_samplers import IlluminationSamplerConfig, EquirectangularSamplerConfig
 from reni.field_components.field_heads import RENIFieldHeadNames
 from reni.utils.colourspace import linear_to_sRGB
+from reni_neus.utils.utils import find_nerfstudio_project_root
 
 CONSOLE = Console(width=120)
 
@@ -210,19 +211,15 @@ class RENINeuSFactoModel(NeuSFactoModel):
 
         # if self.illumination_field_train is of type RENIFieldConfig
         if isinstance(self.illumination_field_train, RENIField):
+            # Now you can use this to construct paths:
+            project_root = find_nerfstudio_project_root(Path(__file__))
             relative_path = self.config.illumination_field_ckpt_path / 'nerfstudio_models' / f'step-{self.config.illumination_field_ckpt_step:09d}.ckpt'
-            sys_paths = sys.path
-            # concatenate the path to the illumination field checkpoint and see if it exists
-            exists = False
-            for path in sys_paths:
-                ckpt_path = Path(path) / relative_path
-                if ckpt_path.exists():
-                    exists = True
-                    break
-            if not exists:
+            ckpt_path = project_root / relative_path
+            
+            if not ckpt_path.exists():
                 raise ValueError(f'Could not find illumination field checkpoint at {ckpt_path}')
-                
-            ckpt = torch.load(ckpt_path)
+        
+            ckpt = torch.load(str(ckpt_path))
             illumination_field_dict = {}
             match_str = '_model.field.network.'
             for key in ckpt['pipeline'].keys():
