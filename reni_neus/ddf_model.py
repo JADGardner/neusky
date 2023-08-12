@@ -497,8 +497,8 @@ class DDFModel(Model):
         masked_depth = masked_depth.unsqueeze(0).permute(0, 3, 1, 2)
         masked_gt_depth = masked_gt_depth.unsqueeze(0).permute(0, 3, 1, 2)
 
-        depth_psnr = self.psnr(masked_depth, masked_gt_depth)
-        depth_ssim = self.ssim(masked_depth, masked_gt_depth)
+        depth_psnr = self.psnr(preds=masked_depth, target=masked_gt_depth)
+        depth_ssim = self.ssim(preds=masked_depth, target=masked_gt_depth)
         
         # # lpips expects images in range 0 - 1 so we need to normalize
         # masked_depth = (masked_depth - torch.min(masked_depth)) / (torch.max(masked_depth) - torch.min(masked_depth))

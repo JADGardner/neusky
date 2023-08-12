@@ -1148,11 +1148,10 @@ class RENINeuSFactoModel(NeuSFactoModel):
 
         return visibility_dict
         
-    def render_illumination_animation(self, ray_bundle: RayBundle, batch: Dict, num_frames: int, fps: float, visibility_threshold: float, output_path: Path, start_frame: Optional[int] = None, end_frame: Optional[int] = None):
+    def render_illumination_animation(self, ray_bundle: RayBundle, batch: Dict, num_frames: int, fps: float, visibility_threshold: float, output_path: Path, render_final_animation: bool, start_frame: Optional[int] = None, end_frame: Optional[int] = None):
         """Render an animation rotating the illumination field around the scene."""
         temp_visibility_threshold = self.config.visibility_threshold
         self.visibility_threshold = visibility_threshold
-        self.rendering_animation = False
 
         if start_frame is None:
             start_frame = 0
@@ -1174,7 +1173,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
         else:
           for i in range(start_frame, end_frame):
               angle = i * (360 / num_frames)  # angle in degrees
-              rotation = rot_z(torch.tensor(angle)).to(self.device)
+              rotation = rot_z(torch.tensor(np.deg2rad(angle)).float()).to(self.device)
 
               pt_file_path = path / f'frame_{i}.pt'
 
@@ -1192,37 +1191,34 @@ class RENINeuSFactoModel(NeuSFactoModel):
               # Storing the data in memory for final animation
               saved_data.append(rgb.detach().cpu().numpy())
 
-              # # Update the progress bar
-              # progress.update(task, advance=1)
+        if render_final_animation:
+            # Save entire sequence to a .pt file
+            torch.save(saved_data, str(render_sequence_path))
 
-        # Save entire sequence to a .pt file
-        torch.save(saved_data, str(render_sequence_path))
+            # Create the animation
+            rgb_images = []
 
-        # Create the animation
-        rgb_images = []
+            for rgb in saved_data:
+                # ensure no nan or inf values
+                rgb = np.nan_to_num(rgb)
+                rgb_images.append(rgb)
 
-        for rgb in saved_data:
-            # ensure no nan or inf values
-            rgb = np.nan_to_num(rgb)
-            rgb_images.append(rgb)
+            # Assuming rgb_images are in range [0, 1] and have shape (height, width, channels)
+            rgb_images = np.array(rgb_images)  # convert list to numpy array
+            rgb_images = (rgb_images * 255).astype(np.uint8)  # scale to [0, 255] and convert to uint8
 
-        # Assuming rgb_images are in range [0, 1] and have shape (height, width, channels)
-        rgb_images = np.array(rgb_images)  # convert list to numpy array
-        rgb_images = (rgb_images * 255).astype(np.uint8)  # scale to [0, 255] and convert to uint8
+            height, width, channels = rgb_images[0].shape
 
-        height, width, channels = rgb_images[0].shape
+            # Define the codec using VideoWriter_fourcc and creat7e a VideoWriter object
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v') 
+            video_output_path = path / 'rgb_animation.mp4'
+            video = cv2.VideoWriter(str(video_output_path), fourcc, fps, (width, height))
 
-        # Define the codec using VideoWriter_fourcc and creat7e a VideoWriter object
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v') 
-        video_output_path = path / 'rgb_animation.mp4'
-        video = cv2.VideoWriter(str(video_output_path), fourcc, fps, (width, height))
+            for frame in rgb_images:
+                # OpenCV uses BGR format, so we need to convert RGB to BGR
+                frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+                video.write(frame_bgr)
 
-        for frame in rgb_images:
-            # OpenCV uses BGR format, so we need to convert RGB to BGR
-            frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-            video.write(frame_bgr)
-
-        video.release()
+            video.release()
 
         self.visibility_threshold = temp_visibility_threshold
-        self.rendering_animation = False
