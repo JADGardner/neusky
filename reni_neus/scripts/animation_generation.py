@@ -66,7 +66,7 @@ if __name__ == '__main__':
     parser.add_argument('--visibility_ckpt_step', type=int, required=True, help='Visibility checkpoint step.')
     parser.add_argument('--reni_neus_ckpt_path', required=True, help='Path to reni-neus checkpoint.')
     parser.add_argument('--reni_neus_ckpt_step', type=int, required=True, help='Reni-neus checkpoint step.')
-    parser.add_argument('--visibility_threshold', type=float, default=0.1, help='Visibility threshold.')
+    parser.add_argument('--visibility_threshold', type=float, default=0.01, help='Visibility threshold.')
     parser.add_argument('--num_frames', type=int, default=100, help='Number of frames for the animation.')
     parser.add_argument('--fps', type=float, default=20.0, help='Frames per second for the animation.')
     parser.add_argument('--render_final_animation', action='store_false', help='Render final animation if specified.')
@@ -77,4 +77,4 @@ if __name__ == '__main__':
     main(args)
 
 
-# python3 reni_neus/reni_neus/scripts/animation_generation.py --device cuda:3 --visibility_ckpt_path outputs/unnamed/ddf/2023-08-11_065642/ --visibility_ckpt_step 20000 --reni_neus_ckpt_path outputs/unnamed/reni-neus/2023-08-09_150349/ --reni_neus_ckpt_step 85000 --start_frame 75 --end_frame 100
+# python3 reni_neus/reni_neus/scripts/animation_generation.py --device cuda:0 --visibility_ckpt_path outputs/unnamed/ddf/2023-08-11_065642/ --visibility_ckpt_step 20000 --reni_neus_ckpt_path outputs/unnamed/reni-neus/2023-08-09_150349/ --reni_neus_ckpt_step 85000 --start_frame 0 --end_frame 25

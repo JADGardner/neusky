@@ -111,6 +111,7 @@ RENINeuS = MethodSpecification(
                 ),
                 illumination_field_ckpt_path=Path("outputs/unnamed/reni/2023-08-07_154753/"),
                 illumination_field_ckpt_step=50000,
+                fix_test_illumination_directions=True,
                 eval_num_rays_per_chunk=256,
                 illumination_field_prior_loss_weight=1e-7,
                 illumination_field_cosine_loss_weight=1e-1,
@@ -132,15 +133,18 @@ RENINeuS = MethodSpecification(
                 collider_shape="sphere",
             ),
             visibility_field=DDFModelConfig( # DDFModelConfig or None
+                
               ddf_field=DirectionalDistanceFieldConfig(
                   ddf_type="ddf", # pddf
-                  position_encoding_type="hash", # none, hash, nerf, sh
+                  position_encoding_type="none", # none, hash, nerf, sh
                   direction_encoding_type="nerf",
-                  network_type="film_siren", # siren, film_siren, fused_mlp
+                  conditioning="Attention", # FiLM, Concat, Attention
                   termination_output_activation="sigmoid",
                   probability_of_hit_output_activation="sigmoid",
                   hidden_layers=5,
                   hidden_features=256,
+                  num_attention_heads=8,
+                  num_attention_layers=6,
                   predict_probability_of_hit=False,
               ),
               depth_loss="L1", # L2, L1, Log_Loss
@@ -227,15 +231,16 @@ DirectionalDistanceField = MethodSpecification(
             model=DDFModelConfig(
                 ddf_field=DirectionalDistanceFieldConfig(
                     ddf_type="ddf", # pddf
-                    position_encoding_type="hash", # none, hash, nerf, sh
+                    position_encoding_type="none", # none, hash, nerf, sh
                     direction_encoding_type="nerf",
-                    network_type="film_siren", # siren, film_siren, fused_mlp, siren_grid
+                    conditioning="Attention", # FiLM, Concat, Attention
                     termination_output_activation="sigmoid",
                     probability_of_hit_output_activation="sigmoid",
                     hidden_layers=5,
                     hidden_features=256,
+                    num_attention_heads=8,
+                    num_attention_layers=6,
                     predict_probability_of_hit=False,
-                    icosphere_level=8,
                 ),
                 depth_loss="L1", # L2, L1, Log_Loss
                 include_sdf_loss=True,

@@ -19,13 +19,12 @@ a signed distance function (SDF) for surface representation is used to help with
 
 from dataclasses import dataclass, field
 from typing import Dict, Tuple, Type
-import icosphere
 
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
 from torchtyping import TensorType
 from typing_extensions import Literal
-import torch.nn.functional as F
-import torch.nn as nn
 
 import numpy as np
 
@@ -34,8 +33,10 @@ from nerfstudio.field_components.encodings import NeRFEncoding, SHEncoding
 from nerfstudio.field_components.field_heads import FieldHeadNames
 from nerfstudio.fields.base_field import Field, FieldConfig
 
-from reni_neus.utils.siren import Siren, DDFFiLMSiren
 from reni_neus.reni_neus_fieldheadnames import RENINeuSFieldHeadNames
+from reni.field_components.siren import Siren
+from reni.field_components.film_siren import FiLMSiren
+from reni.field_components.transformer_decoder import Decoder
 
 try:
     import tinycudann as tcnn
@@ -53,16 +54,32 @@ class DirectionalDistanceFieldConfig(FieldConfig):
     """Type of encoding to use for position"""
     direction_encoding_type: Literal["hash", "nerf", "sh", "icosphere_hash", "none"] = "none"
     """Type of encoding to use for direction"""
-    network_type: Literal["fused_mlp", "siren", "film_siren", "siren_grid"] = "siren"
-    """Type of network to use"""
+    conditioning: Literal["FiLM", "Concat", "Attention"] = "Concat"
+    """Type of conditioning to use"""
     termination_output_activation: Literal["sigmoid", "tanh", "relu"] = "sigmoid"
     """Activation function for termination network"""
     probability_of_hit_output_activation: Literal["sigmoid", "tanh", "relu"] = "sigmoid"
     """Activation function for probability of hit network"""
-    hidden_layers: int = 8
-    """Number of hidden layers for ddf network"""
-    hidden_features: int = 256
-    """Number of features for ddf network"""
+    hidden_layers: int = 3
+    """Number of hidden layers"""
+    hidden_features: int = 128
+    """Number of hidden features"""
+    mapping_layers: int = 3
+    """Number of mapping layers"""
+    mapping_features: int = 128
+    """Number of mapping features"""
+    num_attention_heads: int = 8
+    """Number of attention heads"""
+    num_attention_layers: int = 3
+    """Number of attention layers"""
+    out_features: int = 3 # RGB
+    """Number of output features"""
+    last_layer_linear: bool = False
+    """Whether to use a linear layer as the last layer"""
+    first_omega_0: float = 30.0
+    """Omega_0 for first layer"""
+    hidden_omega_0: float = 30.0
+    """Omega_0 for hidden layers"""
     predict_probability_of_hit: bool = False
     """Whether to predict probability of hit"""
     ddf_type: Literal["ddf", "pddf"] = "ddf"
@@ -73,8 +90,6 @@ class DirectionalDistanceFieldConfig(FieldConfig):
     """The temperature parameter."""
     epsilon_s: float = 1e-5
     """The maximum inverse depth scale."""
-    icosphere_level: int = 4
-    """The level of the icosphere to use for the grid network"""
 
 
 class DirectionalDistanceField(Field):
@@ -103,56 +118,9 @@ class DirectionalDistanceField(Field):
         depth_out_features = 1 if self.config.ddf_type == "ddf" else self.num_depth_components + self.num_weight_components
         out_features = depth_out_features + 1 if self.config.predict_probability_of_hit else depth_out_features
 
-        if self.config.network_type == "siren":
-            self.ddf = Siren(
-                in_features=6 + pos_encoding_dim + dir_encoding_dim,
-                hidden_features=self.config.hidden_features,
-                hidden_layers=self.config.hidden_layers,
-                out_features=out_features,
-                outermost_linear=True,
-                first_omega_0=30,
-                hidden_omega_0=30,
-            )
-        elif self.config.network_type == "film_siren":
-            self.ddf = DDFFiLMSiren(
-              input_dim=3 + pos_encoding_dim,
-              mapping_network_input_dim=3 + dir_encoding_dim,
-              siren_hidden_features=self.config.hidden_features,
-              siren_hidden_layers=self.config.hidden_layers,
-              mapping_network_features=self.config.hidden_features,
-              mapping_network_layers=self.config.hidden_layers,
-              out_features=out_features
-            )
-        elif self.config.network_type == "fused_mlp":
-            self.ddf = tcnn.Network(
-                n_input_dims=6 + pos_encoding_dim + dir_encoding_dim,
-                n_output_dims=out_features,
-                network_config={
-                    "otype": "FullyFusedMLP",
-                    "activation": "ReLU",
-                    "output_activation": "None",
-                    "n_neurons": self.config.hidden_features,
-                    "n_hidden_layers": self.config.hidden_layers,
-                },
-            )
-        elif self.config.network_type == "siren_grid":
-            vertices, _ = icosphere.icosphere(self.config.icosphere_level)
-            self.vertices = torch.tensor(vertices, dtype=torch.float32) * self.ddf_radius
-            net = []
-            for _ in range(vertices.shape[0]):
-                net.append(
-                    Siren(
-                        in_features=6 + pos_encoding_dim + dir_encoding_dim,
-                        hidden_features=self.config.hidden_features,
-                        hidden_layers=self.config.hidden_layers,
-                        out_features=out_features,
-                        outermost_linear=True,
-                        first_omega_0=30,
-                        hidden_omega_0=30,
-                    )
-                )
-            self.ddf = nn.ModuleList(net)
-
+        self.ddf = self._setup_network(pos_encoding_dim=pos_encoding_dim,
+                                       dir_encoding_dim=dir_encoding_dim,
+                                       out_features=out_features)
 
         self.termination_output_activation = self._get_activation(self.config.termination_output_activation)
         self.probability_of_hit_output_activation = self._get_activation(
@@ -183,7 +151,6 @@ class DirectionalDistanceField(Field):
                                                                     "per_level_scale": growth_factor}
             )
 
-
         if direction_encoding_type == "hash":
             num_levels: int = 16
             log2_hashmap_size: int = 19
@@ -192,12 +159,12 @@ class DirectionalDistanceField(Field):
             max_res: int = 2048
             growth_factor = np.exp((np.log(max_res) - np.log(base_res)) / (num_levels - 1))
             self.direction_encoding = tcnn.Encoding(n_input_dims=3, 
-                                                   encoding_config={"otype": "HashGrid",
-                                                                    "n_levels": num_levels,
-                                                                    "n_features_per_level": features_per_level,
-                                                                    "log2_hashmap_size": log2_hashmap_size,
-                                                                    "base_resolution": base_res,
-                                                                    "per_level_scale": growth_factor}
+                                                    encoding_config={"otype": "HashGrid",
+                                                                      "n_levels": num_levels,
+                                                                      "n_features_per_level": features_per_level,
+                                                                      "log2_hashmap_size": log2_hashmap_size,
+                                                                      "base_resolution": base_res,
+                                                                      "per_level_scale": growth_factor}
             )
         
         if position_encoding_type == "icosphere_hash":
@@ -208,12 +175,12 @@ class DirectionalDistanceField(Field):
         
         if position_encoding_type == "nerf":
             self.position_encoding = NeRFEncoding(
-                in_dim=3, num_frequencies=2, min_freq_exp=0.0, max_freq_exp=2.0, include_input=True
+                in_dim=3, num_frequencies=2, min_freq_exp=0.0, max_freq_exp=2.0, include_input=False
             )
 
         if direction_encoding_type == "nerf":
             self.direction_encoding = NeRFEncoding(
-                in_dim=3, num_frequencies=2, min_freq_exp=0.0, max_freq_exp=2.0, include_input=True
+                in_dim=3, num_frequencies=2, min_freq_exp=0.0, max_freq_exp=2.0, include_input=False
             )
 
         if position_encoding_type == "sh":
@@ -242,94 +209,64 @@ class DirectionalDistanceField(Field):
             return torch.relu
         else:
             raise NotImplementedError
-        
-    def find_nearest_vertices(self, positions):
-        """Find indices of the three nearest vertices to each position."""
-        
-        # Calculate squared Euclidean distance
-        self.vertices = self.vertices.type_as(positions)
-        dists = torch.sum((positions - self.vertices)**2, dim=-1)  # Output shape: (B, N)
-        
-        # Find indices of the smallest three distances
-        _, indices = torch.topk(dists, 3, dim=-1, largest=False)
-
-        # Get three smallest distances
-        nearest_dists = dists[indices]
-        
-        return indices, nearest_dists
-
+    
+    def _setup_network(self, pos_encoding_dim, dir_encoding_dim, out_features):
+        if self.conditioning == "Concat":
+            ddf = Siren(in_dim=6 + pos_encoding_dim + dir_encoding_dim,
+                          hidden_layers=self.config.hidden_layers,
+                          hidden_features=self.config.hidden_features,
+                          out_dim=out_features,
+                          outermost_linear=self.config.last_layer_linear,
+                          first_omega_0=self.config.first_omega_0,
+                          hidden_omega_0=self.config.hidden_omega_0,
+                          out_activation=None)
+        elif self.conditioning == "FiLM":
+            ddf = FiLMSiren(
+                in_dim=3 + dir_encoding_dim,
+                hidden_layers=self.config.hidden_layers,
+                hidden_features=self.config.hidden_features,
+                mapping_network_in_dim=3 + pos_encoding_dim,
+                mapping_network_layers=self.config.mapping_layers,
+                mapping_network_features=self.config.mapping_features,
+                out_dim=out_features,
+                outermost_linear=True,
+                out_activation=None
+            )
+        elif self.conditioning == "Attention":
+            # transformer where K, V is from conditioning input and Q is from directional input
+            ddf = Decoder(in_dim=3 + dir_encoding_dim,
+                          conditioning_input_dim=3 + pos_encoding_dim,
+                          hidden_features=self.config.hidden_features,
+                          num_heads=self.config.num_attention_heads,
+                          num_layers=self.config.num_attention_layers)
+        return ddf
 
     def get_density(self, ray_samples: RaySamples) -> Tuple[TensorType, TensorType]:
         raise NotImplementedError
 
-    def get_outputs(
-        self, ray_samples: RaySamples, density_embedding: TensorType | None = None
-    ) -> Dict[FieldHeadNames, TensorType]:
+    def get_outputs(self, ray_samples: RaySamples) -> Dict[FieldHeadNames, TensorType]:
         outputs = {}
 
         origins = ray_samples.frustums.origins
         directions = ray_samples.frustums.directions
 
-        if self.config.network_type == "siren_grid":
-            # Find the nearest vertices for each origin
-            nearest_vertex_indices, nearest_dists = self.find_nearest_vertices(origins[0, :])
+        if self.position_encoding is not None:
+            origins = torch.cat([origins, self.position_encoding(origins)], dim=-1)
 
-            # Calculate weights based on inverse distances
-            weights = 1.0 / nearest_dists
-            weights /= torch.sum(weights)  # Normalize so that the weights sum to 1
+        if self.direction_encoding is not None:
+            directions = torch.cat([directions, self.direction_encoding(directions)], dim=-1)
 
-            # if self.position_encoding is not None:
-            #     origins = torch.cat([origins, self.position_encoding(origins)], dim=-1)
-
-            # if self.direction_encoding is not None:
-            #     directions = torch.cat([directions, self.direction_encoding(directions)], dim=-1)
-            
-            # inputs = torch.cat([origins, directions], dim=-1)
-
-            # # Store the outputs from the SIREN networks associated with these vertices
-            # siren_outputs = [self.ddf[idx](inputs) for idx in nearest_vertex_indices]
-
-            # Store the outputs from the SIREN networks associated with these vertices
-            siren_outputs = []
-            for idx in nearest_vertex_indices:
-                # Get the position of the nearest vertex
-                nearest_vertex = self.vertices[idx]
-                
-                # Normalize origin such that it represents the offset from the vertex
-                offset_origin = origins - nearest_vertex
-
-                if self.position_encoding is not None:
-                    offset_origin = torch.cat([offset_origin, self.position_encoding(offset_origin)], dim=-1)
-
-                if self.direction_encoding is not None:
-                    directions = torch.cat([directions, self.direction_encoding(directions)], dim=-1)
-
-                inputs = torch.cat([offset_origin, directions], dim=-1)
-
-                siren_outputs.append(self.ddf[idx](inputs))
-
-            # Stack the outputs along a new dimension
-            stacked_outputs = torch.stack(siren_outputs, dim=0)  # shape: [3, N, 2]
-
-            # Weighted interpolation
-            output = torch.sum(stacked_outputs * weights.unsqueeze(-1).unsqueeze(-1), dim=0)  # shape: [N, 2]
-
-        else:
-            if self.position_encoding is not None:
-                origins = torch.cat([origins, self.position_encoding(origins)], dim=-1)
-
-            if self.direction_encoding is not None:
-                directions = torch.cat([directions, self.direction_encoding(directions)], dim=-1)
-
-            inputs = torch.cat([origins, directions], dim=-1)
-
-            output = self.ddf(inputs)
+        if self.conditioning == "Concat":
+            model_outputs = self.ddf(torch.cat((directions, origins), dim=1)) # [num_rays, 3]
+        elif self.conditioning == "FiLM" or self.conditioning == "Attention":
+            model_outputs = self.ddf(x=directions,
+                                     conditioning_input=origins)
 
         if self.config.ddf_type == "pddf":
-            expected_termination_distances = self.termination_output_activation(output[..., :self.num_depth_components])
+            expected_termination_distances = self.termination_output_activation(model_outputs[..., :self.num_depth_components])
             expected_termination_distances = self.termination_output_activation(expected_termination_distances)
 
-            expected_termination_weights = output[..., self.num_depth_components:self.num_depth_components+self.num_weight_components]
+            expected_termination_weights = model_outputs[..., self.num_depth_components:self.num_depth_components+self.num_weight_components]
             weights = torch.cat([expected_termination_weights, 1 - expected_termination_weights], dim=-1)
 
             # Apply the visibility and depth adjustment to the logits
@@ -338,18 +275,18 @@ class DirectionalDistanceField(Field):
             # Compute the weighted sum of the potential depths
             expected_termination_dist = torch.sum(F.softmax(adjusted_logits, dim=1) * expected_termination_distances, dim=1, keepdim=True)
         else:
-            expected_termination_dist = self.termination_output_activation(output[..., 0])
+            expected_termination_dist = self.termination_output_activation(model_outputs[..., 0])
 
         expected_termination_dist = expected_termination_dist * (2 * self.ddf_radius)
         outputs.update({RENINeuSFieldHeadNames.TERMINATION_DISTANCE: expected_termination_dist})
 
         if self.config.predict_probability_of_hit:
-            probability_of_hit = self.probability_of_hit_output_activation(output[..., -1])
+            probability_of_hit = self.probability_of_hit_output_activation(model_outputs[..., -1])
             outputs.update({RENINeuSFieldHeadNames.PROBABILITY_OF_HIT: probability_of_hit})
 
         return outputs
 
-    def forward(self, ray_samples: RaySamples, compute_normals: bool = False) -> Dict[FieldHeadNames, TensorType]:
+    def forward(self, ray_samples: RaySamples) -> Dict[FieldHeadNames, TensorType]:
         """Evaluates the field at points along the ray.
 
         Args:
