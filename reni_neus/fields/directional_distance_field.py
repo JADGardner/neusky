@@ -211,7 +211,7 @@ class DirectionalDistanceField(Field):
             raise NotImplementedError
     
     def _setup_network(self, pos_encoding_dim, dir_encoding_dim, out_features):
-        if self.conditioning == "Concat":
+        if self.config.conditioning == "Concat":
             ddf = Siren(in_dim=6 + pos_encoding_dim + dir_encoding_dim,
                           hidden_layers=self.config.hidden_layers,
                           hidden_features=self.config.hidden_features,
@@ -220,7 +220,7 @@ class DirectionalDistanceField(Field):
                           first_omega_0=self.config.first_omega_0,
                           hidden_omega_0=self.config.hidden_omega_0,
                           out_activation=None)
-        elif self.conditioning == "FiLM":
+        elif self.config.conditioning == "FiLM":
             ddf = FiLMSiren(
                 in_dim=3 + dir_encoding_dim,
                 hidden_layers=self.config.hidden_layers,
@@ -232,13 +232,15 @@ class DirectionalDistanceField(Field):
                 outermost_linear=True,
                 out_activation=None
             )
-        elif self.conditioning == "Attention":
+        elif self.config.conditioning == "Attention":
             # transformer where K, V is from conditioning input and Q is from directional input
             ddf = Decoder(in_dim=3 + dir_encoding_dim,
                           conditioning_input_dim=3 + pos_encoding_dim,
                           hidden_features=self.config.hidden_features,
                           num_heads=self.config.num_attention_heads,
                           num_layers=self.config.num_attention_layers)
+        else:
+            raise NotImplementedError
         return ddf
 
     def get_density(self, ray_samples: RaySamples) -> Tuple[TensorType, TensorType]:
@@ -256,9 +258,9 @@ class DirectionalDistanceField(Field):
         if self.direction_encoding is not None:
             directions = torch.cat([directions, self.direction_encoding(directions)], dim=-1)
 
-        if self.conditioning == "Concat":
+        if self.config.conditioning == "Concat":
             model_outputs = self.ddf(torch.cat((directions, origins), dim=1)) # [num_rays, 3]
-        elif self.conditioning == "FiLM" or self.conditioning == "Attention":
+        elif self.config.conditioning == "FiLM" or self.config.conditioning == "Attention":
             model_outputs = self.ddf(x=directions,
                                      conditioning_input=origins)
 

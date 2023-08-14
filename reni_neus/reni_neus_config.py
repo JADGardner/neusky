@@ -3,33 +3,27 @@ RENI-NeuS configuration file.
 """
 from pathlib import Path
 
+from reni.illumination_fields.reni_illumination_field import RENIFieldConfig
+from reni.model_components.illumination_samplers import IcosahedronSamplerConfig
+from reni.illumination_fields.reni_illumination_field import RENIFieldConfig
+
 from nerfstudio.cameras.camera_optimizers import CameraOptimizerConfig
 from nerfstudio.configs.base_config import ViewerConfig
 from nerfstudio.engine.trainer import TrainerConfig
 from nerfstudio.plugins.types import MethodSpecification
-
-from nerfstudio.data.datamanagers.base_datamanager import (
-    VanillaDataManager,
-    VanillaDataManagerConfig,
-)
-
-from nerfstudio.data.dataparsers.nerfosr_dataparser import NeRFOSRDataParserConfig
-
-from nerfstudio.configs.base_config import ViewerConfig
 from nerfstudio.engine.optimizers import AdamOptimizerConfig, RAdamOptimizerConfig
 from nerfstudio.engine.schedulers import (
     CosineDecaySchedulerConfig,
     MultiStepSchedulerConfig,
     ExponentialDecaySchedulerConfig,
 )
-from nerfstudio.engine.trainer import TrainerConfig
 from nerfstudio.pipelines.base_pipeline import VanillaPipelineConfig
 
 from nerfstudio.fields.sdf_field import SDFFieldConfig
 from nerfstudio.models.neus_facto import NeuSFactoModelConfig
 from nerfstudio.models.nerfacto import NerfactoModelConfig
 
-from .data.nerfosr_cityscapes_dataparser import NeRFOSRCityScapesDataParserConfig
+from reni_neus.data.nerfosr_cityscapes_dataparser import NeRFOSRCityScapesDataParserConfig
 from reni_neus.reni_neus_model import RENINeuSFactoModelConfig
 from reni_neus.reni_neus_pipeline import RENINeuSPipelineConfig
 from reni_neus.data.reni_neus_datamanager import RENINeuSDataManagerConfig
@@ -38,16 +32,13 @@ from reni_neus.ddf_model import DDFModelConfig
 from reni_neus.fields.directional_distance_field import DirectionalDistanceFieldConfig
 from reni_neus.ddf_pipeline import DDFPipelineConfig
 from reni_neus.data.ddf_datamanager import DDFDataManagerConfig
-from reni_neus.model_components.ddf_sampler import DDFSamplerConfig, VMFDDFSamplerConfig
-
-from reni.illumination_fields.reni_illumination_field import RENIFieldConfig
-from reni.model_components.illumination_samplers import IcosahedronSamplerConfig
-from reni.illumination_fields.reni_illumination_field import RENIFieldConfig
+from reni_neus.model_components.ddf_sampler import VMFDDFSamplerConfig
 
 
 RENINeuS = MethodSpecification(
     config=TrainerConfig(
         method_name="reni-neus",
+        experiment_name="reni-neus",
         steps_per_eval_image=5000,
         steps_per_eval_batch=100000,
         steps_per_save=5000,
@@ -136,13 +127,15 @@ RENINeuS = MethodSpecification(
                 
               ddf_field=DirectionalDistanceFieldConfig(
                   ddf_type="ddf", # pddf
-                  position_encoding_type="none", # none, hash, nerf, sh
+                  position_encoding_type="hash", # none, hash, nerf, sh
                   direction_encoding_type="nerf",
-                  conditioning="Attention", # FiLM, Concat, Attention
+                  conditioning="FiLM", # FiLM, Concat, Attention
                   termination_output_activation="sigmoid",
                   probability_of_hit_output_activation="sigmoid",
                   hidden_layers=5,
                   hidden_features=256,
+                  mapping_layers=5,
+                  mapping_features=256,
                   num_attention_heads=8,
                   num_attention_layers=6,
                   predict_probability_of_hit=False,
@@ -207,6 +200,7 @@ RENINeuS = MethodSpecification(
 DirectionalDistanceField = MethodSpecification(
     config=TrainerConfig(
         method_name="ddf",
+        experiment_name="ddf",
         steps_per_eval_image=500,
         steps_per_eval_batch=100000,
         steps_per_save=1000,
@@ -231,13 +225,15 @@ DirectionalDistanceField = MethodSpecification(
             model=DDFModelConfig(
                 ddf_field=DirectionalDistanceFieldConfig(
                     ddf_type="ddf", # pddf
-                    position_encoding_type="none", # none, hash, nerf, sh
+                    position_encoding_type="hash", # none, hash, nerf, sh
                     direction_encoding_type="nerf",
-                    conditioning="Attention", # FiLM, Concat, Attention
+                    conditioning="FiLM", # FiLM, Concat, Attention
                     termination_output_activation="sigmoid",
                     probability_of_hit_output_activation="sigmoid",
                     hidden_layers=5,
                     hidden_features=256,
+                    mapping_layers=5,
+                    mapping_features=256,
                     num_attention_heads=8,
                     num_attention_layers=6,
                     predict_probability_of_hit=False,
