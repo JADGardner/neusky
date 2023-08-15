@@ -130,6 +130,8 @@ class NeRFOSRCityScapesDataParserConfig(NeRFOSRDataParserConfig):
     """Source of masks, can be none, cityscapes not provided in original dataset."""
     crop_to_equal_size: bool = False
     """Crop images to equal size"""
+    run_segmentation_inference: bool = False
+    """Run segmentation inference on images if none are provided"""
 
 
 @dataclass
