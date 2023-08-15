@@ -55,7 +55,7 @@ from nerfstudio.data.datamanagers.base_datamanager import DataManagerConfig, Dat
 from reni_neus.data.reni_neus_pixel_sampler import RENINeuSPixelSampler
 from reni_neus.data.reni_neus_dataset import RENINeuSDataset
 from reni_neus.data.ddf_dataset import DDFDataset
-from reni_neus.reni_neus_model import RENINeuSFactoModel
+from reni_neus.models.reni_neus_model import RENINeuSFactoModel
 from reni_neus.model_components.ddf_sampler import DDFSamplerConfig
 
 CONSOLE = Console(width=120)

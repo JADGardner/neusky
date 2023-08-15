@@ -18,12 +18,12 @@ from nerfstudio.utils.colormaps import apply_depth_colormap
 from nerfstudio.field_components.encodings import SHEncoding, NeRFEncoding
 import tinycudann as tcnn
 
-from reni_neus.reni_neus_model import RENINeuSFactoModelConfig, RENINeuSFactoModel
+from reni_neus.models.reni_neus_model import RENINeuSFactoModelConfig, RENINeuSFactoModel
 from reni_neus.utils.utils import get_directions, get_sineweight, look_at_target, random_points_on_unit_sphere
 from reni_neus.illumination_fields.reni_field import RENIField
 from reni_neus.data.reni_neus_datamanager import RENINeuSDataManagerConfig, RENINeuSDataManager
-from reni_neus.reni_neus_config import RENINeuS as RENINeuSMethodSpecification, DirectionalDistanceField
-from reni_neus.reni_neus_config import RENINeuS
+from reni_neus.configs.reni_neus_config import RENINeuS as RENINeuSMethodSpecification, DirectionalDistanceField
+from reni_neus.configs.reni_neus_config import RENINeuS
 from reni_neus.illumination_fields.environment_map import EnvironmentMapConfig
 
 def rotation_matrix(axis: np.ndarray, angle: float) -> np.ndarray:

@@ -14,7 +14,5 @@ dependencies=[
 include = ["reni_neus*"]
 
 [project.entry-points.'nerfstudio.method_configs']
-reni_neus = 'reni_neus.reni_neus_config:RENINeuS'
-ddf = 'reni_neus.reni_neus_config:DirectionalDistanceField'
-nerfacto_nerfosr = 'reni_neus.reni_neus_config:NeRFactoNeRFOSR'
-neusfacto_nerfosr = 'reni_neus.reni_neus_config:NeusFactoNeRFOSR'
+reni_neus = 'reni_neus.configs..reni_neus_config:RENINeuS'
+ddf = 'reni_neus.configs.ddf_config:DirectionalDistanceField'

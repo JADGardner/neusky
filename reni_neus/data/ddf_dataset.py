@@ -43,7 +43,7 @@ from nerfstudio.data.scene_box import SceneBox
 from nerfstudio.data.datamanagers.base_datamanager import VanillaDataManager
 
 from reni_neus.utils.utils import random_points_on_unit_sphere, random_inward_facing_directions, look_at_target
-from reni_neus.reni_neus_model import RENINeuSFactoModel
+from reni_neus.models.reni_neus_model import RENINeuSFactoModel
 from reni_neus.model_components.ddf_sampler import DDFSampler
 from reni_neus.model_components.illumination_samplers import IcosahedronSamplerConfig
 from reni_neus.utils.utils import find_nerfstudio_project_root

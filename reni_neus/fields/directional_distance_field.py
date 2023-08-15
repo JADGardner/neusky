@@ -33,7 +33,7 @@ from nerfstudio.field_components.encodings import NeRFEncoding, SHEncoding
 from nerfstudio.field_components.field_heads import FieldHeadNames
 from nerfstudio.fields.base_field import Field, FieldConfig
 
-from reni_neus.reni_neus_fieldheadnames import RENINeuSFieldHeadNames
+from reni_neus.field_components.reni_neus_fieldheadnames import RENINeuSFieldHeadNames
 from reni.field_components.siren import Siren
 from reni.field_components.film_siren import FiLMSiren
 from reni.field_components.transformer_decoder import Decoder

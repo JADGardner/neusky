@@ -62,8 +62,8 @@ from nerfstudio.viewer.server.viewer_elements import *
 from reni_neus.model_components.renderers import RGBLambertianRendererWithVisibility
 # from reni_neus.model_components.illumination_samplers import IlluminationSamplerConfig
 from reni_neus.utils.utils import RENITestLossMask
-from reni_neus.reni_neus_fieldheadnames import RENINeuSFieldHeadNames
-from reni_neus.ddf_model import DDFModelConfig, DDFModel
+from reni_neus.field_components.reni_neus_fieldheadnames import RENINeuSFieldHeadNames
+from reni_neus.models.ddf_model import DDFModelConfig, DDFModel
 from reni_neus.model_components.ddf_sampler import DDFSamplerConfig
 
 from reni.illumination_fields.base_spherical_field import SphericalFieldConfig

@@ -51,7 +51,7 @@ from nerfstudio.viewer.server.viewer_elements import ViewerControl, ViewerButton
 
 from reni_neus.fields.directional_distance_field import DirectionalDistanceField, DirectionalDistanceFieldConfig
 from reni_neus.utils.utils import random_points_on_unit_sphere, random_inward_facing_directions, ray_sphere_intersection, log_loss
-from reni_neus.reni_neus_fieldheadnames import RENINeuSFieldHeadNames
+from reni_neus.field_components.reni_neus_fieldheadnames import RENINeuSFieldHeadNames
 
 CONSOLE = Console(width=120)
 

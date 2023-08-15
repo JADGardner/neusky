@@ -48,7 +48,7 @@ from nerfstudio.field_components.field_heads import FieldHeadNames
 from nerfstudio.cameras.rays import RayBundle, RaySamples, Frustums
 
 from reni_neus.data.reni_neus_datamanager import RENINeuSDataManagerConfig, RENINeuSDataManager
-from reni_neus.ddf_model import DDFModelConfig
+from reni_neus.models.ddf_model import DDFModelConfig
 from reni_neus.model_components.ddf_sampler import DDFSamplerConfig
 
 @dataclass

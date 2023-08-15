@@ -1,22 +1,46 @@
-from mmseg.apis import inference_model, init_model, show_result_pyplot
-import mmcv
+# %%
+import torch
+from PIL import Image
+from mmseg.apis import MMSegInferencer
+import numpy as np
+import matplotlib.pyplot as plt
 
-config_file = 'pspnet_r50-d8_4xb2-40k_cityscapes-512x1024.py'
-checkpoint_file = 'pspnet_r50-d8_512x1024_40k_cityscapes_20200605_003338-2966598c.pth'
+def load_and_resize_image(img_path, target_size=(1024, 1024)):
+    """Load and resize an image to the given target size."""
+    original_img = Image.open(img_path)
+    original_shape = original_img.size
+    resized_img = original_img.resize(target_size)
+    return np.array(original_img), np.array(resized_img), original_shape
 
-# build the model from a config file and a checkpoint file
-model = init_model(config_file, checkpoint_file, device='cuda:0')
+# Load the original and resized images
+img_path = '/workspace/demo.jpg'
+original_img_array, img, original_shape = load_and_resize_image(img_path)
 
-# test a single image and show the results
-img = 'demo.jpg'  # or img = mmcv.imread(img), which will only load it once
-result = inference_model(model, img)
-# visualize the results in a new window
-show_result_pyplot(model, img, result, show=True)
-# or save the visualization results to image files
-# you can change the opacity of the painted segmentation map in (0, 1].
-show_result_pyplot(model, img, result, show=True, out_file='result.jpg', opacity=0.5)
-# test a video and show the results
-video = mmcv.VideoReader('video.mp4')
-for frame in video:
-   result = inference_segmentor(model, frame)
-   show_result_pyplot(model, result, wait_time=1)
+# Inference
+inferencer = MMSegInferencer(model='ddrnet_23_in1k-pre_2xb6-120k_cityscapes-1024x1024')
+out = inferencer(img, show=True)
+predictions = out['predictions'] # [1024, 1024]
+
+# Reshape predictions back to the original shape
+predictions = predictions.astype(np.uint8)
+predictions_resized = Image.fromarray(predictions).resize(original_shape, Image.NEAREST)
+predictions_resized = np.array(predictions_resized)
+
+# Plot the original image and the prediction_resized side by side
+plt.figure(figsize=(12, 6))
+
+plt.subplot(1, 2, 1)
+plt.title("Original Image")
+plt.imshow(original_img_array)
+plt.axis('off')
+
+plt.subplot(1, 2, 2)
+plt.title("Predictions")
+plt.imshow(predictions_resized, cmap='jet')  # using a colormap for visualization of predictions
+plt.axis('off')
+
+plt.tight_layout()
+plt.show()
+
+
+# %%
