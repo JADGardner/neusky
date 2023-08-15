@@ -47,8 +47,7 @@ except ImportError:
 
 @dataclass
 class DirectionalDistanceFieldConfig(FieldConfig):
-    """DD Field Config"""
-
+    """DDF Field Config"""
     _target: Type = field(default_factory=lambda: DirectionalDistanceField)
     position_encoding_type: Literal["hash", "nerf", "sh", "icosphere_hash", "none"] = "none"
     """Type of encoding to use for position"""
