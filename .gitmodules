@@ -1,0 +1,3 @@
+[submodule "ns_reni"]
+	path = ns_reni
+	url = git@github.com:JADGardner/ns_reni.git
