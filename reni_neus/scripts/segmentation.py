@@ -5,7 +5,7 @@ from mmseg.apis import MMSegInferencer
 import numpy as np
 import matplotlib.pyplot as plt
 
-def load_and_resize_image(img_path, target_size=(1024, 1024)):
+def load_and_resize_image(img_path, target_size=(512, 1024)):
     """Load and resize an image to the given target size."""
     original_img = Image.open(img_path)
     original_shape = original_img.size
@@ -13,12 +13,12 @@ def load_and_resize_image(img_path, target_size=(1024, 1024)):
     return np.array(original_img), np.array(resized_img), original_shape
 
 # Load the original and resized images
-img_path = '/workspace/demo.jpg'
+img_path = '/workspace/Trevi_Fountain_-_Roma.jpg'
 original_img_array, img, original_shape = load_and_resize_image(img_path)
 
 # Inference
-inferencer = MMSegInferencer(model='ddrnet_23_in1k-pre_2xb6-120k_cityscapes-1024x1024')
-out = inferencer(img, show=True)
+inferencer = MMSegInferencer(model='mask2former_swin-l-in22k-384x384-pre_8xb2-90k_cityscapes-512x1024')
+out = inferencer(img, out_dir='/workspace/')
 predictions = out['predictions'] # [1024, 1024]
 
 # Reshape predictions back to the original shape
