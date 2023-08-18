@@ -13,9 +13,9 @@ services:
       NVIDIA_DRIVER_CAPABILITIES: compute,utility,graphics
       DISPLAY: $DISPLAY
     ports:
-      - '7008:7007'
+      - '7007:7007'
     volumes:
-      - ../../:/workspace/
+      - ../:/workspace/
       - /tmp/.X11-unix:/tmp/.X11-unix
       - /home/james/.cache/:/home/user/.cache/
       - /home/james/.ssh/:/home/user/.ssh/

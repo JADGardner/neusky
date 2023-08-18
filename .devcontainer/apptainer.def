@@ -1,0 +1,31 @@
+BootStrap: docker
+From: dromni/nerfstudio:0.3.1
+Stage: spython-base
+
+%environment
+  export PYTHONPATH=$PYTHONPATH:/home/user/.local/lib/python3.10/site-packages
+  export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/lib/x86_64-linux-gnu/:/home/user/.local/lib/python3.10/site-packages/pymeshlab/lib/
+
+%post
+  touch /etc/localtime
+  touch /usr/bin/nvidia-smi
+  touch /usr/bin/nvidia-debugdump
+  touch /usr/bin/nvidia-persistenced
+  touch /usr/bin/nvidia-cuda-mps-control
+  touch /usr/bin/nvidia-cuda-mps-server
+  mkdir -p /run/nvidia-persistenced
+  touch /run/nvidia-persistenced/socket
+
+  apt update
+  apt-get -y upgrade
+  apt install -y curl
+  apt install -y python3.10-venv
+  apt-get install -y ffmpeg libglib2.0-0
+
+  su - user
+
+  su - 
+
+  chmod -R 777 /home/user/
+
+  su - user

@@ -11,16 +11,19 @@
       // Add the IDs of extensions you want installed when the container is created.
       "extensions": [
         "mutantdino.resourcemonitor",
+        "ms-azuretools.vscode-docker",
         "nvidia.nsight-vscode-edition",
         "ms-python.python",
         "ms-toolsai.jupyter",
-        "esbenp.prettier-vscode",
         "ms-vscode.cpptools-extension-pack",
         "GitHub.vscode-pull-request-github",
         "GitHub.copilot",
+        "github.copilot-labs",
+        "github.copilot-chat",
+        "esbenp.prettier-vscode",
         "ms-python.pylint"
       ]
     }
   },
-  "postCreateCommand": "cd /workspace && pip install -e . && cd /workspace/reni_neus/ && pip install -e . && cd /workspace/reni_neus/ViT-Adapter/segmentation && ln -s ../detection/ops ./ && cd /ops && python setup.py build install --user"
+  "postCreateCommand": "cd /workspace && pip install -e . && cd /workspace/reni_neus/ns_reni/ && pip install -e. && cd /workspace/reni_neus/ && pip install -e ."
 }
