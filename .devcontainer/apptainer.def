@@ -1,10 +1,10 @@
 BootStrap: docker
-From: dromni/nerfstudio:0.3.1
+From: dromni/nerfstudio:0.3.3
 Stage: spython-base
 
 %environment
-  export PYTHONPATH=$PYTHONPATH:/home/user/.local/lib/python3.10/site-packages
-  export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/lib/x86_64-linux-gnu/:/home/user/.local/lib/python3.10/site-packages/pymeshlab/lib/
+  # export PYTHONPATH=$PYTHONPATH:/home/user/.local/lib/python3.10/site-packages
+  # export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/lib/x86_64-linux-gnu/:/home/user/.local/lib/python3.10/site-packages/pymeshlab/lib/
 
 %post
   touch /etc/localtime
