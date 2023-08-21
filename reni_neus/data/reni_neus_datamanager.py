@@ -35,7 +35,6 @@ from nerfstudio.data.dataparsers.blender_dataparser import BlenderDataParserConf
 
 from nerfstudio.data.datasets.base_dataset import InputDataset
 from nerfstudio.data.pixel_samplers import (
-    EquirectangularPixelSampler,
     PatchPixelSampler,
     PixelSampler,
 )
@@ -217,21 +216,21 @@ class RENINeuSDataManager(DataManager):  # pylint: disable=abstract-method
             scale_factor=self.config.camera_res_scale_factor,
         )
 
-    def _get_pixel_sampler(  # pylint: disable=no-self-use
-        self, dataset: InputDataset, *args: Any, **kwargs: Any
-    ) -> PixelSampler:
-        """Infer pixel sampler to use."""
-        if self.config.patch_size > 1:
-            return PatchPixelSampler(*args, **kwargs, patch_size=self.config.patch_size)
+    # def _get_pixel_sampler(  # pylint: disable=no-self-use
+    #     self, dataset: InputDataset, *args: Any, **kwargs: Any
+    # ) -> PixelSampler:
+    #     """Infer pixel sampler to use."""
+    #     if self.config.patch_size > 1:
+    #         return PatchPixelSampler(*args, **kwargs, patch_size=self.config.patch_size)
 
-        # If all images are equirectangular, use equirectangular pixel sampler
-        is_equirectangular = dataset.cameras.camera_type == CameraType.EQUIRECTANGULAR.value
-        if is_equirectangular.all():
-            return EquirectangularPixelSampler(*args, **kwargs)
-        # Otherwise, use the default pixel sampler
-        if is_equirectangular.any():
-            CONSOLE.print("[bold yellow]Warning: Some cameras are equirectangular, but using default pixel sampler.")
-        return RENINeuSPixelSampler(*args, **kwargs)
+    #     # If all images are equirectangular, use equirectangular pixel sampler
+    #     is_equirectangular = dataset.cameras.camera_type == CameraType.EQUIRECTANGULAR.value
+    #     if is_equirectangular.all():
+    #         return EquirectangularPixelSampler(*args, **kwargs)
+    #     # Otherwise, use the default pixel sampler
+    #     if is_equirectangular.any():
+    #         CONSOLE.print("[bold yellow]Warning: Some cameras are equirectangular, but using default pixel sampler.")
+    #     return RENINeuSPixelSampler(*args, **kwargs)
 
     def setup_train(self):
         """Sets up the data loaders for training"""
@@ -289,7 +288,7 @@ class RENINeuSDataManager(DataManager):  # pylint: disable=abstract-method
             device=self.device,
             num_workers=self.world_size * 4,
         )
-    
+
     def get_sky_ray_bundle(self, number_of_rays: int) -> Tuple[RayBundle, Dict]:
         """Returns a sky ray bundle for the given step."""
         image_batch = next(self.iter_train_image_dataloader)

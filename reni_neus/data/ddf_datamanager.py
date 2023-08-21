@@ -38,16 +38,6 @@ from nerfstudio.data.dataparsers.blender_dataparser import BlenderDataParserConf
 from nerfstudio.data.datamanagers.base_datamanager import VanillaDataManager
 
 from nerfstudio.data.datasets.base_dataset import InputDataset
-from nerfstudio.data.pixel_samplers import (
-    EquirectangularPixelSampler,
-    PatchPixelSampler,
-    PixelSampler,
-)
-from nerfstudio.data.utils.dataloaders import (
-    CacheDataloader,
-    FixedIndicesEvalDataloader,
-    RandIndicesEvalDataloader,
-)
 from nerfstudio.data.utils.nerfstudio_collate import nerfstudio_collate
 from nerfstudio.model_components.ray_generators import RayGenerator
 from nerfstudio.data.datamanagers.base_datamanager import DataManagerConfig, DataManager, AnnotatedDataParserUnion
@@ -137,9 +127,7 @@ class DDFDataManager(DataManager):  # pylint: disable=abstract-method
         c2w = self.old_datamanager.train_dataset.cameras.camera_to_worlds
         positions = c2w[:, :3, 3]
         average_camera_position = torch.mean(positions, dim=0)
-        self.dir_to_average_cam_pos = average_camera_position / torch.norm(
-            average_camera_position
-        )
+        self.dir_to_average_cam_pos = average_camera_position / torch.norm(average_camera_position)
 
         self.train_dataset = self.create_dataset()
         self.eval_dataset = self.train_dataset
@@ -170,7 +158,9 @@ class DDFDataManager(DataManager):  # pylint: disable=abstract-method
         """Returns the next batch of data from the train dataloader."""
         self.train_count += 1
         if self.config.training_data_type == "rand_pnts_on_sphere":
-            batch = self.train_dataset[(0, False)] # False is for is_viewer flag, viewer need to call train dataset and still get an image
+            batch = self.train_dataset[
+                (0, False)
+            ]  # False is for is_viewer flag, viewer need to call train dataset and still get an image
         elif self.config.training_data_type == "single_camera":
             batch = self.train_dataset[(self.config.train_data_idx, False)]
         elif self.config.training_data_type == "all_cameras":
