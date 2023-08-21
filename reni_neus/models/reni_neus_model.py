@@ -42,6 +42,7 @@ from nerfstudio.data.scene_box import SceneBox
 from nerfstudio.model_components.renderers import RGBRenderer
 from nerfstudio.field_components.field_heads import FieldHeadNames
 from nerfstudio.cameras.cameras import Cameras, CameraType
+from nerfstudio.configs.config_utils import to_immutable_dict
 
 from nerfstudio.models.base_model import ModelConfig
 from nerfstudio.models.neus_facto import NeuSFactoModel, NeuSFactoModelConfig
@@ -49,11 +50,11 @@ from nerfstudio.utils import colormaps
 from nerfstudio.model_components.scene_colliders import AABBBoxCollider, NearFarCollider, SphereCollider
 from nerfstudio.model_components.ray_samplers import VolumetricSampler
 from nerfstudio.field_components.spatial_distortions import SceneContraction
-
+from nerfstudio.utils import colormaps, colors, misc
 from nerfstudio.model_components.losses import (
     L1Loss,
     MSELoss,
-    ScaleAndShiftInvariantLoss,
+    interlevel_loss,
     monosdf_normal_loss,
 )
 
@@ -61,7 +62,7 @@ from nerfstudio.viewer.server.viewer_elements import *
 
 from reni_neus.model_components.renderers import RGBLambertianRendererWithVisibility
 # from reni_neus.model_components.illumination_samplers import IlluminationSamplerConfig
-from reni_neus.utils.utils import RENITestLossMask
+from reni_neus.model_components.losses import RENISkyPixelLoss
 from reni_neus.field_components.reni_neus_fieldheadnames import RENINeuSFieldHeadNames
 from reni_neus.models.ddf_model import DDFModelConfig, DDFModel
 from reni_neus.model_components.ddf_sampler import DDFSamplerConfig
@@ -89,32 +90,10 @@ class RENINeuSFactoModelConfig(NeuSFactoModelConfig):
     """Step of pretrained illumination field"""
     illumination_sampler: IlluminationSamplerConfig = IlluminationSamplerConfig()
     """Illumination sampler to use"""
-    illumination_field_prior_loss_weight: float = 1e-7
-    """Weight for the prior loss"""
     illumination_field_cosine_loss_weight: float = 1e-1
     """Weight for the reni cosine loss"""
     illumination_field_loss_weight: float = 1.0
     """Weight for the reni loss"""
-    visibility_loss_mse_multi: float = 0.01
-    """Weight for the visibility mse loss"""
-    render_only_albedo: bool = False # TODO remove for next full training run
-    """Render only albedo"""
-    include_occupancy_network: bool = False
-    """Include occupancy network in the model"""
-    occupancy_grid_resolution: int = 64
-    """Resolution of the occupancy grid"""
-    occupancy_grid_levels: int = 4
-    """Levels of the occupancy grid"""
-    include_hashgrid_density_loss: bool = False
-    """Include hashgrid density loss"""
-    hashgrid_density_loss_weight: float = 0.0
-    """Weight for the hashgrid density loss"""
-    hashgrid_density_loss_sample_resolution: int = 256
-    """Resolution of the hashgrid density loss"""
-    include_ground_plane_normal_alignment: bool = False
-    """Align the ground plane normal to the z-axis"""
-    ground_plane_normal_alignment_multi: float = 1.0
-    """Weight for the ground plane normal alignment loss"""
     visibility_threshold: Union[Literal["learnable"], Tuple[float, float], float] = "learnable"
     """Learnable visibility threshold"""
     steps_till_min_visibility_threshold: int = 15000
@@ -129,6 +108,24 @@ class RENINeuSFactoModelConfig(NeuSFactoModelConfig):
     """Norm for scene contraction"""
     collider_shape: Literal["sphere", "box"] = "box"
     """Shape of the collider"""
+    loss_inclusions: Dict[str, any] = to_immutable_dict({
+        "rgb_mse_loss": True,
+        "eikonal loss": True,
+        "fg_mask_loss": True,
+        "normal_loss": True,
+        "depth_loss": True,
+        "interlevel_loss": True,
+        "sky_pixel_loss": {
+            "enabled": True,
+            "cosine_weight": 0.1,
+        },
+        "hashgrid_density_loss": {
+            "enabled": True,
+            "grid_resolution": 256,
+        },
+        "ground_plane_loss": True,
+    })
+    """Which losses to include in the training"""
 
 
 class RENINeuSFactoModel(NeuSFactoModel):
@@ -158,7 +155,6 @@ class RENINeuSFactoModel(NeuSFactoModel):
         self.num_test_data = num_test_data
         self.test_mode = test_mode
         self.fitting_eval_latents = False
-        self.rendering_animation = False
         super().__init__(config, scene_box, num_train_data, **kwargs)
         self.visibility_field = visibility_field
 
@@ -236,29 +232,18 @@ class RENINeuSFactoModel(NeuSFactoModel):
 
         self.field_background = None
 
-        if self.config.include_occupancy_network:
-            # Occupancy Grid.
-            self.occupancy_grid = nerfacc.OccGridEstimator(
-                roi_aabb=self.scene_box.aabb,
-                resolution=self.config.occupancy_grid_resolution,
-                levels=self.config.occupancy_grid_levels,
-            )
-            # Volumetric sampler.
-            self.volumetric_sampler = VolumetricSampler(
-                occupancy_grid=self.occupancy_grid,
-                density_fn=self.field.density_fn,
-            )
-
         self.albedo_renderer = RGBRenderer(background_color=torch.tensor([1.0, 1.0, 1.0]))
         self.lambertian_renderer = RGBLambertianRendererWithVisibility()
 
-        self.sky_pixel_illumination_loss = RENITestLossMask(
-            alpha=self.config.illumination_field_prior_loss_weight,
-            beta=self.config.illumination_field_cosine_loss_weight,
-        )
+        if self.config.loss_inclusions['sky_pixel_loss']['enabled']:
+            self.sky_pixel_loss = RENISkyPixelLoss(
+                alpha=self.config.loss_inclusions['sky_pixel_loss']['cosine_weight'],
+            )
+        if self.config.loss_inclusions['hashgrid_density_loss']['enabled']:
+            self.hashgrid_density_loss = torch.nn.L1Loss()
+        if self.config.loss_inclusions['ground_plane_loss']:
+            self.ground_plane_loss = monosdf_normal_loss
 
-        # l1 loss
-        self.grid_density_loss = torch.nn.L1Loss()
 
     def get_param_groups(self) -> Dict[str, List[Parameter]]:
         """Return a dictionary with the parameters of the proposal networks."""
@@ -300,22 +285,9 @@ class RENINeuSFactoModel(NeuSFactoModel):
             ray_bundle = self.collider(ray_bundle)
 
         return self.get_outputs(ray_bundle, batch=batch, rotation=rotation, step=step)
-
-    def sample_and_forward_field(self, ray_bundle: RayBundle, batch: Union[Dict, None] = None, rotation: Union[torch.Tensor, None]= None, step: Union[int, None] = None) -> Dict[str, Any]:
-        """Sample rays using proposal networks and compute the corresponding field outputs."""
-        ray_samples, weights_list, ray_samples_list = self.proposal_sampler(ray_bundle, density_fns=self.density_fns)
-
+    
+    def sample_illumination(self, ray_samples: RaySamples, rotation: Union[torch.Tensor, None] = None):
         camera_indices = ray_samples.camera_indices.squeeze()  # [num_rays, samples_per_ray]
-
-        field_outputs = self.field(ray_samples, return_alphas=True)
-
-        weights, transmittance = ray_samples.get_weights_and_transmittance_from_alphas(
-            field_outputs[FieldHeadNames.ALPHA]
-        )
-        bg_transmittance = transmittance[:, -1, :]
-
-        weights_list.append(weights)
-        ray_samples_list.append(ray_samples)
 
         illumination_field = self.get_illumination_field()
 
@@ -353,7 +325,24 @@ class RENINeuSFactoModel(NeuSFactoModel):
         illumination_field_outputs = illumination_field.forward(ray_samples[:, 0], rotation=rotation)
         hdr_background_colours = illumination_field_outputs[RENIFieldHeadNames.RGB]
         hdr_background_colours = illumination_field.unnormalise(hdr_background_colours)
-        
+
+        return hdr_illumination_colours, illumination_directions, hdr_background_colours
+
+    def sample_and_forward_field(self, ray_bundle: RayBundle, batch: Union[Dict, None] = None, rotation: Union[torch.Tensor, None]= None, step: Union[int, None] = None) -> Dict[str, Any]:
+        """Sample rays using proposal networks and compute the corresponding field outputs."""
+        ray_samples, weights_list, ray_samples_list = self.proposal_sampler(ray_bundle, density_fns=self.density_fns)
+
+        field_outputs = self.field(ray_samples, return_alphas=True)
+
+        weights, transmittance = ray_samples.get_weights_and_transmittance_from_alphas(
+            field_outputs[FieldHeadNames.ALPHA]
+        )
+        bg_transmittance = transmittance[:, -1, :]
+
+        weights_list.append(weights)
+        ray_samples_list.append(ray_samples)
+
+        hdr_illumination_colours, illumination_directions, hdr_background_colours = self.sample_illumination(ray_samples, rotation)
 
         samples_and_field_outputs = {
             "ray_samples": ray_samples,
@@ -423,24 +412,24 @@ class RENINeuSFactoModel(NeuSFactoModel):
                 
                 samples_and_field_outputs["shadow_map"] = shadow_map
 
-        if self.training and self.config.include_hashgrid_density_loss:
+        if self.training and self.config.loss_inclusions['hashgrid_density_loss']['enabled']:
             # Get min and max coordinates
             min_coord, max_coord = self.scene_box.aabb
 
             # Create a linear space for each dimension
-            x = torch.linspace(min_coord[0], max_coord[0], self.config.hashgrid_density_loss_sample_resolution)
-            y = torch.linspace(min_coord[1], max_coord[1], self.config.hashgrid_density_loss_sample_resolution)
-            z = torch.linspace(min_coord[2], max_coord[2], self.config.hashgrid_density_loss_sample_resolution)
+            x = torch.linspace(min_coord[0], max_coord[0], self.config.loss_inclusions['hashgrid_density_loss']['grid_resolution'])
+            y = torch.linspace(min_coord[1], max_coord[1], self.config.loss_inclusions['hashgrid_density_loss']['grid_resolution'])
+            z = torch.linspace(min_coord[2], max_coord[2], self.config.loss_inclusions['hashgrid_density_loss']['grid_resolution'])
 
             # Generate a 3D grid of points
-            X, Y, Z = torch.meshgrid(x, y, z)
+            X, Y, Z = torch.meshgrid(x, y, z, indexing='ij')
             positions = torch.stack((X, Y, Z), -1)  # size will be (resolution, resolution, resolution, 3)
 
             # Flatten and reshape
             positions = positions.reshape(-1, 3)
 
             # Calculate gaps between each sample
-            gap = torch.tensor([(max_coord[i] - min_coord[i]) / self.config.hashgrid_density_loss_sample_resolution for i in range(3)])
+            gap = torch.tensor([(max_coord[i] - min_coord[i]) / self.config.loss_inclusions['hashgrid_density_loss']['grid_resolution'] for i in range(3)])
 
             # Generate random perturbations
             perturbations = torch.rand_like(positions) * gap - gap / 2
@@ -583,10 +572,6 @@ class RENINeuSFactoModel(NeuSFactoModel):
             shadow_map = samples_and_field_outputs["shadow_map"]['visibility']
             outputs["shadow_map"] = shadow_map
 
-        # if self.render_shadow_map_static:
-        #     if 'difference' in samples_and_field_outputs["shadow_map"]:
-        #         outputs["difference"] = samples_and_field_outputs["shadow_map"]['difference']
-
         if self.training:
             grad_points = field_outputs[FieldHeadNames.GRADIENT]
             outputs.update({"eik_grad": grad_points})
@@ -609,45 +594,83 @@ class RENINeuSFactoModel(NeuSFactoModel):
         if 'visibility_dict' in samples_and_field_outputs:
             outputs['visibility_batch'] = samples_and_field_outputs['visibility_dict']['visibility_batch']
 
-        if self.rendering_animation:
-            outputs['render_albedos'] = field_outputs[RENINeuSFieldHeadNames.ALBEDO]
-            outputs['render_normals'] = field_outputs[FieldHeadNames.NORMALS]
-            outputs['render_visibility'] = visibility
-            outputs['directions'] = ray_samples.frustums.directions[:, 0, :]
-            outputs['camera_indices'] = ray_samples.camera_indices[0, 0]
-
         return outputs
 
     def get_loss_dict(
         self, outputs: Dict[str, Any], batch: Dict[str, Any], metrics_dict: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """Compute the loss dictionary, including interlevel loss for proposal networks."""
-        loss_dict = super().get_loss_dict(outputs, batch, metrics_dict)
+        loss_dict = {}
+
+        if self.config.loss_inclusions["rgb_mse_loss"]:
+            image = batch["image"].to(self.device)
+            pred_image, image = self.renderer_rgb.blend_background_for_loss_computation(
+                pred_image=outputs["rgb"],
+                pred_accumulation=outputs["accumulation"],
+                gt_image=image,
+            )
+            loss_dict["rgb_mse_loss"] = self.rgb_loss(image, pred_image)
 
         if self.training:
-            if "fg_mask" in batch:
+            # eikonal loss
+            if self.config.loss_inclusions["eikonal loss"]:
+                grad_theta = outputs["eik_grad"]
+                loss_dict["eikonal_loss"] = ((grad_theta.norm(2, dim=-1) - 1) ** 2).mean()
+
+            # foreground mask loss
+            if self.config.loss_inclusions["fg_mask_loss"]:
+                assert "fg_mask" in batch
+                fg_label = batch["fg_mask"].float().to(self.device)
+                weights_sum = outputs["weights"].sum(dim=1).clip(1e-3, 1.0 - 1e-3)
+                loss_dict["fg_mask_loss"] = (
+                    F.binary_cross_entropy(weights_sum, fg_label)
+                )
+
+            # monocular normal loss
+            if self.config.loss_inclusions["normal_loss"]:
+                assert "normal" in batch
+                normal_gt = batch["normal"].to(self.device)
+                normal_pred = outputs["normal"]
+                loss_dict["normal_loss"] = (
+                    monosdf_normal_loss(normal_pred, normal_gt)
+                )
+            
+            # mono depth loss
+            if self.config.loss_inclusions["depth_loss"]:
+                assert "depth" in batch
+                depth_gt = batch["depth"].to(self.device)[..., None]
+                depth_pred = outputs["depth"]
+
+                mask = torch.ones_like(depth_gt).reshape(1, 32, -1).bool()
+                loss_dict["depth_loss"] = (
+                    self.depth_loss(depth_pred.reshape(1, 32, -1), (depth_gt * 50 + 0.5).reshape(1, 32, -1), mask)
+                )
+
+            if self.config.loss_inclusions["interlevel_loss"]:
+                loss_dict["interlevel_loss"] = interlevel_loss(
+                    outputs["weights_list"], outputs["ray_samples_list"]
+                )
+
+            if self.config.loss_inclusions["sky_pixel_loss"]["enabled"]:
+                assert "fg_mask" in batch
                 fg_label = batch["fg_mask"].float()
                 sky_label = 1 - fg_label
-                loss_dict["illumination_loss"] = (
-                    self.sky_pixel_illumination_loss(
+                loss_dict["sky_pixel_loss"] = self.sky_pixel_loss(
                         inputs=linear_to_sRGB(outputs["hdr_background_colours"]),
                         targets=batch["image"].type_as(sky_label),
                         mask=sky_label,
                     )
-                    * self.config.illumination_field_loss_weight
-                )
+            
+            if self.config.loss_inclusions["hashgrid_density_loss"]["enabled"]:
+                loss_dict['hashgrid_density_loss'] = self.hashgrid_density_loss(outputs['grid_density'], torch.zeros_like(outputs['grid_density']))
 
-            if 'grid_density' in outputs:
-                loss_dict['grid_density_loss'] = self.grid_density_loss(outputs['grid_density'], torch.zeros_like(outputs['grid_density'])) * self.config.hashgrid_density_loss_weight
-
-            if self.config.include_ground_plane_normal_alignment:
+            if self.config.loss_inclusions["ground_plane_loss"]:
                 normal_pred = outputs["normal"]
                 # ground plane should be facing up in z direction
                 normal_gt = torch.tensor([0.0, 0.0, 1.0]).to(self.device).expand_as(normal_pred)
-                loss_dict["ground_plane_alignment_loss"] = (
-                    monosdf_normal_loss(normal_pred * batch["ground_mask"], normal_gt * batch["ground_mask"]) * self.config.ground_plane_normal_alignment_multi
-                )
-
+                loss_dict["ground_plane_loss"] = monosdf_normal_loss(normal_pred * batch["ground_mask"], normal_gt * batch["ground_mask"])
+        
+        loss_dict = misc.scale_dict(loss_dict, self.config.loss_coefficients)
         return loss_dict
 
     def get_image_metrics_and_images(

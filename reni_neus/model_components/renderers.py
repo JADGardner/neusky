@@ -35,7 +35,7 @@ from torch import nn
 from torchtyping import TensorType
 import torch.nn.functional as F
 
-from reni_neus.utils.utils import sRGB
+from reni_neus.utils.utils import linear_to_sRGB
 
 BACKGROUND_COLOR_OVERRIDE: Optional[TensorType[3]] = None
 
@@ -124,7 +124,7 @@ class RGBLambertianRendererWithVisibility(nn.Module):
         assert isinstance(background_illumination, torch.Tensor)
 
         comp_rgb = comp_rgb + background_illumination.to(weights.device) * (1.0 - accumulated_weight)
-        comp_rgb = sRGB(comp_rgb)
+        comp_rgb = linear_to_sRGB(comp_rgb)
 
         return comp_rgb
 

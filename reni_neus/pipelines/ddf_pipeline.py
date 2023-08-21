@@ -37,6 +37,7 @@ from rich.progress import (
 
 from torch.nn.parallel import DistributedDataParallel as DDP
 from typing_extensions import Literal
+from torch.cuda.amp.grad_scaler import GradScaler
 
 from nerfstudio.data.datamanagers.base_datamanager import (
     DataManagerConfig,
@@ -46,8 +47,8 @@ from nerfstudio.utils import profiler
 from nerfstudio.pipelines.base_pipeline import VanillaPipelineConfig, VanillaPipeline
 from nerfstudio.data.scene_box import SceneBox
 
-from reni_neus.data.reni_neus_datamanager import RENINeuSDataManagerConfig, RENINeuSDataManager
-from reni_neus.data.ddf_datamanager import DDFDataManagerConfig, DDFDataManager
+from reni_neus.data.datamanagers.reni_neus_datamanager import RENINeuSDataManagerConfig, RENINeuSDataManager
+from reni_neus.data.datamanagers.ddf_datamanager import DDFDataManagerConfig, DDFDataManager
 from reni_neus.utils.utils import find_nerfstudio_project_root
 
 
@@ -100,11 +101,12 @@ class DDFPipeline(VanillaPipeline):
         test_mode: Literal["test", "val", "inference"] = "val",
         world_size: int = 1,
         local_rank: int = 0,
+        grad_scaler: Optional[GradScaler] = None,
     ):
         super(VanillaPipeline, self).__init__()  # Call grandparent class constructor ignoring parent class
         self.config = config
         self.test_mode = test_mode
-
+        
         scene_box = self._setup_reni_neus_model(device)
 
         if self.config.ddf_radius == "AABB":
@@ -132,6 +134,7 @@ class DDFPipeline(VanillaPipeline):
             metadata=self.datamanager.train_dataset.metadata,
             ddf_radius=self.ddf_radius,
             num_train_data=-1,
+            grad_scaler=grad_scaler,
         )
         self.model.to(device)
 

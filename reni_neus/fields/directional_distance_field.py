@@ -21,7 +21,6 @@ from dataclasses import dataclass, field
 from typing import Dict, Tuple, Type
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 from torchtyping import TensorType
 from typing_extensions import Literal
@@ -159,11 +158,11 @@ class DirectionalDistanceField(Field):
             growth_factor = np.exp((np.log(max_res) - np.log(base_res)) / (num_levels - 1))
             self.direction_encoding = tcnn.Encoding(n_input_dims=3, 
                                                     encoding_config={"otype": "HashGrid",
-                                                                      "n_levels": num_levels,
-                                                                      "n_features_per_level": features_per_level,
-                                                                      "log2_hashmap_size": log2_hashmap_size,
-                                                                      "base_resolution": base_res,
-                                                                      "per_level_scale": growth_factor}
+                                                                     "n_levels": num_levels,
+                                                                     "n_features_per_level": features_per_level,
+                                                                     "log2_hashmap_size": log2_hashmap_size,
+                                                                     "base_resolution": base_res,
+                                                                     "per_level_scale": growth_factor}
             )
         
         if position_encoding_type == "icosphere_hash":

@@ -19,12 +19,10 @@ from nerfstudio.engine.schedulers import (
     ExponentialDecaySchedulerConfig,
 )
 
-
-
-from reni_neus.data.nerfosr_cityscapes_dataparser import NeRFOSRCityScapesDataParserConfig
+from reni_neus.data.dataparsers.nerfosr_cityscapes_dataparser import NeRFOSRCityScapesDataParserConfig
 from reni_neus.models.reni_neus_model import RENINeuSFactoModelConfig
 from reni_neus.pipelines.reni_neus_pipeline import RENINeuSPipelineConfig
-from reni_neus.data.reni_neus_datamanager import RENINeuSDataManagerConfig
+from reni_neus.data.datamanagers.reni_neus_datamanager import RENINeuSDataManagerConfig
 from reni_neus.fields.sdf_albedo_field import SDFAlbedoFieldConfig
 from reni_neus.models.ddf_model import DDFModelConfig
 from reni_neus.fields.directional_distance_field import DirectionalDistanceFieldConfig
@@ -49,10 +47,14 @@ RENINeuS = MethodSpecification(
             eval_latent_optimisation_lr=1e-2,
             datamanager=RENINeuSDataManagerConfig(
                 dataparser=NeRFOSRCityScapesDataParserConfig(
-                    scene="lk2",
+                    scene="trevi",
                     auto_scale_poses=True,
                     crop_to_equal_size=True,
                 ),
+                images_on_gpu=True,
+                masks_on_gpu=True,
+                fg_masks_on_gpu=True,
+                ground_masks_on_gpu=True,
                 train_num_rays_per_batch=256,
                 eval_num_rays_per_batch=256,
                 camera_optimizer=CameraOptimizerConfig(
@@ -60,7 +62,6 @@ RENINeuS = MethodSpecification(
                 ),
             ),
             model=RENINeuSFactoModelConfig(
-                # proposal network allows for signifanctly smaller sdf/color network
                 sdf_field=SDFAlbedoFieldConfig(
                     use_grid_feature=True,
                     num_layers=2,
@@ -96,31 +97,48 @@ RENINeuS = MethodSpecification(
                     apply_random_rotation=True,
                     remove_lower_hemisphere=False,
                 ),
-                illumination_field_ckpt_path=Path("outputs/unnamed/reni/2023-08-07_154753/"),
+                loss_inclusions={
+                    "rgb_mse_loss": True,
+                    "eikonal loss": True,
+                    "fg_mask_loss": True,
+                    "normal_loss": False,
+                    "depth_loss": False,
+                    "interlevel_loss": True,
+                    "sky_pixel_loss": {
+                        "enabled": True,
+                        "cosine_weight": 0.1
+                    },
+                    "hashgrid_density_loss": {
+                        "enabled": True,
+                        "grid_resolution": 10,
+                    },
+                    "ground_plane_loss": False,
+                },
+                loss_coefficients={
+                    "rgb_mse_loss": 1.0,
+                    "eikonal loss": 0.1,
+                    "fg_mask_loss": 0.01,
+                    "normal_loss": 1.0,
+                    "depth_loss": 1.0,
+                    "interlevel_loss": 1.0,
+                    "sky_pixel_loss": 1.0,
+                    "hashgrid_density_loss": 1e-4,
+                    "ground_plane_loss": 0.1,
+                },
+                illumination_field_ckpt_path=Path("outputs/reni/2023-08-07_154753/"),
                 illumination_field_ckpt_step=50000,
                 fix_test_illumination_directions=True,
                 eval_num_rays_per_chunk=256,
-                illumination_field_prior_loss_weight=1e-7,
-                illumination_field_cosine_loss_weight=1e-1,
-                illumination_field_loss_weight=1.0,
-                fg_mask_loss_mult=1.0,
-                background_model="none",
-                use_average_appearance_embedding=False,
-                render_only_albedo=False,
-                include_hashgrid_density_loss=True,
-                hashgrid_density_loss_weight=1e-4,
-                hashgrid_density_loss_sample_resolution=10,
-                include_ground_plane_normal_alignment=True,
-                ground_plane_normal_alignment_multi=0.1,
                 use_visibility=False,
                 visibility_threshold=(1.0, 0.1), # "learnable", float, tuple(start, end) ... tuple will exponentially decay from start to end
                 steps_till_min_visibility_threshold=10000,
                 only_upperhemisphere_visibility=True,
                 scene_contraction_order="L2", # L2, Linf
                 collider_shape="sphere",
+                use_average_appearance_embedding=False,
+                background_model="none",
             ),
             visibility_field=DDFModelConfig( # DDFModelConfig or None
-                
               ddf_field=DirectionalDistanceFieldConfig(
                   ddf_type="ddf", # pddf
                   position_encoding_type="hash", # none, hash, nerf, sh
@@ -136,23 +154,32 @@ RENINeuS = MethodSpecification(
                   num_attention_layers=6,
                   predict_probability_of_hit=False,
               ),
-              depth_loss="L1", # L2, L1, Log_Loss
-              include_sdf_loss=True,
-              include_multi_view_loss=True,
-              include_sky_ray_loss=True,
+              loss_inclusions={
+                    "depth_l1_loss": True,
+                    "depth_l2_loss": False,
+                    "sdf_l1_loss": True,
+                    "sdf_l2_loss": False,
+                    "prob_hit_loss": False,
+                    "normal_loss": False,
+                    "multi_view_loss": True,
+                    "sky_ray_loss": True,
+              },
+              loss_coefficients={
+                  "depth_l1_loss": 20.0,
+                  "depth_l2_loss": 0.0,
+                  "sdf_l1_loss": 100.0,
+                  "sdf_l2_loss": 100.0,
+                  "prob_hit_loss": 1.0,
+                  "normal_loss": 1.0,
+                  "multi_view_loss": 0.1,
+                  "sky_ray_loss": 1.0,
+              },
               multi_view_loss_stop_gradient=False,
               include_depth_loss_scene_center_weight=True,
               compute_normals=False, # This currently does not work, the input to the network needs changing to work with autograd
-              sdf_loss_mult=100.0,
-              multi_view_loss_mult=0.1,
-              sky_ray_loss_mult=1.0,
-              depth_loss_mult=20.0,
-              prob_hit_loss_mult=1.0,
-              normal_loss_mult=1.0,
               eval_num_rays_per_chunk=1024,
               scene_center_weight_exp=3.0,
               scene_center_use_xyz=False, # only xy
-              mask_depth_to_circumference=False, # force depth under mask to circumference of ddf (not implemented)
           ),
           visibility_train_sampler=VMFDDFSamplerConfig(
               concentration=20.0,
@@ -241,60 +268,3 @@ NeRFactoNeRFOSR = MethodSpecification(
     ),
     description="Base config for Nerfacto NeRF-OSR.",
 )
-
-
-# NeusFactoNeRFOSR = MethodSpecification(
-#     config=TrainerConfig(
-#         method_name="neus-facto-nerfosr",
-#         steps_per_eval_image=5000,
-#         steps_per_eval_batch=5000,
-#         steps_per_save=2000,
-#         steps_per_eval_all_images=1000000,  # set to a very large model so we don't eval with all images
-#         max_num_iterations=20001,
-#         mixed_precision=False,
-#         pipeline=VanillaPipelineConfig(
-#             datamanager=RENINeuSDataManagerConfig(
-#                 dataparser=NeRFOSRCityScapesDataParserConfig(
-#                     scene="lk2",
-#                     auto_scale_poses=False,
-#                 ),
-#                 train_num_rays_per_batch=4096,
-#                 eval_num_rays_per_batch=4096,
-#                 camera_optimizer=CameraOptimizerConfig(
-#                     mode="SO3xR3", optimizer=AdamOptimizerConfig(lr=6e-4, eps=1e-8, weight_decay=1e-2)
-#                 ),
-#             ),
-#             model=NeuSFactoModelConfig(
-#                 # proposal network allows for signifanctly smaller sdf/color network
-#                 sdf_field=SDFFieldConfig(
-#                     use_grid_feature=True,
-#                     num_layers=2,
-#                     num_layers_color=2,
-#                     hidden_dim=256,
-#                     bias=0.5,
-#                     beta_init=0.8,
-#                     use_appearance_embedding=False,
-#                 ),
-#                 background_model="mlp",
-#                 eval_num_rays_per_chunk=2048,
-#             ),
-#         ),
-#         optimizers={
-#             "proposal_networks": {
-#                 "optimizer": AdamOptimizerConfig(lr=1e-2, eps=1e-15),
-#                 "scheduler": MultiStepSchedulerConfig(max_steps=20001, milestones=(10000, 1500, 18000)),
-#             },
-#             "fields": {
-#                 "optimizer": AdamOptimizerConfig(lr=5e-4, eps=1e-15),
-#                 "scheduler": CosineDecaySchedulerConfig(warm_up_end=500, learning_rate_alpha=0.05, max_steps=20001),
-#             },
-#             "field_background": {
-#                 "optimizer": AdamOptimizerConfig(lr=5e-4, eps=1e-15),
-#                 "scheduler": CosineDecaySchedulerConfig(warm_up_end=500, learning_rate_alpha=0.05, max_steps=20001),
-#             },
-#         },
-#         viewer=ViewerConfig(num_rays_per_chunk=1 << 15),
-#         vis="viewer",
-#     ),
-#     description="Base config for Neusfacto nerfosr.",
-# )

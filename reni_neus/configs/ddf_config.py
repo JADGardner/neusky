@@ -14,7 +14,7 @@ from nerfstudio.engine.schedulers import (
 from reni_neus.models.ddf_model import DDFModelConfig
 from reni_neus.fields.directional_distance_field import DirectionalDistanceFieldConfig
 from reni_neus.pipelines.ddf_pipeline import DDFPipelineConfig
-from reni_neus.data.ddf_datamanager import DDFDataManagerConfig
+from reni_neus.data.datamanagers.ddf_datamanager import DDFDataManagerConfig
 from reni_neus.model_components.ddf_sampler import VMFDDFSamplerConfig
 
 DirectionalDistanceField = MethodSpecification(
@@ -58,19 +58,27 @@ DirectionalDistanceField = MethodSpecification(
                     num_attention_layers=6,
                     predict_probability_of_hit=False,
                 ),
-                depth_loss="L1", # L2, L1, Log_Loss
-                include_sdf_loss=True,
-                include_multi_view_loss=True,
-                include_sky_ray_loss=True,
+                loss_inclusions={
+                    "depth_l1_loss": True,
+                    "depth_l2_loss": False,
+                    "sdf_l2_loss": True,
+                    "prob_hit_loss": False,
+                    "normal_loss": False,
+                    "multi_view_loss": True,
+                    "sky_ray_loss": True,
+                },
+                loss_coefficients={
+                    "depth_l1_loss": 20.0,
+                    "depth_l2_loss": 0.0,
+                    "sdf_l2_loss": 100.0,
+                    "prob_hit_loss": 1.0,
+                    "normal_loss": 1.0,
+                    "multi_view_loss": 0.1,
+                    "sky_ray_loss": 1.0,
+                },
                 multi_view_loss_stop_gradient=False,
                 include_depth_loss_scene_center_weight=True,
                 compute_normals=False, # This currently does not work, the input to the network need changing to work with autograd
-                sdf_loss_mult=100.0,
-                multi_view_loss_mult=0.1,
-                sky_ray_loss_mult=1.0,
-                depth_loss_mult=20.0,
-                prob_hit_loss_mult=1.0,
-                normal_loss_mult=1.0,
                 eval_num_rays_per_chunk=1024,
                 scene_center_weight_exp=3.0,
                 scene_center_use_xyz=False, # only xy

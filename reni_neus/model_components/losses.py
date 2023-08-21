@@ -41,32 +41,19 @@ import torch
 from torch import nn
 from typing import Literal, Tuple
 
-class NormalLoss(nn.Module):
-    """
-    Custom loss function for vector alignment
-    """
-
-    def __init__(self):
+class RENISkyPixelLoss(object):
+    def __init__(self, alpha=1.0):
         super().__init__()
-        # the scalar factor, modify as required
-        self.xi = 1.0
+        self.alpha = alpha
+        self.mse = torch.nn.MSELoss(reduction="mean")
+        self.cosine_similarity = torch.nn.CosineSimilarity(dim=1, eps=1e-20)
 
-    def forward(
-        self,
-        n: Tuple[torch.Tensor, torch.Tensor], 
-        n_hat: Tuple[torch.Tensor, torch.Tensor],
-        i_star: int, 
-        mask: torch.Tensor
-    ) -> torch.Tensor:
-        """
-        Args:
-            n: predicted normal vector
-            n_hat: ground truth normal vector
-            i_star: index for selecting specific element in n_hat
-            mask: mask of valid pixels
-        Returns:
-            custom loss based on reduction function
-        """
-        loss = -self.xi * torch.abs(torch.sum(n * n_hat[i_star], dim=-1))
+    def __call__(self, inputs, targets, mask):
+        inputs = inputs * mask
+        targets = targets * mask
+        mse = self.mse(inputs, targets)
+        similarity = self.cosine_similarity(inputs, targets)
+        cosine_loss = 1 - similarity.mean()
+        loss = mse + self.alpha * cosine_loss
+        return loss
 
-        return image_loss

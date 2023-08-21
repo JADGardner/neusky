@@ -37,6 +37,7 @@ from torch.nn import Parameter
 
 from torch.nn.parallel import DistributedDataParallel as DDP
 from typing_extensions import Literal
+from torch.cuda.amp.grad_scaler import GradScaler
 
 from nerfstudio.data.datamanagers.base_datamanager import (
     DataManagerConfig,
@@ -47,7 +48,7 @@ from nerfstudio.pipelines.base_pipeline import VanillaPipelineConfig, VanillaPip
 from nerfstudio.field_components.field_heads import FieldHeadNames
 from nerfstudio.cameras.rays import RayBundle, RaySamples, Frustums
 
-from reni_neus.data.reni_neus_datamanager import RENINeuSDataManagerConfig, RENINeuSDataManager
+from reni_neus.data.datamanagers.reni_neus_datamanager import RENINeuSDataManagerConfig, RENINeuSDataManager
 from reni_neus.models.ddf_model import DDFModelConfig
 from reni_neus.model_components.ddf_sampler import DDFSamplerConfig
 
@@ -114,6 +115,7 @@ class RENINeuSPipeline(VanillaPipeline):
         test_mode: Literal["test", "val", "inference"] = "val",
         world_size: int = 1,
         local_rank: int = 0,
+        grad_scaler: Optional[GradScaler] = None,
     ):
         super(VanillaPipeline, self).__init__()  # Call grandparent class constructor ignoring parent class
         self.config = config
@@ -149,6 +151,7 @@ class RENINeuSPipeline(VanillaPipeline):
             visibility_field=self.visibility_field,
             test_mode=test_mode,
             metadata=self.datamanager.train_dataset.metadata,
+            grad_scaler=grad_scaler,
         )
 
         if self.config.reni_neus_ckpt_path is not None:
