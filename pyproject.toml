@@ -6,7 +6,7 @@ dependencies=[
     "icosphere",
     "tqdm",
     "wget",
-    "nerfstudio>=0.2.0",
+    "nerfstudio>=0.3.3",
     "yacs"
 ]
 

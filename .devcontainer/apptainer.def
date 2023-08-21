@@ -2,10 +2,6 @@ BootStrap: docker
 From: dromni/nerfstudio:0.3.3
 Stage: spython-base
 
-%environment
-  # export PYTHONPATH=$PYTHONPATH:/home/user/.local/lib/python3.10/site-packages
-  # export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/lib/x86_64-linux-gnu/:/home/user/.local/lib/python3.10/site-packages/pymeshlab/lib/
-
 %post
   touch /etc/localtime
   touch /usr/bin/nvidia-smi
@@ -21,6 +17,7 @@ Stage: spython-base
   apt install -y curl
   apt install -y python3.10-venv
   apt-get install -y ffmpeg libglib2.0-0
+  apt-get install -y libopenexr-dev libilmbase-dev
 
   su - user
 
