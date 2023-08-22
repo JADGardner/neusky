@@ -46,49 +46,50 @@ from nerfstudio.data.dataparsers.nerfosr_dataparser import NeRFOSRDataParserConf
 CONSOLE = Console(width=120)
 
 CITYSCAPE_CLASSES = {
-  "classes": [
-      "road",
-      "sidewalk",
-      "building",
-      "wall",
-      "fence",
-      "pole",
-      "traffic light",
-      "traffic sign",
-      "vegetation",
-      "terrain",
-      "sky",
-      "person",
-      "rider",
-      "car",
-      "truck",
-      "bus",
-      "train",
-      "motorcycle",
-      "bicycle"
-  ],
-  "colours": [
-      [128, 64, 128],
-      [244, 35, 232],
-      [70, 70, 70],
-      [102, 102, 156],
-      [190, 153, 153],
-      [153, 153, 153],
-      [250, 170, 30],
-      [220, 220, 0],
-      [107, 142, 35],
-      [152, 251, 152],
-      [70, 130, 180],
-      [220, 20, 60],
-      [255, 0, 0],
-      [0, 0, 142],
-      [0, 0, 70],
-      [0, 60, 100],
-      [0, 80, 100],
-      [0, 0, 230],
-      [119, 11, 32]
-  ]
+    "classes": [
+        "road",
+        "sidewalk",
+        "building",
+        "wall",
+        "fence",
+        "pole",
+        "traffic light",
+        "traffic sign",
+        "vegetation",
+        "terrain",
+        "sky",
+        "person",
+        "rider",
+        "car",
+        "truck",
+        "bus",
+        "train",
+        "motorcycle",
+        "bicycle",
+    ],
+    "colours": [
+        [128, 64, 128],
+        [244, 35, 232],
+        [70, 70, 70],
+        [102, 102, 156],
+        [190, 153, 153],
+        [153, 153, 153],
+        [250, 170, 30],
+        [220, 220, 0],
+        [107, 142, 35],
+        [152, 251, 152],
+        [70, 130, 180],
+        [220, 20, 60],
+        [255, 0, 0],
+        [0, 0, 142],
+        [0, 0, 70],
+        [0, 60, 100],
+        [0, 80, 100],
+        [0, 0, 230],
+        [119, 11, 32],
+    ],
 }
+
 
 def _find_files(directory: str, exts: List[str]):
     """Find all files in a directory that have a certain file extension.
@@ -199,7 +200,9 @@ class NeRFOSRCityScapes(DataParser):
     config: NeRFOSRCityScapesDataParserConfig
 
     def __post_init__(self):
-        assert not (self.config.crop_to_equal_size and self.config.pad_to_equal_size), "Cannot crop and pad at the same time"
+        assert not (
+            self.config.crop_to_equal_size and self.config.pad_to_equal_size
+        ), "Cannot crop and pad at the same time"
 
     def _generate_dataparser_outputs(self, split="train"):
         data = self.config.data
@@ -301,14 +304,16 @@ class NeRFOSRCityScapes(DataParser):
 
             if not os.path.exists(segmentation_folder):
                 if not self.config.run_segmentation_inference:
-                    raise ValueError(f"Cityscapes segmentation folder {segmentation_folder} does not exist and run inference is False")
+                    raise ValueError(
+                        f"Cityscapes segmentation folder {segmentation_folder} does not exist and run inference is False"
+                    )
                 else:
                     self.run_segmentation_inference(image_filenames=image_filenames, output_folder=segmentation_folder)
 
             segmentation_filenames = _find_files(
                 f"{split_dir}/cityscapes_mask", exts=["*.png", "*.jpg", "*.JPG", "*.PNG"]
             )
-            
+
             semantics = Semantics(
                 filenames=segmentation_filenames,
                 classes=classes,
@@ -321,7 +326,9 @@ class NeRFOSRCityScapes(DataParser):
                 TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
                 TimeRemainingColumn(),
             ) as progress:
-                task = progress.add_task("[green]Generating masks from segmentations... ", total=len(segmentation_filenames))
+                task = progress.add_task(
+                    "[green]Generating masks from segmentations... ", total=len(segmentation_filenames)
+                )
 
                 for i, _ in enumerate(segmentation_filenames):
                     # get mask for transients
@@ -339,9 +346,8 @@ class NeRFOSRCityScapes(DataParser):
 
                     # get_ground_mask
                     ground_mask = self.get_mask_from_semantics(
-                        idx=i,
-                        semantics=semantics,
-                        mask_classes=["road", "sidewalk"])
+                        idx=i, semantics=semantics, mask_classes=["road", "sidewalk"]
+                    )
                     ground_mask = (ground_mask).unsqueeze(-1).float()  # 1 is ground, 0 is not ground
 
                     # stack masks to shape H, W, 3
@@ -356,7 +362,7 @@ class NeRFOSRCityScapes(DataParser):
                         right = min((width + min_width) // 2, width)
                         bottom = min((height + min_height) // 2, height)
                         mask = mask[top:bottom, left:right, :]
-                    
+
                     if self.config.pad_to_equal_size:
                         max_width = self.width_height[0]
                         max_height = self.width_height[1]
@@ -369,7 +375,11 @@ class NeRFOSRCityScapes(DataParser):
                         pad_bottom = max_height - height - pad_top
 
                         # Pad the mask to place it in the center
-                        mask = torch.nn.functional.pad(mask, (pad_left, pad_right, pad_top, pad_bottom), mode='constant', value=0)
+                        mask = mask.permute(2, 0, 1)
+                        mask = torch.nn.functional.pad(
+                            mask, (pad_left, pad_right, pad_top, pad_bottom), mode="constant", value=0
+                        )
+                        mask = mask.permute(1, 2, 0)
 
                     masks.append(mask)
 
@@ -400,7 +410,7 @@ class NeRFOSRCityScapes(DataParser):
         """function to get mask from semantics"""
         filepath = semantics.filenames[idx]
         pil_image = Image.open(filepath)
-        
+
         semantic_img = torch.from_numpy(np.array(pil_image, dtype="int32"))
 
         mask = torch.zeros_like(semantic_img[:, :, 0])
@@ -429,23 +439,24 @@ class NeRFOSRCityScapes(DataParser):
             original_shape = original_img.size
             resized_img = original_img.resize(target_size)
             return np.array(resized_img), original_shape
-        
+
         with Progress(
-              TextColumn("[progress.description]{task.description}"),
-              BarColumn(),
-              TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-              TimeRemainingColumn(),
-          ) as progress:
-              task = progress.add_task("[green]Running segmentation inference... ", total=len(image_filenames))
-              for image_filename in tqdm(image_filenames):
-                  _, resized_img, original_shape = load_and_resize_image(image_filename)
-                  out = inferencer(resized_img)
-                  predictions = out['predictions'] # [1024, 1024]
-                  predictions = predictions.astype(np.uint8)
-                  predictions = Image.fromarray(predictions).resize(original_shape, Image.NEAREST)
-                  # image_filename will end in .jpg or .JPG we want to save as .png
-                  # and save in the output folder
-                  output_filename = os.path.join(output_folder, os.path.basename(image_filename).replace(".jpg", ".png").replace(".JPG", ".png"))
-                  predictions.save(output_filename)
-                  progress.update(task, advance=1)
-                  
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+            TimeRemainingColumn(),
+        ) as progress:
+            task = progress.add_task("[green]Running segmentation inference... ", total=len(image_filenames))
+            for image_filename in tqdm(image_filenames):
+                _, resized_img, original_shape = load_and_resize_image(image_filename)
+                out = inferencer(resized_img)
+                predictions = out["predictions"]  # [1024, 1024]
+                predictions = predictions.astype(np.uint8)
+                predictions = Image.fromarray(predictions).resize(original_shape, Image.NEAREST)
+                # image_filename will end in .jpg or .JPG we want to save as .png
+                # and save in the output folder
+                output_filename = os.path.join(
+                    output_folder, os.path.basename(image_filename).replace(".jpg", ".png").replace(".JPG", ".png")
+                )
+                predictions.save(output_filename)
+                progress.update(task, advance=1)
