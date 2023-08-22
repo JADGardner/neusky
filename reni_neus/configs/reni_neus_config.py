@@ -51,12 +51,12 @@ RENINeuS = MethodSpecification(
                     scene="trevi",
                     auto_scale_poses=True,
                     crop_to_equal_size=False,
-                    pad_to_equal_size=True,
+                    pad_to_equal_size=False,
                 ),
                 pixel_sampler=RENINeuSPixelSamplerConfig(),
                 images_on_gpu=False,
                 masks_on_gpu=False,
-                train_num_rays_per_batch=2048,
+                train_num_rays_per_batch=256,
                 eval_num_rays_per_batch=256,
                 camera_optimizer=CameraOptimizerConfig(
                     mode="off", optimizer=AdamOptimizerConfig(lr=6e-4, eps=1e-8, weight_decay=1e-2)
@@ -75,10 +75,10 @@ RENINeuS = MethodSpecification(
                     inside_outside=False,
                 ),
                 illumination_field=RENIFieldConfig(
-                    conditioning='Attention',
+                    conditioning="Attention",
                     invariant_function="VN",
                     equivariance="SO2",
-                    axis_of_invariance="z", # Nerfstudio world space is z-up
+                    axis_of_invariance="z",  # Nerfstudio world space is z-up
                     positional_encoding="NeRF",
                     encoded_input="Directions",
                     latent_dim=100,
@@ -105,10 +105,7 @@ RENINeuS = MethodSpecification(
                     "normal_loss": False,
                     "depth_loss": False,
                     "interlevel_loss": True,
-                    "sky_pixel_loss": {
-                        "enabled": True,
-                        "cosine_weight": 0.1
-                    },
+                    "sky_pixel_loss": {"enabled": True, "cosine_weight": 0.1},
                     "hashgrid_density_loss": {
                         "enabled": True,
                         "grid_resolution": 10,
@@ -131,31 +128,34 @@ RENINeuS = MethodSpecification(
                 fix_test_illumination_directions=True,
                 eval_num_rays_per_chunk=256,
                 use_visibility=False,
-                visibility_threshold=(1.0, 0.1), # "learnable", float, tuple(start, end) ... tuple will exponentially decay from start to end
+                visibility_threshold=(
+                    1.0,
+                    0.1,
+                ),  # "learnable", float, tuple(start, end) ... tuple will exponentially decay from start to end
                 steps_till_min_visibility_threshold=10000,
                 only_upperhemisphere_visibility=True,
-                scene_contraction_order="L2", # L2, Linf
+                scene_contraction_order="L2",  # L2, Linf
                 collider_shape="sphere",
                 use_average_appearance_embedding=False,
                 background_model="none",
             ),
-            visibility_field=DDFModelConfig( # DDFModelConfig or None
-              ddf_field=DirectionalDistanceFieldConfig(
-                  ddf_type="ddf", # pddf
-                  position_encoding_type="hash", # none, hash, nerf, sh
-                  direction_encoding_type="nerf",
-                  conditioning="Attention", # FiLM, Concat, Attention
-                  termination_output_activation="sigmoid",
-                  probability_of_hit_output_activation="sigmoid",
-                  hidden_layers=5,
-                  hidden_features=256,
-                  mapping_layers=5,
-                  mapping_features=256,
-                  num_attention_heads=8,
-                  num_attention_layers=6,
-                  predict_probability_of_hit=False,
-              ),
-              loss_inclusions={
+            visibility_field=DDFModelConfig(  # DDFModelConfig or None
+                ddf_field=DirectionalDistanceFieldConfig(
+                    ddf_type="ddf",  # pddf
+                    position_encoding_type="hash",  # none, hash, nerf, sh
+                    direction_encoding_type="nerf",
+                    conditioning="Attention",  # FiLM, Concat, Attention
+                    termination_output_activation="sigmoid",
+                    probability_of_hit_output_activation="sigmoid",
+                    hidden_layers=5,
+                    hidden_features=256,
+                    mapping_layers=5,
+                    mapping_features=256,
+                    num_attention_heads=8,
+                    num_attention_layers=6,
+                    predict_probability_of_hit=False,
+                ),
+                loss_inclusions={
                     "depth_l1_loss": True,
                     "depth_l2_loss": False,
                     "sdf_l1_loss": True,
@@ -164,33 +164,33 @@ RENINeuS = MethodSpecification(
                     "normal_loss": False,
                     "multi_view_loss": True,
                     "sky_ray_loss": True,
-              },
-              loss_coefficients={
-                  "depth_l1_loss": 20.0,
-                  "depth_l2_loss": 0.0,
-                  "sdf_l1_loss": 100.0,
-                  "sdf_l2_loss": 100.0,
-                  "prob_hit_loss": 1.0,
-                  "normal_loss": 1.0,
-                  "multi_view_loss": 0.1,
-                  "sky_ray_loss": 1.0,
-              },
-              multi_view_loss_stop_gradient=False,
-              include_depth_loss_scene_center_weight=True,
-              compute_normals=False, # This currently does not work, the input to the network needs changing to work with autograd
-              eval_num_rays_per_chunk=1024,
-              scene_center_weight_exp=3.0,
-              scene_center_use_xyz=False, # only xy
-          ),
-          visibility_train_sampler=VMFDDFSamplerConfig(
-              concentration=20.0,
-          ),
-          # visibility_ckpt_path=Path('/workspace/outputs/unnamed/ddf/2023-06-20_085448/'),
-          # visibility_ckpt_step=20000,
-          # reni_neus_ckpt_path=Path('/workspace/outputs/unnamed/reni-neus/2023-08-02_102036/'),
-          # reni_neus_ckpt_step=55000,
-          fit_visibility_field=False, # if true, train visibility field, else visibility is static
-          visibility_field_radius="AABB",
+                },
+                loss_coefficients={
+                    "depth_l1_loss": 20.0,
+                    "depth_l2_loss": 0.0,
+                    "sdf_l1_loss": 100.0,
+                    "sdf_l2_loss": 100.0,
+                    "prob_hit_loss": 1.0,
+                    "normal_loss": 1.0,
+                    "multi_view_loss": 0.1,
+                    "sky_ray_loss": 1.0,
+                },
+                multi_view_loss_stop_gradient=False,
+                include_depth_loss_scene_center_weight=True,
+                compute_normals=False,  # This currently does not work, the input to the network needs changing to work with autograd
+                eval_num_rays_per_chunk=1024,
+                scene_center_weight_exp=3.0,
+                scene_center_use_xyz=False,  # only xy
+            ),
+            visibility_train_sampler=VMFDDFSamplerConfig(
+                concentration=20.0,
+            ),
+            # visibility_ckpt_path=Path('/workspace/outputs/unnamed/ddf/2023-06-20_085448/'),
+            # visibility_ckpt_step=20000,
+            # reni_neus_ckpt_path=Path('/workspace/outputs/unnamed/reni-neus/2023-08-02_102036/'),
+            # reni_neus_ckpt_step=55000,
+            fit_visibility_field=False,  # if true, train visibility field, else visibility is static
+            visibility_field_radius="AABB",
         ),
         optimizers={
             "proposal_networks": {
@@ -231,10 +231,7 @@ NeRFactoNeRFOSR = MethodSpecification(
         pipeline=VanillaPipelineConfig(
             datamanager=RENINeuSDataManagerConfig(
                 dataparser=NeRFOSRCityScapesDataParserConfig(
-                    scene="lk2",
-                    auto_scale_poses=True,
-                    crop_to_equal_size=True,
-                    mask_source='original'
+                    scene="lk2", auto_scale_poses=True, crop_to_equal_size=True, mask_source="original"
                 ),
                 train_num_rays_per_batch=2048,
                 eval_num_rays_per_batch=2048,

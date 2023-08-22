@@ -28,6 +28,56 @@ from PIL import Image
 from nerfstudio.data.dataparsers.base_dataparser import DataparserOutputs, Semantics
 from nerfstudio.data.datasets.base_dataset import InputDataset
 from nerfstudio.data.utils.data_utils import get_semantics_and_mask_tensors_from_path
+from nerfstudio.data.dataparsers.base_dataparser import (
+    DataParser,
+    DataparserOutputs,
+    Semantics,
+)
+
+CITYSCAPE_CLASSES = {
+    "classes": [
+        "road",
+        "sidewalk",
+        "building",
+        "wall",
+        "fence",
+        "pole",
+        "traffic light",
+        "traffic sign",
+        "vegetation",
+        "terrain",
+        "sky",
+        "person",
+        "rider",
+        "car",
+        "truck",
+        "bus",
+        "train",
+        "motorcycle",
+        "bicycle",
+    ],
+    "colours": [
+        [128, 64, 128],
+        [244, 35, 232],
+        [70, 70, 70],
+        [102, 102, 156],
+        [190, 153, 153],
+        [153, 153, 153],
+        [250, 170, 30],
+        [220, 220, 0],
+        [107, 142, 35],
+        [152, 251, 152],
+        [70, 130, 180],
+        [220, 20, 60],
+        [255, 0, 0],
+        [0, 0, 142],
+        [0, 0, 70],
+        [0, 60, 100],
+        [0, 80, 100],
+        [0, 0, 230],
+        [119, 11, 32],
+    ],
+}
 
 
 class RENINeuSDataset(InputDataset):
@@ -44,6 +94,7 @@ class RENINeuSDataset(InputDataset):
         super().__init__(dataparser_outputs, scale_factor)
 
         # can be none if monoprior not included
+        self.semantics = self.metadata["semantics"]
         self.depth_filenames = self.metadata["depth_filenames"]
         self.normal_filenames = self.metadata["normal_filenames"]
         self.c2w_colmap = self.metadata["c2w_colmap"]
@@ -56,7 +107,6 @@ class RENINeuSDataset(InputDataset):
         if self.pad_to_equal_size:
             self.max_width = self.metadata["width_height"][0]
             self.max_height = self.metadata["width_height"][1]
-            
 
     def get_numpy_image(self, image_idx: int) -> npt.NDArray[np.uint8]:
         """Returns the image of shape (H, W, 3 or 4).
@@ -76,12 +126,8 @@ class RENINeuSDataset(InputDataset):
             pil_image = pil_image.crop((left, top, right, bottom))
         if self.pad_to_equal_size:
             width, height = pil_image.size
-            # Calculate padding required
             left_pad = (self.max_width - width) // 2
-            # right_pad = max_width - width - left_pad
             top_pad = (self.max_height - height) // 2
-            # bottom_pad = max_height - height - top_pad
-            # Create a new blank image with the desired max dimensions
             new_image = Image.new("RGB", (self.max_width, self.max_height), (0, 0, 0))
             # Paste the original image at its center
             new_image.paste(pil_image, (left_pad, top_pad))
@@ -112,11 +158,72 @@ class RENINeuSDataset(InputDataset):
         #     metadata["depth"] = depth_image
         #     metadata["normal"] = normal_image
 
-        metadata["mask"] = self.metadata["masks"][data["image_idx"]] if "masks" in self.metadata else None
+        metadata["mask"] = self.get_mask(data["image_idx"])
         # metadata["fg_mask"] = self.metadata["fg_mask"][data["image_idx"]] if "fg_mask" in self.metadata else None
         # metadata["ground_mask"] = self.metadata["ground_mask"][data["image_idx"]] if "ground_mask" in self.metadata else None
 
         return metadata
+
+    def get_mask(self, idx):
+        mask = self.get_mask_from_semantics(
+            idx=idx,
+            semantics=self.semantics,
+            mask_classes=["person", "rider", "car", "truck", "bus", "train", "motorcycle", "bicycle"],
+        )
+
+        mask = (~mask).unsqueeze(-1).float()  # 1 is static, 0 is transient
+
+        # get_foreground_mask
+        fg_mask = self.get_mask_from_semantics(idx=idx, semantics=self.semantics, mask_classes=["sky"])
+        fg_mask = (~fg_mask).unsqueeze(-1).float()  # 1 is foreground, 0 is background
+
+        # get_ground_mask
+        ground_mask = self.get_mask_from_semantics(idx=idx, semantics=self.semantics, mask_classes=["road", "sidewalk"])
+        ground_mask = (ground_mask).unsqueeze(-1).float()  # 1 is ground, 0 is not ground
+
+        # stack masks to shape H, W, 3
+        mask = torch.cat([mask, fg_mask, ground_mask], dim=-1)
+
+        if self.crop_to_equal_size:
+            height, width = mask.shape[:2]
+            left = max((width - self.min_width) // 2, 0)
+            top = max((height - self.min_height) // 2, 0)
+            right = min((width + self.min_width) // 2, width)
+            bottom = min((height + self.min_height) // 2, height)
+            mask = mask[top:bottom, left:right, :]
+
+        if self.pad_to_equal_size:
+            height, width = mask.shape[:2]
+            # compute padding
+            pad_left = (self.max_width - width) // 2
+            pad_right = self.max_width - width - pad_left
+            pad_top = (self.max_height - height) // 2
+            pad_bottom = self.max_height - height - pad_top
+            # Pad the mask to place it in the center
+            mask = mask.permute(2, 0, 1)
+            mask = torch.nn.functional.pad(mask, (pad_left, pad_right, pad_top, pad_bottom), mode="constant", value=0)
+            mask = mask.permute(1, 2, 0)
+
+        return mask
+
+    def get_mask_from_semantics(self, idx, semantics, mask_classes):
+        """function to get mask from semantics"""
+        filepath = semantics.filenames[idx]
+        pil_image = Image.open(filepath)
+
+        semantic_img = torch.from_numpy(np.array(pil_image, dtype="int32"))
+
+        mask = torch.zeros_like(semantic_img[:, :, 0])
+        combined_mask = torch.zeros_like(semantic_img[:, :, 0])
+
+        for mask_class in mask_classes:
+            class_colour = semantics.colors[semantics.classes.index(mask_class)].type_as(semantic_img)
+            class_mask = torch.where(
+                torch.all(torch.eq(semantic_img, class_colour), dim=2), torch.ones_like(mask), mask
+            )
+            combined_mask += class_mask
+        combined_mask = combined_mask.bool()
+        return combined_mask
 
     # def get_depths_and_normals(self, depth_filepath: Path, normal_filename: Path, camtoworld: np.ndarray):
     #     """function to process additional depths and normal information
