@@ -34,7 +34,7 @@ RENINeuS = MethodSpecification(
     config=TrainerConfig(
         method_name="reni-neus",
         experiment_name="reni-neus",
-        steps_per_eval_image=5000,
+        steps_per_eval_image=10,
         steps_per_eval_batch=100000,
         steps_per_save=5000,
         steps_per_eval_all_images=1000000,  # set to a very large model so we don't eval with all images
@@ -53,9 +53,11 @@ RENINeuS = MethodSpecification(
                     crop_to_equal_size=False,
                     pad_to_equal_size=False,
                 ),
+                train_num_images_to_sample_from=300,
+                train_num_times_to_repeat_images=1000, # # Iterations before resample a new subset
                 pixel_sampler=RENINeuSPixelSamplerConfig(),
-                images_on_gpu=False,
-                masks_on_gpu=False,
+                images_on_gpu=True,
+                masks_on_gpu=True,
                 train_num_rays_per_batch=256,
                 eval_num_rays_per_batch=256,
                 camera_optimizer=CameraOptimizerConfig(
@@ -99,7 +101,8 @@ RENINeuS = MethodSpecification(
                     remove_lower_hemisphere=False,
                 ),
                 loss_inclusions={
-                    "rgb_mse_loss": True,
+                    "rgb_l1_loss": True,
+                    "rgb_l2_loss": False,
                     "eikonal loss": True,
                     "fg_mask_loss": True,
                     "normal_loss": False,
@@ -113,7 +116,8 @@ RENINeuS = MethodSpecification(
                     "ground_plane_loss": False,
                 },
                 loss_coefficients={
-                    "rgb_mse_loss": 1.0,
+                    "rgb_l1_loss": 1.0,
+                    "rgb_l2_loss": 0.0,
                     "eikonal loss": 0.1,
                     "fg_mask_loss": 0.01,
                     "normal_loss": 1.0,

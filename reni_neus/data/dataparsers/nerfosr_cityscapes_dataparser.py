@@ -319,72 +319,6 @@ class NeRFOSRCityScapes(DataParser):
                 colors=colors,
             )
 
-            # masks = []
-            # with Progress(
-            #     TextColumn("[progress.description]{task.description}"),
-            #     BarColumn(),
-            #     TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-            #     TimeRemainingColumn(),
-            # ) as progress:
-            #     task = progress.add_task(
-            #         "[green]Generating masks from segmentations... ", total=len(segmentation_filenames)
-            #     )
-
-            #     for i, _ in enumerate(segmentation_filenames):
-            #         # get mask for transients
-            #         mask = self.get_mask_from_semantics(
-            #             idx=i,
-            #             semantics=semantics,
-            #             mask_classes=["person", "rider", "car", "truck", "bus", "train", "motorcycle", "bicycle"],
-            #         )
-
-            #         mask = (~mask).unsqueeze(-1).float()  # 1 is static, 0 is transient
-
-            #         # get_foreground_mask
-            #         fg_mask = self.get_mask_from_semantics(idx=i, semantics=semantics, mask_classes=["sky"])
-            #         fg_mask = (~fg_mask).unsqueeze(-1).float()  # 1 is foreground, 0 is background
-
-            #         # get_ground_mask
-            #         ground_mask = self.get_mask_from_semantics(
-            #             idx=i, semantics=semantics, mask_classes=["road", "sidewalk"]
-            #         )
-            #         ground_mask = (ground_mask).unsqueeze(-1).float()  # 1 is ground, 0 is not ground
-
-            #         # stack masks to shape H, W, 3
-            #         mask = torch.cat([mask, fg_mask, ground_mask], dim=-1)
-
-            #         if self.config.crop_to_equal_size:
-            #             min_width = self.width_height[0]
-            #             min_height = self.width_height[1]
-            #             height, width = mask.shape[:2]
-            #             left = max((width - min_width) // 2, 0)
-            #             top = max((height - min_height) // 2, 0)
-            #             right = min((width + min_width) // 2, width)
-            #             bottom = min((height + min_height) // 2, height)
-            #             mask = mask[top:bottom, left:right, :]
-
-            #         if self.config.pad_to_equal_size:
-            #             max_width = self.width_height[0]
-            #             max_height = self.width_height[1]
-            #             height, width = mask.shape[:2]
-
-            #             # compute padding
-            #             pad_left = (max_width - width) // 2
-            #             pad_right = max_width - width - pad_left
-            #             pad_top = (max_height - height) // 2
-            #             pad_bottom = max_height - height - pad_top
-
-            #             # Pad the mask to place it in the center
-            #             mask = mask.permute(2, 0, 1)
-            #             mask = torch.nn.functional.pad(
-            #                 mask, (pad_left, pad_right, pad_top, pad_bottom), mode="constant", value=0
-            #             )
-            #             mask = mask.permute(1, 2, 0)
-
-            #         masks.append(mask)
-
-            #         progress.update(task, advance=1)
-
         metadata = {
             "semantics": semantics,
             "depth_filenames": None,
@@ -405,25 +339,6 @@ class NeRFOSRCityScapes(DataParser):
             dataparser_scale=self.config.scale_factor,
         )
         return dataparser_outputs
-
-    # def get_mask_from_semantics(self, idx, semantics, mask_classes):
-    #     """function to get mask from semantics"""
-    #     filepath = semantics.filenames[idx]
-    #     pil_image = Image.open(filepath)
-
-    #     semantic_img = torch.from_numpy(np.array(pil_image, dtype="int32"))
-
-    #     mask = torch.zeros_like(semantic_img[:, :, 0])
-    #     combined_mask = torch.zeros_like(semantic_img[:, :, 0])
-
-    #     for mask_class in mask_classes:
-    #         class_colour = semantics.colors[semantics.classes.index(mask_class)].type_as(semantic_img)
-    #         class_mask = torch.where(
-    #             torch.all(torch.eq(semantic_img, class_colour), dim=2), torch.ones_like(mask), mask
-    #         )
-    #         combined_mask += class_mask
-    #     combined_mask = combined_mask.bool()
-    #     return combined_mask
 
     def run_segmentation_inference(self, image_filenames, output_folder):
         # create output folder

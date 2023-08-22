@@ -27,6 +27,7 @@ from rich.progress import BarColumn, Console, Progress, TextColumn, TimeRemainin
 from pathlib import Path
 import numpy as np
 import cv2
+import functools
 
 import nerfacc
 import torch
@@ -46,8 +47,6 @@ from nerfstudio.model_components.scene_colliders import AABBBoxCollider, SphereC
 from nerfstudio.field_components.spatial_distortions import SceneContraction
 from nerfstudio.utils import colormaps, misc
 from nerfstudio.model_components.losses import (
-    L1Loss,
-    MSELoss,
     interlevel_loss,
     monosdf_normal_loss,
 )
@@ -55,7 +54,6 @@ from nerfstudio.model_components.losses import (
 from nerfstudio.viewer.server.viewer_elements import *
 
 from reni_neus.model_components.renderers import RGBLambertianRendererWithVisibility
-# from reni_neus.model_components.illumination_samplers import IlluminationSamplerConfig
 from reni_neus.model_components.losses import RENISkyPixelLoss
 from reni_neus.field_components.reni_neus_fieldheadnames import RENINeuSFieldHeadNames
 from reni_neus.models.ddf_model import DDFModelConfig, DDFModel
@@ -103,7 +101,8 @@ class RENINeuSFactoModelConfig(NeuSFactoModelConfig):
     collider_shape: Literal["sphere", "box"] = "box"
     """Shape of the collider"""
     loss_inclusions: Dict[str, any] = to_immutable_dict({
-        "rgb_mse_loss": True,
+        "rgb_l1_loss": True,
+        "rgb_l2_loss": True,
         "eikonal loss": True,
         "fg_mask_loss": True,
         "normal_loss": True,
@@ -229,6 +228,11 @@ class RENINeuSFactoModel(NeuSFactoModel):
         self.albedo_renderer = RGBRenderer(background_color=torch.tensor([1.0, 1.0, 1.0]))
         self.lambertian_renderer = RGBLambertianRendererWithVisibility()
 
+        assert not (self.config.loss_inclusions['rgb_l1_loss'] and self.config.loss_inclusions['rgb_l2_loss']), "Cannot have both L1 and L2 loss"
+        if self.config.loss_inclusions['rgb_l1_loss']:
+            self.rgb_l1_loss = torch.nn.L1Loss()
+        if self.config.loss_inclusions['rgb_l2_loss']:
+            self.rgb_l2_loss = torch.nn.MSELoss()
         if self.config.loss_inclusions['sky_pixel_loss']['enabled']:
             self.sky_pixel_loss = RENISkyPixelLoss(
                 alpha=self.config.loss_inclusions['sky_pixel_loss']['cosine_weight'],
@@ -594,18 +598,32 @@ class RENINeuSFactoModel(NeuSFactoModel):
         self, outputs: Dict[str, Any], batch: Dict[str, Any], metrics_dict: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """Compute the loss dictionary, including interlevel loss for proposal networks."""
+        image = batch["image"].to(self.device)
         fg_mask = batch["mask"][..., 1].to(self.device) # [num_rays]
         ground_mask = batch["mask"][..., 2].to(self.device) # [num_rays]
         loss_dict = {}
 
-        if self.config.loss_inclusions["rgb_mse_loss"]:
-            image = batch["image"].to(self.device)
-            pred_image, image = self.renderer_rgb.blend_background_for_loss_computation(
-                pred_image=outputs["rgb"],
-                pred_accumulation=outputs["accumulation"],
-                gt_image=image,
-            )
-            loss_dict["rgb_mse_loss"] = self.rgb_loss(image, pred_image)
+        if self.config.loss_inclusions["rgb_l1_loss"]:
+            loss_dict['rgb_l1_loss'] = self.rgb_l1_loss(input=outputs["rgb"], target=image)
+        if self.config.loss_inclusions["rgb_l2_loss"]:
+            loss_dict['rgb_l2_loss'] = self.rgb_l2_loss(input=outputs["rgb"], target=image)
+            # image = batch["image"].to(self.device)
+            # pred_image, image = self.renderer_rgb.blend_background_for_loss_computation(
+            #     pred_image=outputs["rgb"],
+            #     pred_accumulation=outputs["accumulation"],
+            #     gt_image=image,
+            # )
+            # loss_dict["rgb_mse_loss"] = self.rgb_loss(image, pred_image)
+        
+        if self.config.loss_inclusions["sky_pixel_loss"]["enabled"]:
+            sky_colours = linear_to_sRGB(outputs["hdr_background_colours"])
+            fg_label = fg_mask.float().unsqueeze(1).expand_as(sky_colours)
+            sky_label = 1 - fg_label
+            loss_dict["sky_pixel_loss"] = self.sky_pixel_loss(
+                    inputs=linear_to_sRGB(outputs["hdr_background_colours"]),
+                    targets=batch["image"].type_as(sky_label),
+                    mask=sky_label,
+                )
 
         if self.training:
             # eikonal loss
@@ -645,16 +663,6 @@ class RENINeuSFactoModel(NeuSFactoModel):
                 loss_dict["interlevel_loss"] = interlevel_loss(
                     outputs["weights_list"], outputs["ray_samples_list"]
                 )
-
-            if self.config.loss_inclusions["sky_pixel_loss"]["enabled"]:
-                sky_colours = linear_to_sRGB(outputs["hdr_background_colours"])
-                fg_label = fg_mask.float().unsqueeze(1).expand_as(sky_colours)
-                sky_label = 1 - fg_label
-                loss_dict["sky_pixel_loss"] = self.sky_pixel_loss(
-                        inputs=linear_to_sRGB(outputs["hdr_background_colours"]),
-                        targets=batch["image"].type_as(sky_label),
-                        mask=sky_label,
-                    )
             
             if self.config.loss_inclusions["hashgrid_density_loss"]["enabled"]:
                 loss_dict['hashgrid_density_loss'] = self.hashgrid_density_loss(outputs['grid_density'], torch.zeros_like(outputs['grid_density']))
@@ -860,7 +868,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
                 for step in range(len(datamanager.eval_dataset)):
                     # Lots of admin to get the data in the right format depending on task
                     idx, ray_bundle, batch = datamanager.next_eval_image(step)
-                    mask = batch['mask'][..., 0]
+                    mask = batch['mask']
 
                     if gt_source == "envmap":
                         raise NotImplementedError
@@ -879,9 +887,9 @@ class RENINeuSFactoModel(NeuSFactoModel):
                         )  # [H * W//divisor, N]
 
                         if "mask" in batch:
-                            mask = mask.to(self.device)  # [H, W]
-                            mask = mask[:, : mask.shape[1] // divisor].unsqueeze(-1)  # [H, W//divisor]
-                            mask = mask.reshape(-1, 1)  # [H*W, 1]
+                            mask = mask.to(self.device)  # [H, W, 3]
+                            mask = mask[:, : mask.shape[1] // divisor, :].unsqueeze(-1)  # [H, W//divisor, 3]
+                            mask = mask.reshape(-1, 3)  # [H*W, 3]
                             nonzero_indices = torch.nonzero(mask[..., 0], as_tuple=False)
                             chosen_indices = random.sample(range(len(nonzero_indices)), k=256)
                             indices = nonzero_indices[chosen_indices].squeeze()
@@ -893,20 +901,23 @@ class RENINeuSFactoModel(NeuSFactoModel):
 
                         # Get GT RGB values for the sampled rays
                         rgb = rgb[indices, :]  # [N, 3]
-
+                    
+                    batch['image'] = rgb
+                    batch['mask'] = mask
                     # Get model output
                     if gt_source == "envmap":
                         raise NotImplementedError
                     else:
-                        outputs = self.forward(ray_bundle=ray_bundle, step=step)
-                        model_output = outputs["rgb"]  # [N, 3]
+                        model_output = self.forward(ray_bundle=ray_bundle, step=step)
+                        # model_output = outputs["rgb"]  # [N, 3]
 
                     opt.zero_grad()
                     if gt_source in ["envmap", "image_half_sky"]:
                         raise NotImplementedError
                         # loss, _, _, _ = reni_test_loss(model_output, rgb, S, Z)
                     else:
-                        loss = self.rgb_loss(rgb, model_output)
+                        loss_dict = self.get_loss_dict(model_output, batch)
+                        loss = functools.reduce(torch.add, loss_dict.values())
                     epoch_loss += loss.item()
                     loss.backward()
                     opt.step()
