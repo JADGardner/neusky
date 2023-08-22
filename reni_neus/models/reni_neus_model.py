@@ -683,23 +683,24 @@ class RENINeuSFactoModel(NeuSFactoModel):
         self, outputs: Dict[str, Any], batch: Dict[str, Any], metrics_dict: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """Compute the loss dictionary, including interlevel loss for proposal networks."""
-        image = batch["image"].to(self.device)
         fg_mask = batch["mask"][..., 1].to(self.device)  # [num_rays]
         ground_mask = batch["mask"][..., 2].to(self.device)  # [num_rays]
         loss_dict = {}
-
+        
+        # RGB LOSS
+        # pred_image, image = self.renderer_rgb.blend_background_for_loss_computation(
+        #     pred_image=outputs["rgb"],
+        #     pred_accumulation=outputs["accumulation"],
+        #     gt_image=batch["image"].to(self.device),
+        # )
+        image = batch["image"].to(self.device)
+        pred_image = outputs["rgb"]
         if self.config.loss_inclusions["rgb_l1_loss"]:
-            loss_dict["rgb_l1_loss"] = self.rgb_l1_loss(input=outputs["rgb"], target=image)
+            loss_dict["rgb_l1_loss"] = self.rgb_l1_loss(image, pred_image)
         if self.config.loss_inclusions["rgb_l2_loss"]:
-            loss_dict["rgb_l2_loss"] = self.rgb_l2_loss(input=outputs["rgb"], target=image)
-            # image = batch["image"].to(self.device)
-            # pred_image, image = self.renderer_rgb.blend_background_for_loss_computation(
-            #     pred_image=outputs["rgb"],
-            #     pred_accumulation=outputs["accumulation"],
-            #     gt_image=image,
-            # )
-            # loss_dict["rgb_mse_loss"] = self.rgb_loss(image, pred_image)
+            loss_dict["rgb_l2_loss"] = self.rgb_l2_loss(image, pred_image)
 
+        # SKY PIXEL LOSS
         if self.config.loss_inclusions["sky_pixel_loss"]["enabled"]:
             sky_colours = linear_to_sRGB(outputs["hdr_background_colours"])
             fg_label = fg_mask.float().unsqueeze(1).expand_as(sky_colours)
@@ -994,7 +995,6 @@ class RENINeuSFactoModel(NeuSFactoModel):
                         raise NotImplementedError
                     else:
                         model_output = self.forward(ray_bundle=ray_bundle, step=step)
-                        # model_output = outputs["rgb"]  # [N, 3]
 
                     opt.zero_grad()
                     if gt_source in ["envmap", "image_half_sky"]:

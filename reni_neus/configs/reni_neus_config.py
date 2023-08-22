@@ -34,7 +34,7 @@ RENINeuS = MethodSpecification(
     config=TrainerConfig(
         method_name="reni-neus",
         experiment_name="reni-neus",
-        steps_per_eval_image=10,
+        steps_per_eval_image=5000,
         steps_per_eval_batch=100000,
         steps_per_save=5000,
         steps_per_eval_all_images=1000000,  # set to a very large model so we don't eval with all images
@@ -51,7 +51,7 @@ RENINeuS = MethodSpecification(
                     scene="trevi",
                     auto_scale_poses=True,
                     crop_to_equal_size=False,
-                    pad_to_equal_size=False,
+                    pad_to_equal_size=True,
                 ),
                 train_num_images_to_sample_from=300,
                 train_num_times_to_repeat_images=1000, # # Iterations before resample a new subset
