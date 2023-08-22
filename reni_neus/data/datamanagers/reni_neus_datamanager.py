@@ -32,7 +32,7 @@ from nerfstudio.data.dataparsers.base_dataparser import DataparserOutputs
 from nerfstudio.data.datasets.base_dataset import InputDataset
 from nerfstudio.data.pixel_samplers import PixelSampler
 from nerfstudio.data.utils.nerfstudio_collate import nerfstudio_collate
-from nerfstudio.data.datamanagers.base_datamanager import VanillaDataManager, VanillaDataManagerConfig
+from nerfstudio.data.datamanagers.base_datamanager import VanillaDataManager, VanillaDataManagerConfig, variable_res_collate
 
 from reni_neus.data.reni_neus_pixel_sampler import RENINeuSPixelSampler
 from reni_neus.data.datasets.reni_neus_dataset import RENINeuSDataset
@@ -40,54 +40,54 @@ from reni_neus.data.datasets.reni_neus_dataset import RENINeuSDataset
 CONSOLE = Console(width=120)
 
 
-def semantic_variable_res_collate(batch: List[Dict]) -> Dict:
-    """Default collate function for the cached dataloader.
-    Args:
-        batch: Batch of samples from the dataset.
-    Returns:
-        Collated batch.
-    """
-    images = []
-    masks = []
-    fg_masks = []
-    semantics = []
-    depths = []
-    normals = []
-    for data in batch:
-        image = data.pop("image")
-        mask = data.pop("mask", None)
-        fg_mask = data.pop("fg_mask", None)
-        semantic = data.pop("semantics", None)
-        depth = data.pop("depth", None)
-        normal = data.pop("normal", None)
+# def semantic_variable_res_collate(batch: List[Dict]) -> Dict:
+#     """Default collate function for the cached dataloader.
+#     Args:
+#         batch: Batch of samples from the dataset.
+#     Returns:
+#         Collated batch.
+#     """
+#     images = []
+#     masks = []
+#     fg_masks = []
+#     semantics = []
+#     depths = []
+#     normals = []
+#     for data in batch:
+#         image = data.pop("image")
+#         mask = data.pop("mask", None)
+#         fg_mask = data.pop("fg_mask", None)
+#         semantic = data.pop("semantics", None)
+#         depth = data.pop("depth", None)
+#         normal = data.pop("normal", None)
 
-        images.append(image)
-        if mask is not None:
-            masks.append(mask)
-        if fg_mask is not None:
-            fg_masks.append(fg_mask)
-        if semantic is not None:
-            semantics.append(semantic)
-        if depth is not None:
-            depths.append(depth)
-        if normal is not None:
-            normals.append(normal)
+#         images.append(image)
+#         if mask is not None:
+#             masks.append(mask)
+#         if fg_mask is not None:
+#             fg_masks.append(fg_mask)
+#         if semantic is not None:
+#             semantics.append(semantic)
+#         if depth is not None:
+#             depths.append(depth)
+#         if normal is not None:
+#             normals.append(normal)
 
-    new_batch: dict = nerfstudio_collate(batch)
-    new_batch["image"] = images
+#     new_batch: dict = nerfstudio_collate(batch)
+#     new_batch["image"] = images
 
-    if masks:
-        new_batch["mask"] = masks
-    if fg_masks:
-        new_batch["fg_mask"] = fg_masks
-    if semantics:
-        new_batch["semantic"] = semantics
-    if depths:
-        new_batch["depth"] = depths
-    if normals:
-        new_batch["normal"] = normals
+#     if masks:
+#         new_batch["mask"] = masks
+#     if fg_masks:
+#         new_batch["fg_mask"] = fg_masks
+#     if semantics:
+#         new_batch["semantic"] = semantics
+#     if depths:
+#         new_batch["depth"] = depths
+#     if normals:
+#         new_batch["normal"] = normals
 
-    return new_batch
+#     return new_batch
 
 
 @dataclass
@@ -96,11 +96,6 @@ class RENINeuSDataManagerConfig(VanillaDataManagerConfig):
 
     _target: Type = field(default_factory=lambda: RENINeuSDataManager)
     """Target class to instantiate."""
-    fg_masks_on_gpu: bool = False
-    """Whether to put foreground masks on GPU."""
-    ground_masks_on_gpu: bool = False
-    """Whether to put ground masks on GPU."""
-
 
 class RENINeuSDataManager(VanillaDataManager):  # pylint: disable=abstract-method
     """Basic stored data manager implementation.
@@ -154,10 +149,6 @@ class RENINeuSDataManager(VanillaDataManager):  # pylint: disable=abstract-metho
             self.exclude_batch_keys_from_device.remove("mask")
         if self.config.images_on_gpu is True:
             self.exclude_batch_keys_from_device.remove("image")
-        if self.config.fg_masks_on_gpu is True:
-            self.exclude_batch_keys_from_device.remove("fg_mask")
-        if self.config.ground_masks_on_gpu is True:
-            self.exclude_batch_keys_from_device.remove("ground_mask")
         
         if self.train_dataparser_outputs is not None:
             cameras = self.train_dataparser_outputs.cameras
@@ -165,7 +156,7 @@ class RENINeuSDataManager(VanillaDataManager):  # pylint: disable=abstract-metho
                 for i in range(1, len(cameras)):
                     if cameras[0].width != cameras[i].width or cameras[0].height != cameras[i].height:
                         CONSOLE.print("Variable resolution, using variable_res_collate")
-                        self.config.collate_fn = semantic_variable_res_collate
+                        self.config.collate_fn = variable_res_collate
                         break
 
         super(VanillaDataManager, self).__init__()  # Call grandparent class constructor ignoring parent class

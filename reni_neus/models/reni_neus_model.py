@@ -600,6 +600,8 @@ class RENINeuSFactoModel(NeuSFactoModel):
         self, outputs: Dict[str, Any], batch: Dict[str, Any], metrics_dict: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """Compute the loss dictionary, including interlevel loss for proposal networks."""
+        fg_mask = batch["mask"][..., 1].to(self.device) # [num_rays]
+        ground_mask = batch["mask"][..., 2].to(self.device) # [num_rays]
         loss_dict = {}
 
         if self.config.loss_inclusions["rgb_mse_loss"]:
@@ -619,9 +621,8 @@ class RENINeuSFactoModel(NeuSFactoModel):
 
             # foreground mask loss
             if self.config.loss_inclusions["fg_mask_loss"]:
-                assert "fg_mask" in batch
-                fg_label = batch["fg_mask"].float().to(self.device)
-                weights_sum = outputs["weights"].sum(dim=1).clip(1e-3, 1.0 - 1e-3)
+                weights_sum = outputs["weights"].sum(dim=1).clip(1e-3, 1.0 - 1e-3) # [num_rays, 1]
+                fg_label = fg_mask.float().unsqueeze(1) # [num_rays, 1]
                 loss_dict["fg_mask_loss"] = (
                     F.binary_cross_entropy(weights_sum, fg_label)
                 )
@@ -641,9 +642,9 @@ class RENINeuSFactoModel(NeuSFactoModel):
                 depth_gt = batch["depth"].to(self.device)[..., None]
                 depth_pred = outputs["depth"]
 
-                mask = torch.ones_like(depth_gt).reshape(1, 32, -1).bool()
+                depth_mask = torch.ones_like(depth_gt).reshape(1, 32, -1).bool()
                 loss_dict["depth_loss"] = (
-                    self.depth_loss(depth_pred.reshape(1, 32, -1), (depth_gt * 50 + 0.5).reshape(1, 32, -1), mask)
+                    self.depth_loss(depth_pred.reshape(1, 32, -1), (depth_gt * 50 + 0.5).reshape(1, 32, -1), depth_mask)
                 )
 
             if self.config.loss_inclusions["interlevel_loss"]:
@@ -652,8 +653,8 @@ class RENINeuSFactoModel(NeuSFactoModel):
                 )
 
             if self.config.loss_inclusions["sky_pixel_loss"]["enabled"]:
-                assert "fg_mask" in batch
-                fg_label = batch["fg_mask"].float()
+                sky_colours = linear_to_sRGB(outputs["hdr_background_colours"])
+                fg_label = fg_mask.float().unsqueeze(1).expand_as(sky_colours)
                 sky_label = 1 - fg_label
                 loss_dict["sky_pixel_loss"] = self.sky_pixel_loss(
                         inputs=linear_to_sRGB(outputs["hdr_background_colours"]),
@@ -667,8 +668,9 @@ class RENINeuSFactoModel(NeuSFactoModel):
             if self.config.loss_inclusions["ground_plane_loss"]:
                 normal_pred = outputs["normal"]
                 # ground plane should be facing up in z direction
-                normal_gt = torch.tensor([0.0, 0.0, 1.0]).to(self.device).expand_as(normal_pred)
-                loss_dict["ground_plane_loss"] = monosdf_normal_loss(normal_pred * batch["ground_mask"], normal_gt * batch["ground_mask"])
+                normal_gt = torch.tensor([0.0, 0.0, 1.0]).expand_as(normal_pred).to(self.device)
+                ground_mask = ground_mask.unsqueeze(1).expand_as(normal_pred)
+                loss_dict["ground_plane_loss"] = monosdf_normal_loss(normal_pred * ground_mask, normal_gt * ground_mask)
         
         loss_dict = misc.scale_dict(loss_dict, self.config.loss_coefficients)
         return loss_dict
@@ -864,6 +866,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
                 for step in range(len(datamanager.eval_dataset)):
                     # Lots of admin to get the data in the right format depending on task
                     idx, ray_bundle, batch = datamanager.next_eval_image(step)
+                    mask = batch['mask'][..., 0]
 
                     if gt_source == "envmap":
                         raise NotImplementedError
@@ -882,7 +885,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
                         )  # [H * W//divisor, N]
 
                         if "mask" in batch:
-                            mask = batch["mask"].to(self.device)  # [H, W]
+                            mask = mask.to(self.device)  # [H, W]
                             mask = mask[:, : mask.shape[1] // divisor].unsqueeze(-1)  # [H, W//divisor]
                             mask = mask.reshape(-1, 1)  # [H*W, 1]
                             nonzero_indices = torch.nonzero(mask[..., 0], as_tuple=False)

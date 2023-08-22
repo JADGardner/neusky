@@ -27,6 +27,7 @@ from reni_neus.fields.sdf_albedo_field import SDFAlbedoFieldConfig
 from reni_neus.models.ddf_model import DDFModelConfig
 from reni_neus.fields.directional_distance_field import DirectionalDistanceFieldConfig
 from reni_neus.model_components.ddf_sampler import VMFDDFSamplerConfig
+from reni_neus.data.reni_neus_pixel_sampler import RENINeuSPixelSamplerConfig
 
 
 RENINeuS = MethodSpecification(
@@ -49,13 +50,12 @@ RENINeuS = MethodSpecification(
                 dataparser=NeRFOSRCityScapesDataParserConfig(
                     scene="trevi",
                     auto_scale_poses=True,
-                    crop_to_equal_size=True,
+                    crop_to_equal_size=False,
                 ),
+                pixel_sampler=RENINeuSPixelSamplerConfig(),
                 images_on_gpu=True,
                 masks_on_gpu=True,
-                fg_masks_on_gpu=True,
-                ground_masks_on_gpu=True,
-                train_num_rays_per_batch=256,
+                train_num_rays_per_batch=2048,
                 eval_num_rays_per_batch=256,
                 camera_optimizer=CameraOptimizerConfig(
                     mode="off", optimizer=AdamOptimizerConfig(lr=6e-4, eps=1e-8, weight_decay=1e-2)

@@ -49,8 +49,9 @@ class RENINeuSDataset(InputDataset):
         self.c2w_colmap = self.metadata["c2w_colmap"]
         self.include_mono_prior = self.metadata["include_mono_prior"]
         self.crop_to_equal_size = self.metadata["crop_to_equal_size"]
-        self.min_width = self.metadata["min_wh"][0]
-        self.min_height = self.metadata["min_wh"][1]
+        if self.crop_to_equal_size:
+            self.min_width = self.metadata["min_wh"][0]
+            self.min_height = self.metadata["min_wh"][1]
 
     def get_numpy_image(self, image_idx: int) -> npt.NDArray[np.uint8]:
         """Returns the image of shape (H, W, 3 or 4).
@@ -94,9 +95,9 @@ class RENINeuSDataset(InputDataset):
         #     metadata["depth"] = depth_image
         #     metadata["normal"] = normal_image
 
-        metadata["mask"] = self.metadata["mask"][data["image_idx"]] if "mask" in self.metadata else None
-        metadata["fg_mask"] = self.metadata["fg_mask"][data["image_idx"]] if "fg_mask" in self.metadata else None
-        metadata["ground_mask"] = self.metadata["ground_mask"][data["image_idx"]] if "ground_mask" in self.metadata else None
+        metadata["mask"] = self.metadata["masks"][data["image_idx"]] if "masks" in self.metadata else None
+        # metadata["fg_mask"] = self.metadata["fg_mask"][data["image_idx"]] if "fg_mask" in self.metadata else None
+        # metadata["ground_mask"] = self.metadata["ground_mask"][data["image_idx"]] if "ground_mask" in self.metadata else None
 
         return metadata
 
