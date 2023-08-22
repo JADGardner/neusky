@@ -25,12 +25,8 @@ from collections import defaultdict
 import random
 from rich.progress import BarColumn, Console, Progress, TextColumn, TimeRemainingColumn
 from pathlib import Path
-import yaml
-import os
 import numpy as np
 import cv2
-from PIL import Image
-import sys
 
 import nerfacc
 import torch
@@ -41,16 +37,14 @@ from nerfstudio.cameras.rays import RayBundle, RaySamples, Frustums
 from nerfstudio.data.scene_box import SceneBox
 from nerfstudio.model_components.renderers import RGBRenderer
 from nerfstudio.field_components.field_heads import FieldHeadNames
-from nerfstudio.cameras.cameras import Cameras, CameraType
 from nerfstudio.configs.config_utils import to_immutable_dict
 
 from nerfstudio.models.base_model import ModelConfig
 from nerfstudio.models.neus_facto import NeuSFactoModel, NeuSFactoModelConfig
 from nerfstudio.utils import colormaps
-from nerfstudio.model_components.scene_colliders import AABBBoxCollider, NearFarCollider, SphereCollider
-from nerfstudio.model_components.ray_samplers import VolumetricSampler
+from nerfstudio.model_components.scene_colliders import AABBBoxCollider, SphereCollider
 from nerfstudio.field_components.spatial_distortions import SceneContraction
-from nerfstudio.utils import colormaps, colors, misc
+from nerfstudio.utils import colormaps, misc
 from nerfstudio.model_components.losses import (
     L1Loss,
     MSELoss,

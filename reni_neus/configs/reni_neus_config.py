@@ -51,6 +51,7 @@ RENINeuS = MethodSpecification(
                     scene="trevi",
                     auto_scale_poses=True,
                     crop_to_equal_size=False,
+                    pad_to_equal_size=True,
                 ),
                 pixel_sampler=RENINeuSPixelSamplerConfig(),
                 images_on_gpu=True,

@@ -73,6 +73,20 @@ class RENINeuSDataset(InputDataset):
             right = min((width + self.min_width) // 2, width)
             bottom = min((height + self.min_height) // 2, height)
             pil_image = pil_image.crop((left, top, right, bottom))
+        if self.pad_to_equal_size:
+            max_width = self.width_height[0]
+            max_height = self.width_height[1]
+            width, height = pil_image.size
+            # Calculate padding required
+            left_pad = (max_width - width) // 2
+            # right_pad = max_width - width - left_pad
+            top_pad = (max_height - height) // 2
+            # bottom_pad = max_height - height - top_pad
+            # Create a new blank image with the desired max dimensions
+            new_image = Image.new("RGB", (max_width, max_height), (0, 0, 0))
+            # Paste the original image at its center
+            new_image.paste(pil_image, (left_pad, top_pad))
+            pil_image = new_image
         if self.scale_factor != 1.0:
             width, height = pil_image.size
             newsize = (int(width * self.scale_factor), int(height * self.scale_factor))

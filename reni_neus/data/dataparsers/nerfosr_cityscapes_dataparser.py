@@ -347,6 +347,30 @@ class NeRFOSRCityScapes(DataParser):
                     # stack masks to shape H, W, 3
                     mask = torch.cat([mask, fg_mask, ground_mask], dim=-1)
 
+                    if self.config.crop_to_equal_size:
+                        min_width = self.width_height[0]
+                        min_height = self.width_height[1]
+                        height, width = mask.shape[:2]
+                        left = max((width - min_width) // 2, 0)
+                        top = max((height - min_height) // 2, 0)
+                        right = min((width + min_width) // 2, width)
+                        bottom = min((height + min_height) // 2, height)
+                        mask = mask[top:bottom, left:right, :]
+                    
+                    if self.config.pad_to_equal_size:
+                        max_width = self.width_height[0]
+                        max_height = self.width_height[1]
+                        height, width = mask.shape[:2]
+
+                        # compute padding
+                        pad_left = (max_width - width) // 2
+                        pad_right = max_width - width - pad_left
+                        pad_top = (max_height - height) // 2
+                        pad_bottom = max_height - height - pad_top
+
+                        # Pad the mask to place it in the center
+                        mask = torch.nn.functional.pad(mask, (pad_left, pad_right, pad_top, pad_bottom), mode='constant', value=0)
+
                     masks.append(mask)
 
                     progress.update(task, advance=1)
@@ -376,16 +400,6 @@ class NeRFOSRCityScapes(DataParser):
         """function to get mask from semantics"""
         filepath = semantics.filenames[idx]
         pil_image = Image.open(filepath)
-
-        if self.config.crop_to_equal_size:
-            min_width = self.width_height[0]
-            min_height = self.width_height[1]
-            width, height = pil_image.size
-            left = max((width - min_width) // 2, 0)
-            top = max((height - min_height) // 2, 0)
-            right = min((width + min_width) // 2, width)
-            bottom = min((height + min_height) // 2, height)
-            pil_image = pil_image.crop((left, top, right, bottom))
         
         semantic_img = torch.from_numpy(np.array(pil_image, dtype="int32"))
 
