@@ -49,9 +49,13 @@ class RENINeuSDataset(InputDataset):
         self.c2w_colmap = self.metadata["c2w_colmap"]
         self.include_mono_prior = self.metadata["include_mono_prior"]
         self.crop_to_equal_size = self.metadata["crop_to_equal_size"]
+        self.pad_to_equal_size = self.metadata["pad_to_equal_size"]
         if self.crop_to_equal_size:
-            self.min_width = self.metadata["min_wh"][0]
-            self.min_height = self.metadata["min_wh"][1]
+            self.min_width = self.metadata["width_height"][0]
+            self.min_height = self.metadata["width_height"][1]
+        if self.pad_to_equal_size:
+            self.max_width = self.metadata["width_height"][0]
+            self.max_height = self.metadata["width_height"][1]
 
     def get_numpy_image(self, image_idx: int) -> npt.NDArray[np.uint8]:
         """Returns the image of shape (H, W, 3 or 4).

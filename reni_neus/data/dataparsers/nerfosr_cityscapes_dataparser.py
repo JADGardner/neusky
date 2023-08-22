@@ -175,6 +175,8 @@ class NeRFOSRCityScapesDataParserConfig(NeRFOSRDataParserConfig):
     """Source of masks, can be none, cityscapes not provided in original dataset."""
     crop_to_equal_size: bool = False
     """Crop images to equal size"""
+    pad_to_equal_size: bool = False
+    """Pad images to equal size"""
     run_segmentation_inference: bool = False
     """Run segmentation inference on images if none are provided"""
     segmentation_model: str = "ddrnet_23_in1k-pre_2xb6-120k_cityscapes-1024x1024"
@@ -196,6 +198,9 @@ class NeRFOSRCityScapes(DataParser):
 
     config: NeRFOSRCityScapesDataParserConfig
 
+    def __post_init__(self):
+        assert not (self.config.crop_to_equal_size and self.config.pad_to_equal_size), "Cannot crop and pad at the same time"
+
     def _generate_dataparser_outputs(self, split="train"):
         data = self.config.data
         scene = self.config.scene
@@ -216,13 +221,20 @@ class NeRFOSRCityScapes(DataParser):
         # combine all cam params
         intrinsics = torch.cat([intrinsics_train, intrinsics_val, intrinsics_test], dim=0)
 
-        self.min_wh = []
+        self.width_height = []
         if self.config.crop_to_equal_size:
             min_cx = torch.min(intrinsics[:, 0, 2])
             min_cy = torch.min(intrinsics[:, 1, 2])
-            self.min_wh = [int(min_cx.item() * 2), int(min_cy.item() * 2)]
+            self.width_height = [int(min_cx.item() * 2), int(min_cy.item() * 2)]
             intrinsics[:, 0, 2] = min_cx
             intrinsics[:, 1, 2] = min_cy
+
+        if self.config.pad_to_equal_size:
+            max_cx = torch.max(intrinsics[:, 0, 2])
+            max_cy = torch.max(intrinsics[:, 1, 2])
+            self.width_height = [int(max_cx.item() * 2), int(max_cy.item() * 2)]
+            intrinsics[:, 0, 2] = max_cx
+            intrinsics[:, 1, 2] = max_cy
 
         camera_to_worlds = torch.cat([camera_to_worlds_train, camera_to_worlds_val, camera_to_worlds_test], dim=0)
 
@@ -280,8 +292,6 @@ class NeRFOSRCityScapes(DataParser):
         if self.config.mask_source == "original":
             mask_filenames = _find_files(f"{split_dir}/mask", exts=["*.png", "*.jpg", "*.JPG", "*.PNG"])
             masks = None
-            fg_masks = None
-            ground_masks = None
             mask_filenames = []
         elif self.config.mask_source == "cityscapes":
             panoptic_classes = CITYSCAPE_CLASSES
@@ -349,7 +359,7 @@ class NeRFOSRCityScapes(DataParser):
             "c2w_colmap": None,
             "masks": masks,
             "crop_to_equal_size": self.config.crop_to_equal_size,
-            "min_wh": self.min_wh,
+            "width_height": self.width_height,
         }
 
         dataparser_outputs = DataparserOutputs(
@@ -368,15 +378,15 @@ class NeRFOSRCityScapes(DataParser):
         pil_image = Image.open(filepath)
 
         if self.config.crop_to_equal_size:
-            min_width = self.min_wh[0]
-            min_height = self.min_wh[1]
+            min_width = self.width_height[0]
+            min_height = self.width_height[1]
             width, height = pil_image.size
             left = max((width - min_width) // 2, 0)
             top = max((height - min_height) // 2, 0)
             right = min((width + min_width) // 2, width)
             bottom = min((height + min_height) // 2, height)
             pil_image = pil_image.crop((left, top, right, bottom))
-
+        
         semantic_img = torch.from_numpy(np.array(pil_image, dtype="int32"))
 
         mask = torch.zeros_like(semantic_img[:, :, 0])
