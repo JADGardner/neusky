@@ -39,57 +39,6 @@ from reni_neus.data.datasets.reni_neus_dataset import RENINeuSDataset
 
 CONSOLE = Console(width=120)
 
-
-# def semantic_variable_res_collate(batch: List[Dict]) -> Dict:
-#     """Default collate function for the cached dataloader.
-#     Args:
-#         batch: Batch of samples from the dataset.
-#     Returns:
-#         Collated batch.
-#     """
-#     images = []
-#     masks = []
-#     fg_masks = []
-#     semantics = []
-#     depths = []
-#     normals = []
-#     for data in batch:
-#         image = data.pop("image")
-#         mask = data.pop("mask", None)
-#         fg_mask = data.pop("fg_mask", None)
-#         semantic = data.pop("semantics", None)
-#         depth = data.pop("depth", None)
-#         normal = data.pop("normal", None)
-
-#         images.append(image)
-#         if mask is not None:
-#             masks.append(mask)
-#         if fg_mask is not None:
-#             fg_masks.append(fg_mask)
-#         if semantic is not None:
-#             semantics.append(semantic)
-#         if depth is not None:
-#             depths.append(depth)
-#         if normal is not None:
-#             normals.append(normal)
-
-#     new_batch: dict = nerfstudio_collate(batch)
-#     new_batch["image"] = images
-
-#     if masks:
-#         new_batch["mask"] = masks
-#     if fg_masks:
-#         new_batch["fg_mask"] = fg_masks
-#     if semantics:
-#         new_batch["semantic"] = semantics
-#     if depths:
-#         new_batch["depth"] = depths
-#     if normals:
-#         new_batch["normal"] = normals
-
-#     return new_batch
-
-
 @dataclass
 class RENINeuSDataManagerConfig(VanillaDataManagerConfig):
     """A basic data manager"""

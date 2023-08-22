@@ -54,8 +54,8 @@ RENINeuS = MethodSpecification(
                     pad_to_equal_size=True,
                 ),
                 pixel_sampler=RENINeuSPixelSamplerConfig(),
-                images_on_gpu=True,
-                masks_on_gpu=True,
+                images_on_gpu=False,
+                masks_on_gpu=False,
                 train_num_rays_per_batch=2048,
                 eval_num_rays_per_batch=256,
                 camera_optimizer=CameraOptimizerConfig(

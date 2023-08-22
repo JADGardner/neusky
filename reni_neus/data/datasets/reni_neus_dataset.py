@@ -56,6 +56,7 @@ class RENINeuSDataset(InputDataset):
         if self.pad_to_equal_size:
             self.max_width = self.metadata["width_height"][0]
             self.max_height = self.metadata["width_height"][1]
+            
 
     def get_numpy_image(self, image_idx: int) -> npt.NDArray[np.uint8]:
         """Returns the image of shape (H, W, 3 or 4).
@@ -74,16 +75,14 @@ class RENINeuSDataset(InputDataset):
             bottom = min((height + self.min_height) // 2, height)
             pil_image = pil_image.crop((left, top, right, bottom))
         if self.pad_to_equal_size:
-            max_width = self.width_height[0]
-            max_height = self.width_height[1]
             width, height = pil_image.size
             # Calculate padding required
-            left_pad = (max_width - width) // 2
+            left_pad = (self.max_width - width) // 2
             # right_pad = max_width - width - left_pad
-            top_pad = (max_height - height) // 2
+            top_pad = (self.max_height - height) // 2
             # bottom_pad = max_height - height - top_pad
             # Create a new blank image with the desired max dimensions
-            new_image = Image.new("RGB", (max_width, max_height), (0, 0, 0))
+            new_image = Image.new("RGB", (self.max_width, self.max_height), (0, 0, 0))
             # Paste the original image at its center
             new_image.paste(pil_image, (left_pad, top_pad))
             pil_image = new_image

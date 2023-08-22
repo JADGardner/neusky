@@ -393,6 +393,7 @@ class NeRFOSRCityScapes(DataParser):
             "c2w_colmap": None,
             "masks": masks,
             "crop_to_equal_size": self.config.crop_to_equal_size,
+            "pad_to_equal_size": self.config.pad_to_equal_size,
             "width_height": self.width_height,
         }
 
