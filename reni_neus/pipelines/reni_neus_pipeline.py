@@ -52,6 +52,7 @@ from reni_neus.data.datamanagers.reni_neus_datamanager import RENINeuSDataManage
 from reni_neus.models.ddf_model import DDFModelConfig
 from reni_neus.model_components.ddf_sampler import DDFSamplerConfig
 
+
 @dataclass
 class RENINeuSPipelineConfig(VanillaPipelineConfig):
     """Configuration for pipeline instantiation"""
@@ -138,7 +139,6 @@ class RENINeuSPipeline(VanillaPipeline):
         self.visibility_field = None
         if self.config.visibility_field is not None:
             self.visibility_field = self._setup_visibility_field(device=device)
-
             self.visibility_train_sampler = self.config.visibility_train_sampler.setup(device=device)
 
         self._model = config.model.setup(
@@ -154,12 +154,19 @@ class RENINeuSPipeline(VanillaPipeline):
 
         if self.config.reni_neus_ckpt_path is not None:
             assert self.config.reni_neus_ckpt_step is not None, "Invalid reni_neus_ckpt_step"
-            ckpt = torch.load(self.config.reni_neus_ckpt_path / 'nerfstudio_models' / f'step-{self.config.reni_neus_ckpt_step:09d}.ckpt', map_location=device)
+            ckpt = torch.load(
+                self.config.reni_neus_ckpt_path
+                / "nerfstudio_models"
+                / f"step-{self.config.reni_neus_ckpt_step:09d}.ckpt",
+                map_location=device,
+            )
             model_dict = {}
-            for key in ckpt['pipeline'].keys():
-                if key.startswith('_model.'):
-                    model_dict[key[7:]] = ckpt['pipeline'][key]
-            self.model.load_state_dict(model_dict, strict=False) # false as it will be loading the visibility field weights too # TODO is there a better way to share visibility field?
+            for key in ckpt["pipeline"].keys():
+                if key.startswith("_model."):
+                    model_dict[key[7:]] = ckpt["pipeline"][key]
+            self.model.load_state_dict(
+                model_dict, strict=False
+            )  # false as it will be loading the visibility field weights too # TODO is there a better way to share visibility field?
         self.model.to(device)
 
         self.world_size = world_size
@@ -176,7 +183,7 @@ class RENINeuSPipeline(VanillaPipeline):
                 epochs=self.config.eval_latent_optimisation_epochs,
                 learning_rate=self.config.eval_latent_optimisation_lr,
                 step=step,
-            ) 
+            )
 
     def get_param_groups(self) -> Dict[str, List[Parameter]]:
         """Get the param groups for the pipeline.
@@ -204,7 +211,9 @@ class RENINeuSPipeline(VanillaPipeline):
             self.visibility_field.eval()
 
         ray_bundle, batch = self.datamanager.next_train(step)
-        model_outputs = self._model(ray_bundle, batch=batch, step=step)  # train distributed data parallel model if world_size > 1
+        model_outputs = self._model(
+            ray_bundle, batch=batch, step=step
+        )  # train distributed data parallel model if world_size > 1
         metrics_dict = self.model.get_metrics_dict(model_outputs, batch)
 
         if self.config.datamanager.camera_optimizer is not None:
@@ -222,8 +231,10 @@ class RENINeuSPipeline(VanillaPipeline):
 
         # we now need to fit the visibility field to the scene
         if self.model.config.fit_visibility_field:
-            vis_batch = self.generate_ddf_samples(ray_bundle, batch) # we sample from the 3D scene, we want the visibility (ddf) to be consistent with the scene
-            ray_bundle = vis_batch['ray_bundle']
+            vis_batch = self.generate_ddf_samples(
+                ray_bundle, batch
+            )  # we sample from the 3D scene, we want the visibility (ddf) to be consistent with the scene
+            ray_bundle = vis_batch["ray_bundle"]
             vis_outputs = self.visibility_field(ray_bundle=ray_bundle, batch=vis_batch, reni_neus=self.model)
             vis_metrics_dict = self.visibility_field.get_metrics_dict(vis_outputs, vis_batch)
             vis_loss_dict = self.visibility_field.get_loss_dict(vis_outputs, vis_batch, vis_metrics_dict)
@@ -233,7 +244,7 @@ class RENINeuSPipeline(VanillaPipeline):
             metrics_dict = {**metrics_dict, **vis_metrics_dict}
 
         return model_outputs, loss_dict, metrics_dict
-    
+
     @profiler.time_function
     def get_eval_loss_dict(self, step: int):
         """This function gets your evaluation loss dict. It needs to get the data
@@ -331,11 +342,17 @@ class RENINeuSPipeline(VanillaPipeline):
             ddf_radius = torch.abs(self.scene_box.aabb[0, 0]).item()
         else:
             ddf_radius = self.config.visibility_field_radius
-    
+
         if self.config.visibility_ckpt_path is None:
-            return self.config.visibility_field.setup(scene_box=self.scene_box, num_train_data=self.num_train_data, ddf_radius=ddf_radius)
+            return self.config.visibility_field.setup(
+                scene_box=self.scene_box, num_train_data=self.num_train_data, ddf_radius=ddf_radius
+            )
         else:
-            ckpt_path = self.config.visibility_ckpt_path / "nerfstudio_models" / f"step-{self.config.visibility_ckpt_step:09d}.ckpt"
+            ckpt_path = (
+                self.config.visibility_ckpt_path
+                / "nerfstudio_models"
+                / f"step-{self.config.visibility_ckpt_step:09d}.ckpt"
+            )
             ckpt = torch.load(str(ckpt_path))
 
             model_dict = {}
@@ -361,7 +378,6 @@ class RENINeuSPipeline(VanillaPipeline):
         else:
             visibility_field.eval()
         return visibility_field
-    
 
     def generate_ddf_samples(self, scene_ray_bundle, scene_batch):
         """Generate samples for fitting the visibility field to the scene."""
@@ -375,12 +391,14 @@ class RENINeuSPipeline(VanillaPipeline):
             ray_bundle = self.model.collider(ray_bundle)
         ray_samples, _, _ = self.model.proposal_sampler(ray_bundle, density_fns=self.model.density_fns)
         field_outputs = self.model.field(ray_samples, return_alphas=True)
-        weights, _ = ray_samples.get_weights_and_transmittance_from_alphas(
-            field_outputs[FieldHeadNames.ALPHA]
-        )
+        weights, _ = ray_samples.get_weights_and_transmittance_from_alphas(field_outputs[FieldHeadNames.ALPHA])
         accumulations = self.model.renderer_accumulation(weights=weights).reshape(-1, 1)
         termination_dist = self.model.renderer_depth(weights=weights, ray_samples=ray_samples).reshape(-1, 1)
-        normals = self.model.renderer_normal(semantics=field_outputs[FieldHeadNames.NORMALS], weights=weights).reshape(-1, 3).squeeze()
+        normals = (
+            self.model.renderer_normal(semantics=field_outputs[FieldHeadNames.NORMALS], weights=weights)
+            .reshape(-1, 3)
+            .squeeze()
+        )
         mask = (accumulations > self.config.visibility_accumulation_mask_threshold).float()
         # clamp termination distance to 2 x ddf_sphere_radius
         termination_dist = torch.clamp(termination_dist, max=2 * self.visibility_field.ddf_radius)
@@ -391,11 +409,13 @@ class RENINeuSPipeline(VanillaPipeline):
         # sky_ray_bundle = self.old_datamanager.get_sky_ray_bundle(number_of_rays=self.num_sky_ray_samples)
         # we can use the fact that any rays that hit the sky we know
         # fg_mask = scene_batch['fg_mask'].detach().clone()
-        fg_mask = scene_batch["mask"][..., 1].detach().clone() # [num_sky_rays]
-        sky_mask = (1.0 - fg_mask).bool().unsqueeze(1).repeat(1, 3) # [num_sky_rays, 3]
-        sky_origins = scene_ray_bundle.origins[:, :][sky_mask].reshape(-1, 3) # [num_sky_rays, 3]
-        sky_directions = scene_ray_bundle.directions[:, :][sky_mask].reshape(-1, 3) # [num_sky_rays, 3]
-        sky_pixel_ares = torch.ones_like(sky_origins[..., 0]).reshape(-1, 1) # [num_sky_rays, 1] # not used but needed for RayBundle
+        fg_mask = scene_batch["mask"][..., 1].detach().clone()  # [num_sky_rays]
+        sky_mask = (1.0 - fg_mask).bool().unsqueeze(1).repeat(1, 3)  # [num_sky_rays, 3]
+        sky_origins = scene_ray_bundle.origins[:, :][sky_mask].reshape(-1, 3)  # [num_sky_rays, 3]
+        sky_directions = scene_ray_bundle.directions[:, :][sky_mask].reshape(-1, 3)  # [num_sky_rays, 3]
+        sky_pixel_ares = torch.ones_like(sky_origins[..., 0]).reshape(
+            -1, 1
+        )  # [num_sky_rays, 1] # not used but needed for RayBundle
         # the DDF model handles sky ray sphere intersections
         # and flipping sample directions back from sphere to
         # origins
