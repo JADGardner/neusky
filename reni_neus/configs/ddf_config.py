@@ -61,6 +61,7 @@ DirectionalDistanceField = MethodSpecification(
                 loss_inclusions={
                     "depth_l1_loss": True,
                     "depth_l2_loss": False,
+                    "sdf_l1_loss": False,
                     "sdf_l2_loss": True,
                     "prob_hit_loss": False,
                     "normal_loss": False,
@@ -70,6 +71,7 @@ DirectionalDistanceField = MethodSpecification(
                 loss_coefficients={
                     "depth_l1_loss": 20.0,
                     "depth_l2_loss": 0.0,
+                    "sdf_l1_loss": 100.0,
                     "sdf_l2_loss": 100.0,
                     "prob_hit_loss": 1.0,
                     "normal_loss": 1.0,

@@ -63,8 +63,8 @@ class RENINeuSDataManager(VanillaDataManager):  # pylint: disable=abstract-metho
     train_dataset: InputDataset
     eval_dataset: InputDataset
     train_dataparser_outputs: DataparserOutputs
-    train_pixel_sampler: Optional[PixelSampler] = None
-    eval_pixel_sampler: Optional[PixelSampler] = None
+    train_pixel_sampler: Optional[RENINeuSPixelSampler] = None
+    eval_pixel_sampler: Optional[RENINeuSPixelSampler] = None
 
     def __init__(
         self,

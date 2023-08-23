@@ -76,8 +76,6 @@ class RENINeuSPipelineConfig(VanillaPipelineConfig):
     """Step of the visibility checkpoint"""
     visibility_field_radius: Union[Literal["AABB"], float] = "AABB"
     """Radius of the DDF sphere"""
-    fit_visibility_field: bool = False
-    """Whether to fit the visibility field to the scene"""
     num_visibility_field_train_rays_per_batch: int = 256
     """Number of rays to sample of the scene for training the visibility field"""
     visibility_train_sampler: DDFSamplerConfig = DDFSamplerConfig()
@@ -202,7 +200,7 @@ class RENINeuSPipeline(VanillaPipeline):
         Args:
             step: current iteration step to update sampler if using DDP (distributed)
         """
-        if self.visibility_field and not self.config.fit_visibility_field:
+        if self.visibility_field and not self.model.config.fit_visibility_field:
             self.visibility_field.eval()
 
         ray_bundle, batch = self.datamanager.next_train(step)
@@ -223,7 +221,7 @@ class RENINeuSPipeline(VanillaPipeline):
         loss_dict = self.model.get_loss_dict(model_outputs, batch, metrics_dict)
 
         # we now need to fit the visibility field to the scene
-        if self.config.fit_visibility_field:
+        if self.model.config.fit_visibility_field:
             vis_batch = self.generate_ddf_samples(ray_bundle, batch) # we sample from the 3D scene, we want the visibility (ddf) to be consistent with the scene
             ray_bundle = vis_batch['ray_bundle']
             vis_outputs = self.visibility_field(ray_bundle=ray_bundle, batch=vis_batch, reni_neus=self.model)
@@ -253,7 +251,7 @@ class RENINeuSPipeline(VanillaPipeline):
         metrics_dict = self.model.get_metrics_dict(model_outputs, batch)
         loss_dict = self.model.get_loss_dict(model_outputs, batch, metrics_dict)
         self.model.train()
-        if self.visibility_field is not None and self.config.fit_visibility_field:
+        if self.visibility_field is not None and self.model.config.fit_visibility_field:
             self.visibility_field.train()
         return model_outputs, loss_dict, metrics_dict
 
@@ -277,7 +275,7 @@ class RENINeuSPipeline(VanillaPipeline):
         assert "num_rays" not in metrics_dict
         metrics_dict["num_rays"] = len(camera_ray_bundle)
         self.model.train()
-        if self.visibility_field is not None and self.config.fit_visibility_field:
+        if self.visibility_field is not None and self.model.config.fit_visibility_field:
             self.visibility_field.train()
         return metrics_dict, images_dict
 
@@ -323,7 +321,7 @@ class RENINeuSPipeline(VanillaPipeline):
                 torch.mean(torch.tensor([metrics_dict[key] for metrics_dict in metrics_dict_list]))
             )
         self.model.train()
-        if self.visibility_field is not None and self.config.fit_visibility_field:
+        if self.visibility_field is not None and self.model.config.fit_visibility_field:
             self.visibility_field.train()
         return metrics_dict
 
@@ -358,7 +356,7 @@ class RENINeuSPipeline(VanillaPipeline):
             visibility_field.load_state_dict(model_dict)
 
         visibility_field.to(device)
-        if self.config.fit_visibility_field:
+        if self.model.config.fit_visibility_field:
             visibility_field.train()
         else:
             visibility_field.eval()
@@ -367,13 +365,7 @@ class RENINeuSPipeline(VanillaPipeline):
 
     def generate_ddf_samples(self, scene_ray_bundle, scene_batch):
         """Generate samples for fitting the visibility field to the scene."""
-        num_samples = self.config.num_visibility_field_train_rays_per_batch
-
-        position = self.visibility_train_sampler.random_points_on_unit_sphere(1)
-        if position[0, 2] < 0: # flip if z < 0
-            position[0, 2] *= -1
-
-        ray_bundle = self.visibility_train_sampler(num_positions=1, num_directions=num_samples, positions=position)
+        ray_bundle = self.visibility_train_sampler()
 
         accumulations = None
         termination_dist = None
@@ -381,15 +373,11 @@ class RENINeuSPipeline(VanillaPipeline):
 
         if self.model.collider is not None:
             ray_bundle = self.model.collider(ray_bundle)
-
         ray_samples, _, _ = self.model.proposal_sampler(ray_bundle, density_fns=self.model.density_fns)
-
         field_outputs = self.model.field(ray_samples, return_alphas=True)
-
         weights, _ = ray_samples.get_weights_and_transmittance_from_alphas(
             field_outputs[FieldHeadNames.ALPHA]
         )
-
         accumulations = self.model.renderer_accumulation(weights=weights).reshape(-1, 1)
         termination_dist = self.model.renderer_depth(weights=weights, ray_samples=ray_samples).reshape(-1, 1)
         normals = self.model.renderer_normal(semantics=field_outputs[FieldHeadNames.NORMALS], weights=weights).reshape(-1, 3).squeeze()
@@ -402,29 +390,39 @@ class RENINeuSPipeline(VanillaPipeline):
         # ground truth distance for DDF.
         # sky_ray_bundle = self.old_datamanager.get_sky_ray_bundle(number_of_rays=self.num_sky_ray_samples)
         # we can use the fact that any rays that hit the sky we know
-        fg_mask = scene_batch['fg_mask'].detach().clone()
-        sky_mask = (1.0 - fg_mask).bool().repeat(1, 3) # [num_sky_rays, 3]
-
+        # fg_mask = scene_batch['fg_mask'].detach().clone()
+        fg_mask = scene_batch["mask"][..., 1].detach().clone() # [num_sky_rays]
+        sky_mask = (1.0 - fg_mask).bool().unsqueeze(1).repeat(1, 3) # [num_sky_rays, 3]
         sky_origins = scene_ray_bundle.origins[:, :][sky_mask].reshape(-1, 3) # [num_sky_rays, 3]
         sky_directions = scene_ray_bundle.directions[:, :][sky_mask].reshape(-1, 3) # [num_sky_rays, 3]
         sky_pixel_ares = torch.ones_like(sky_origins[..., 0]).reshape(-1, 1) # [num_sky_rays, 1] # not used but needed for RayBundle
-
+        # the DDF model handles sky ray sphere intersections
+        # and flipping sample directions back from sphere to
+        # origins
         sky_ray_bundle = RayBundle(
-            origins=sky_origins.detach(),
-            directions=sky_directions.detach(),
-            pixel_area=sky_pixel_ares.detach(),
+            origins=sky_origins,
+            directions=sky_directions,
+            pixel_area=sky_pixel_ares,
         )
 
+        # we should always detach here as we are just fitting the DDF to the scene
         ray_bundle.origins = ray_bundle.origins.detach()
         ray_bundle.directions = ray_bundle.directions.detach()
         ray_bundle.pixel_area = ray_bundle.pixel_area.detach()
+        sky_ray_bundle.origins = sky_ray_bundle.origins.detach()
+        sky_ray_bundle.directions = sky_ray_bundle.directions.detach()
+        sky_ray_bundle.pixel_area = sky_ray_bundle.pixel_area.detach()
+        accumulations = accumulations.detach()
+        mask = mask.detach()
+        termination_dist = termination_dist.detach()
+        normals = normals.detach()
 
         data = {
             "ray_bundle": ray_bundle,
-            "accumulations": accumulations.detach(),
-            "mask": mask.detach(),
-            "termination_dist": termination_dist.detach(),
-            "normals": normals.detach(),
+            "accumulations": accumulations,
+            "mask": mask,
+            "termination_dist": termination_dist,
+            "normals": normals,
             "sky_ray_bundle": sky_ray_bundle,
         }
 

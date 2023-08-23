@@ -236,7 +236,9 @@ class DirectionalDistanceField(Field):
                           conditioning_input_dim=3 + pos_encoding_dim,
                           hidden_features=self.config.hidden_features,
                           num_heads=self.config.num_attention_heads,
-                          num_layers=self.config.num_attention_layers)
+                          num_layers=self.config.num_attention_layers,
+                          out_activation=None
+                         )
         else:
             raise NotImplementedError
         return ddf

@@ -226,7 +226,7 @@ class DDFModel(Model):
             outputs['distance_weight'] = distance_weight
 
         # get sdf at expected termination distance for loss
-        if self.config.loss_inclusions['sdf_loss'] and batch is not None:
+        if (self.config.loss_inclusions['sdf_l1_loss'] or self.config.loss_inclusions['sdf_l2_loss']) and batch is not None:
           if reni_neus is not None:
               termination_points = (
                   positions + directions * expected_termination_dist.unsqueeze(-1)
@@ -267,7 +267,7 @@ class DDFModel(Model):
             points_on_sphere = random_points_on_unit_sphere(num_points=gt_termination_points.shape[0]).type_as(gt_termination_points)
 
             # ensure they are positive z by flipping if not
-            points_on_sphere = torch.where(points_on_sphere[..., 2] < 0, -points_on_sphere, points_on_sphere)
+            points_on_sphere[:, 2] = torch.abs(points_on_sphere[:, 2])
 
             # get directions from points_on_sphere to termination_points
             direction_to_term_points = gt_termination_points - points_on_sphere
@@ -318,6 +318,7 @@ class DDFModel(Model):
 
             # reverse directions (Origins to Sky -> DDF to Origin) and transform such that [0, 1, 0] is facing the origin
             rotation_matrices = self.get_localised_transforms(points_on_sphere)
+            # -camera_directions as we are going from the sphere back towards the camera origin
             transformed_directions = torch.einsum('ijl,ij->il', rotation_matrices, -camera_directions)
 
             ray_samples = RaySamples(
@@ -368,7 +369,7 @@ class DDFModel(Model):
                 mask = batch["mask"]
 
             loss_dict["depth_l1_loss"] = self.depth_l1_loss(
-                outputs["termination_dist"].unsqueeze(1) * mask,
+                outputs["expected_termination_dist"].unsqueeze(1) * mask,
                 batch["termination_dist"] * mask,
             )
         
@@ -379,7 +380,7 @@ class DDFModel(Model):
                 mask = batch["mask"]
 
             loss_dict["depth_l2_loss"] = self.depth_l2_loss(
-                outputs["termination_dist"].unsqueeze(1) * mask,
+                outputs["expected_termination_dist"].unsqueeze(1) * mask,
                 batch["termination_dist"] * mask,
             )
 

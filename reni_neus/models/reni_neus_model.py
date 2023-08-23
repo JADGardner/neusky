@@ -52,6 +52,7 @@ from nerfstudio.model_components.losses import (
 )
 
 from nerfstudio.viewer.server.viewer_elements import *
+from nerfstudio.utils.math import normalized_depth_scale_and_shift
 
 from reni_neus.model_components.renderers import RGBLambertianRendererWithVisibility
 from reni_neus.model_components.losses import RENISkyPixelLoss
@@ -92,10 +93,14 @@ class RENINeuSFactoModelConfig(NeuSFactoModelConfig):
     """Number of steps till min visibility threshold"""
     only_upperhemisphere_visibility: bool = False
     """Lower hemisphere visibility will always be 1.0 if this is True"""
+    sdf_to_visibility_stop_gradients: bool = False
+    """Stop gradients from sdf to visibility"""
     fix_test_illumination_directions: bool = False
     """Fix the test illumination directions"""
     use_visibility: Union[int, bool] = False
     """Use visibility field either bool or after int steps"""
+    fit_visibility_field: bool = False
+    """Whether to fit the visibility field to the scene"""
     scene_contraction_order: Literal["Linf", "L2"] = "Linf"
     """Norm for scene contraction"""
     collider_shape: Literal["sphere", "box"] = "box"
@@ -220,15 +225,16 @@ class RENINeuSFactoModel(NeuSFactoModel):
 
             ckpt = torch.load(str(ckpt_path))
             illumination_field_dict = {}
-            match_str = "_model.field.network."
+            match_str = "_model.field."
+            ignore_strs = ["_model.field.train_logvar", "_model.field.eval_logvar", "_model.field.train_mu", "_model.field.eval_mu"]
             for key in ckpt["pipeline"].keys():
-                if key.startswith(match_str):
+                if key.startswith(match_str) and not any([ignore_str in key for ignore_str in ignore_strs]):
                     illumination_field_dict[key[len(match_str) :]] = ckpt["pipeline"][key]
 
             # load weights of the decoder
-            self.illumination_field_train.network.load_state_dict(illumination_field_dict)
-            self.illumination_field_val.network.load_state_dict(illumination_field_dict)
-            self.illumination_field_test.network.load_state_dict(illumination_field_dict)
+            self.illumination_field_train.load_state_dict(illumination_field_dict, strict=False)
+            self.illumination_field_val.load_state_dict(illumination_field_dict, strict=False)
+            self.illumination_field_test.load_state_dict(illumination_field_dict, strict=False)
 
         self.illumination_sampler = self.config.illumination_sampler.setup()
         self.equirectangular_sampler = EquirectangularSamplerConfig(width=128).setup()
@@ -410,7 +416,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
             "hdr_background_colours": hdr_background_colours,
         }
 
-        if self.visibility_field is not None:
+        if self.config.use_visibility:
             # we need depth to compute visibility so render it here instead of in get_outputs()
             p2p_dist = self.renderer_depth(weights=weights, ray_samples=ray_samples)
             # the rendered depth is point-to-point distance and we should convert to depth
@@ -418,24 +424,35 @@ class RENINeuSFactoModel(NeuSFactoModel):
             # we need accumulation so we can ignore samples that don't hit the scene
             accumulation = self.renderer_accumulation(weights=weights)
 
-            if self.config.use_visibility:
-                # if we are decaying visibility threshold then compute it here
-                if self.visibility_threshold_end is not None:
-                    visibility_threshold = self.decay_threshold(step)
-                else:
-                    visibility_threshold = self.visibility_threshold
-
-                visibility_dict = self.compute_visibility(
-                    ray_samples=ray_samples,
-                    depth=depth,
-                    illumination_directions=illumination_directions,
-                    threshold_distance=visibility_threshold,
-                    accumulation=accumulation,
-                    batch=batch,
+            if self.config.sdf_to_visibility_stop_gradients:
+                depth_vis = depth.clone().detach()
+                ray_samples_vis = RaySamples(
+                    frustums=Frustums(
+                        origins=ray_samples.frustums.origins.clone().detach(),
+                        directions=ray_samples.frustums.directions.clone().detach(),
+                        pixel_area=ray_samples.frustums.pixel_area.clone().detach(),
+                        starts=ray_samples.frustums.starts.clone().detach(),
+                        ends=ray_samples.frustums.ends.clone().detach(),
+                    ),
+                    camera_indices=ray_samples.camera_indices.clone().detach(),
                 )
+            else:
+                ray_samples_vis = ray_samples
 
-                samples_and_field_outputs["visibility_dict"] = visibility_dict
+            # if we are decaying visibility threshold then compute it here
+            if self.visibility_threshold_end is not None:
+                visibility_threshold = self.decay_threshold(step)
+            else:
+                visibility_threshold = self.visibility_threshold
 
+            visibility_dict = self.compute_visibility(
+                ray_samples=ray_samples_vis,
+                depth=depth_vis, # TODO Need to understand why depth and not p2p_dist
+                illumination_directions=illumination_directions,
+                threshold_distance=visibility_threshold,
+            )
+
+            samples_and_field_outputs["visibility_dict"] = visibility_dict
             samples_and_field_outputs["p2p_dist"] = p2p_dist
             samples_and_field_outputs["depth"] = depth
             samples_and_field_outputs["accumulation"] = accumulation
@@ -461,8 +478,6 @@ class RENINeuSFactoModel(NeuSFactoModel):
                     depth=p2p_dist,
                     illumination_directions=shadow_map_direction,
                     threshold_distance=self.shadow_map_threshold_static,
-                    accumulation=accumulation,
-                    batch=batch,
                     compute_shadow_map=True,
                 )
 
@@ -575,7 +590,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
         accumulation = None
         p2p_dist = None
         depth = None
-        if "visibility_dict" in samples_and_field_outputs:
+        if "visibility_dict" in samples_and_field_outputs and self.config.use_visibility:
             visibility = samples_and_field_outputs["visibility_dict"]["visibility"]
         if "accumulation" in samples_and_field_outputs:
             accumulation = samples_and_field_outputs["accumulation"]
@@ -687,12 +702,6 @@ class RENINeuSFactoModel(NeuSFactoModel):
         ground_mask = batch["mask"][..., 2].to(self.device)  # [num_rays]
         loss_dict = {}
         
-        # RGB LOSS
-        # pred_image, image = self.renderer_rgb.blend_background_for_loss_computation(
-        #     pred_image=outputs["rgb"],
-        #     pred_accumulation=outputs["accumulation"],
-        #     gt_image=batch["image"].to(self.device),
-        # )
         image = batch["image"].to(self.device)
         pred_image = outputs["rgb"]
         if self.config.loss_inclusions["rgb_l1_loss"]:
@@ -763,7 +772,68 @@ class RENINeuSFactoModel(NeuSFactoModel):
         self, outputs: Dict[str, Any], batch: Dict[str, Any]
     ) -> Tuple[Dict[str, float], Dict[str, torch.Tensor]]:
         """Compute image metrics and images, including the proposal depth for each iteration."""
-        metrics_dict, images_dict = super().get_image_metrics_and_images(outputs, batch)
+        image = batch["image"].to(self.device)
+        image = self.renderer_rgb.blend_background(image)
+        rgb = outputs["rgb"]
+        acc = colormaps.apply_colormap(outputs["accumulation"])
+
+        normal = outputs["normal"]
+        normal = (normal + 1.0) / 2.0
+
+        combined_rgb = torch.cat([image, rgb], dim=1)
+        combined_acc = torch.cat([acc], dim=1)
+        if "depth" in batch:
+            depth_gt = batch["depth"].to(self.device)
+            depth_pred = outputs["depth"]
+
+            # align to predicted depth and normalize
+            scale, shift = normalized_depth_scale_and_shift(
+                depth_pred[None, ..., 0], depth_gt[None, ...], depth_gt[None, ...] > 0.0
+            )
+            depth_pred = depth_pred * scale + shift
+
+            combined_depth = torch.cat([depth_gt[..., None], depth_pred], dim=1)
+            combined_depth = colormaps.apply_depth_colormap(combined_depth)
+        else:
+            depth = colormaps.apply_depth_colormap(
+                outputs["depth"],
+                accumulation=outputs["accumulation"],
+            )
+            combined_depth = torch.cat([depth], dim=1)
+
+        if "normal" in batch:
+            normal_gt = (batch["normal"].to(self.device) + 1.0) / 2.0
+            combined_normal = torch.cat([normal_gt, normal], dim=1)
+        else:
+            combined_normal = torch.cat([normal], dim=1)
+
+        images_dict = {
+            "img": combined_rgb,
+            "accumulation": combined_acc,
+            "depth": combined_depth,
+            "normal": combined_normal,
+        }
+
+        # Switch images from [H, W, C] to [1, C, H, W] for metrics computations
+        image = torch.moveaxis(image, -1, 0)[None, ...]
+        rgb = torch.moveaxis(rgb, -1, 0)[None, ...]
+
+        psnr = self.psnr(image, rgb)
+        ssim = self.ssim(image, rgb)
+        lpips = self.lpips(image, rgb)
+
+        # all of these metrics will be logged as scalars
+        metrics_dict = {"psnr": float(psnr.item()), "ssim": float(ssim)}  # type: ignore
+        metrics_dict["lpips"] = float(lpips)
+
+        for i in range(self.config.num_proposal_iterations):
+            key = f"prop_depth_{i}"
+            prop_depth_i = colormaps.apply_depth_colormap(
+                outputs[key],
+                accumulation=outputs["accumulation"],
+            )
+            images_dict[key] = prop_depth_i
+
 
         illumination_field = self.get_illumination_field()
 
@@ -1151,8 +1221,6 @@ class RENINeuSFactoModel(NeuSFactoModel):
         depth,
         illumination_directions,
         threshold_distance,
-        accumulation,
-        batch,
         compute_shadow_map=False,
     ):
         """Compute visibility"""

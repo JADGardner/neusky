@@ -48,13 +48,13 @@ RENINeuS = MethodSpecification(
             eval_latent_optimisation_lr=1e-2,
             datamanager=RENINeuSDataManagerConfig(
                 dataparser=NeRFOSRCityScapesDataParserConfig(
-                    scene="trevi",
+                    scene="lk2",
                     auto_scale_poses=True,
-                    crop_to_equal_size=False,
-                    pad_to_equal_size=True,
+                    crop_to_equal_size=True,
+                    pad_to_equal_size=False,
                 ),
-                train_num_images_to_sample_from=300,
-                train_num_times_to_repeat_images=1000, # # Iterations before resample a new subset
+                train_num_images_to_sample_from=-1,
+                train_num_times_to_repeat_images=-1, # # Iterations before resample a new subset
                 pixel_sampler=RENINeuSPixelSamplerConfig(),
                 images_on_gpu=True,
                 masks_on_gpu=True,
@@ -113,7 +113,7 @@ RENINeuS = MethodSpecification(
                         "enabled": True,
                         "grid_resolution": 10,
                     },
-                    "ground_plane_loss": False,
+                    "ground_plane_loss": True,
                 },
                 loss_coefficients={
                     "rgb_l1_loss": 1.0,
@@ -127,16 +127,18 @@ RENINeuS = MethodSpecification(
                     "hashgrid_density_loss": 1e-4,
                     "ground_plane_loss": 0.1,
                 },
-                illumination_field_ckpt_path=Path("outputs/reni/2023-08-07_154753/"),
+                illumination_field_ckpt_path=Path("outputs/reni/reni/2023-08-23_075123/"),
                 illumination_field_ckpt_step=50000,
                 fix_test_illumination_directions=True,
                 eval_num_rays_per_chunk=256,
-                use_visibility=False,
+                use_visibility=True,
+                fit_visibility_field=True,  # if true, train visibility field, else visibility is static
+                sdf_to_visibility_stop_gradients=True, # Gradient flow from Visibility through SDF
                 visibility_threshold=(
-                    1.0,
+                    2.0,
                     0.1,
                 ),  # "learnable", float, tuple(start, end) ... tuple will exponentially decay from start to end
-                steps_till_min_visibility_threshold=10000,
+                steps_till_min_visibility_threshold=50000,
                 only_upperhemisphere_visibility=True,
                 scene_contraction_order="L2",  # L2, Linf
                 collider_shape="sphere",
@@ -148,7 +150,7 @@ RENINeuS = MethodSpecification(
                     ddf_type="ddf",  # pddf
                     position_encoding_type="hash",  # none, hash, nerf, sh
                     direction_encoding_type="nerf",
-                    conditioning="Attention",  # FiLM, Concat, Attention
+                    conditioning="FiLM",  # FiLM, Concat, Attention
                     termination_output_activation="sigmoid",
                     probability_of_hit_output_activation="sigmoid",
                     hidden_layers=5,
@@ -162,8 +164,8 @@ RENINeuS = MethodSpecification(
                 loss_inclusions={
                     "depth_l1_loss": True,
                     "depth_l2_loss": False,
-                    "sdf_l1_loss": True,
-                    "sdf_l2_loss": False,
+                    "sdf_l1_loss": False,
+                    "sdf_l2_loss": True,
                     "prob_hit_loss": False,
                     "normal_loss": False,
                     "multi_view_loss": True,
@@ -181,19 +183,22 @@ RENINeuS = MethodSpecification(
                 },
                 multi_view_loss_stop_gradient=False,
                 include_depth_loss_scene_center_weight=True,
-                compute_normals=False,  # This currently does not work, the input to the network needs changing to work with autograd
+                compute_normals=False, # This currently does not work, the input to the network need changing to work with autograd
                 eval_num_rays_per_chunk=1024,
                 scene_center_weight_exp=3.0,
-                scene_center_use_xyz=False,  # only xy
+                scene_center_use_xyz=False, # only xy
+                mask_depth_to_circumference=False, # force depth under mask to circumference of ddf (not implemented)
             ),
             visibility_train_sampler=VMFDDFSamplerConfig(
+                num_samples_on_sphere=8,
+                num_rays_per_sample=128, # 8 * 128 = 1024 rays per batch
+                only_sample_upper_hemisphere=True,
                 concentration=20.0,
             ),
             # visibility_ckpt_path=Path('/workspace/outputs/unnamed/ddf/2023-06-20_085448/'),
             # visibility_ckpt_step=20000,
             # reni_neus_ckpt_path=Path('/workspace/outputs/unnamed/reni-neus/2023-08-02_102036/'),
             # reni_neus_ckpt_step=55000,
-            fit_visibility_field=False,  # if true, train visibility field, else visibility is static
             visibility_field_radius="AABB",
         ),
         optimizers={
