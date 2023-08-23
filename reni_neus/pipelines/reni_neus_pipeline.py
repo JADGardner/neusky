@@ -426,16 +426,16 @@ class RENINeuSPipeline(VanillaPipeline):
         )
 
         # we should always detach here as we are just fitting the DDF to the scene
-        ray_bundle.origins = ray_bundle.origins.detach()
-        ray_bundle.directions = ray_bundle.directions.detach()
-        ray_bundle.pixel_area = ray_bundle.pixel_area.detach()
-        sky_ray_bundle.origins = sky_ray_bundle.origins.detach()
-        sky_ray_bundle.directions = sky_ray_bundle.directions.detach()
-        sky_ray_bundle.pixel_area = sky_ray_bundle.pixel_area.detach()
-        accumulations = accumulations.detach()
-        mask = mask.detach()
-        termination_dist = termination_dist.detach()
-        normals = normals.detach()
+        ray_bundle.origins = ray_bundle.origins.clone().detach()
+        ray_bundle.directions = ray_bundle.directions.clone().detach()
+        ray_bundle.pixel_area = ray_bundle.pixel_area.clone().detach()
+        sky_ray_bundle.origins = sky_ray_bundle.origins.clone().detach()
+        sky_ray_bundle.directions = sky_ray_bundle.directions.clone().detach()
+        sky_ray_bundle.pixel_area = sky_ray_bundle.pixel_area.clone().detach()
+        accumulations = accumulations.clone().detach()
+        mask = mask.clone().detach()
+        termination_dist = termination_dist.clone().detach()
+        normals = normals.clone().detach()
 
         data = {
             "ray_bundle": ray_bundle,

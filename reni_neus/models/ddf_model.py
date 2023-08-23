@@ -213,7 +213,7 @@ class DDFModel(Model):
         if RENINeuSFieldHeadNames.PROBABILITY_OF_HIT in field_outputs:
             outputs["expected_probability_of_hit"] = field_outputs[RENINeuSFieldHeadNames.PROBABILITY_OF_HIT]
 
-        if self.config.include_depth_loss_scene_center_weight and batch is not None:
+        if self.config.include_depth_loss_scene_center_weight and self.training and batch is not None:
             gt_termination_points = positions + directions * batch["termination_dist"].repeat(1, 3)
 
             if self.config.scene_center_use_xyz:
@@ -232,7 +232,7 @@ class DDFModel(Model):
         # get sdf at expected termination distance for loss
         if (
             self.config.loss_inclusions["sdf_l1_loss"] or self.config.loss_inclusions["sdf_l2_loss"]
-        ) and batch is not None:
+        ) and self.training and batch is not None:
             if reni_neus is not None:
                 termination_points = positions + directions * expected_termination_dist.unsqueeze(-1)
                 sdf_at_termination = reni_neus.field.get_sdf_at_pos(termination_points)
