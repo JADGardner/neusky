@@ -68,17 +68,20 @@ class DDFModelConfig(ModelConfig):
     """Whether to use xyz or xy for the scene center weight"""
     mask_depth_to_circumference: bool = False
     """Whether to set depth under mask to the circumference"""
-    loss_inclusions: Dict[str, bool] = to_immutable_dict({
-        'depth_l1_loss': True,
-        'depth_l2_loss': False,
-        'sdf_l1_loss': True,
-        'sdf_l2_loss': False,
-        'prob_hit_loss': False,
-        'normal_loss': False,
-        'multi_view_loss': False,
-        'sky_ray_loss': False,
-    })
+    loss_inclusions: Dict[str, bool] = to_immutable_dict(
+        {
+            "depth_l1_loss": True,
+            "depth_l2_loss": False,
+            "sdf_l1_loss": True,
+            "sdf_l2_loss": False,
+            "prob_hit_loss": False,
+            "normal_loss": False,
+            "multi_view_loss": False,
+            "sky_ray_loss": False,
+        }
+    )
     """Dictionary of loss inclusions"""
+
 
 class DDFModel(Model):
     """Directional Distance Field model
@@ -97,9 +100,9 @@ class DDFModel(Model):
         def on_sphere_look_at_origin(button):
             # instant=False means the camera smoothly animates
             # instant=True means the camera jumps instantly to the pose
-            self.viewer_control.set_pose(position=(0, 1, 0), look_at=(0,0,0), instant=False)
-        
-        self.viewer_button = ViewerButton(name="Camera on DDF",cb_hook=on_sphere_look_at_origin)
+            self.viewer_control.set_pose(position=(0, 1, 0), look_at=(0, 0, 0), instant=False)
+
+        self.viewer_button = ViewerButton(name="Camera on DDF", cb_hook=on_sphere_look_at_origin)
 
     def populate_modules(self):
         """Set the fields and modules"""
@@ -114,23 +117,23 @@ class DDFModel(Model):
         self.renderer_accumulation = AccumulationRenderer()
         self.renderer_depth = DepthRenderer()
 
-                # losses
-        if self.config.loss_inclusions['depth_l1_loss']:
+        # losses
+        if self.config.loss_inclusions["depth_l1_loss"]:
             self.depth_l1_loss = nn.L1Loss()
-        if self.config.loss_inclusions['depth_l2_loss']:
+        if self.config.loss_inclusions["depth_l2_loss"]:
             self.depth_l2_loss = nn.MSELoss()
-        if self.config.loss_inclusions['sdf_l1_loss']:
+        if self.config.loss_inclusions["sdf_l1_loss"]:
             self.sdf_l1_loss = nn.L1Loss()
-        if self.config.loss_inclusions['sdf_l2_loss']:
+        if self.config.loss_inclusions["sdf_l2_loss"]:
             self.sdf_l2_loss = nn.MSELoss()
-        if self.config.loss_inclusions['prob_hit_loss']:
+        if self.config.loss_inclusions["prob_hit_loss"]:
             self.prob_hit_loss = torch.nn.BCELoss()
-        if self.config.loss_inclusions['normal_loss']:
+        if self.config.loss_inclusions["normal_loss"]:
             self.normal_loss = nn.CosineSimilarity(dim=1, eps=1e-6)
-        if self.config.loss_inclusions['multi_view_loss']:
+        if self.config.loss_inclusions["multi_view_loss"]:
             self.multi_view_loss = nn.MSELoss()
-        if self.config.loss_inclusions['sky_ray_loss']:
-            self.sky_ray_loss = nn.MSELoss()
+        if self.config.loss_inclusions["sky_ray_loss"]:
+            self.sky_ray_loss = nn.L1Loss()
 
         # metrics
         self.psnr = PeakSignalNoiseRatio(data_range=1.0)
@@ -146,10 +149,12 @@ class DDFModel(Model):
 
     def get_localised_transforms(self, positions):
         """Computes the local coordinate system for each point in the input positions"""
-        up_vector = torch.tensor([0, 0, 1]).type_as(positions)  # Assuming world up-vector is along z-axis as is the case in nerfstudio
+        up_vector = torch.tensor([0, 0, 1]).type_as(
+            positions
+        )  # Assuming world up-vector is along z-axis as is the case in nerfstudio
         up_vector = up_vector.expand_as(positions)  # Expand to match the shape of positions
 
-        positions = -positions # negate to ensure [0, 1, 0] direction is facing origin
+        positions = -positions  # negate to ensure [0, 1, 0] direction is facing origin
 
         # Calculate the cross product between the position vector and the world up-vector to obtain the x-axis of the local coordinate system
         x_local = torch.cross(up_vector, positions)
@@ -166,7 +171,6 @@ class DDFModel(Model):
         rotation_matrices = torch.stack((x_local, y_local, z_local), dim=-1)
 
         return rotation_matrices
-    
 
     def get_outputs(self, ray_bundle: RayBundle, batch, reni_neus):
         if self.field is None:
@@ -178,14 +182,14 @@ class DDFModel(Model):
         if len(ray_bundle.origins.shape) in [3, 4]:
             H, W = ray_bundle.origins.shape[:2]
 
-        positions = ray_bundle.origins.reshape(-1, 3) # (N, 3)
-        directions = ray_bundle.directions.reshape(-1, 3) # (N, 3)
+        positions = ray_bundle.origins.reshape(-1, 3)  # (N, 3)
+        directions = ray_bundle.directions.reshape(-1, 3)  # (N, 3)
 
-        rotation_matrices = self.get_localised_transforms(positions) # (N, 3, 3)
+        rotation_matrices = self.get_localised_transforms(positions)  # (N, 3, 3)
 
         # we transform directions so the model is only conditioned on positions,
         # directions are now independent of the position of the point
-        transformed_directions = torch.einsum('ijl,ij->il', rotation_matrices, directions) # (N, 3)
+        transformed_directions = torch.einsum("ijl,ij->il", rotation_matrices, directions)  # (N, 3)
 
         ray_samples = RaySamples(
             frustums=Frustums(
@@ -211,7 +215,7 @@ class DDFModel(Model):
 
         if self.config.include_depth_loss_scene_center_weight and batch is not None:
             gt_termination_points = positions + directions * batch["termination_dist"].repeat(1, 3)
-            
+
             if self.config.scene_center_use_xyz:
                 # use XYZ
                 distance_from_center = torch.norm(positions, dim=-1)
@@ -223,26 +227,32 @@ class DDFModel(Model):
             distance_from_center = distance_from_center / self.ddf_radius
             # invert so that points closer to the center have higher weight
             distance_weight = 1.0 - distance_from_center**self.config.scene_center_weight_exp
-            outputs['distance_weight'] = distance_weight
+            outputs["distance_weight"] = distance_weight
 
         # get sdf at expected termination distance for loss
-        if (self.config.loss_inclusions['sdf_l1_loss'] or self.config.loss_inclusions['sdf_l2_loss']) and batch is not None:
-          if reni_neus is not None:
-              termination_points = (
-                  positions + directions * expected_termination_dist.unsqueeze(-1)
-              )
-              sdf_at_termination = reni_neus.field.get_sdf_at_pos(termination_points)
-              outputs['sdf_at_termination'] = sdf_at_termination
-          elif batch is not None and 'sdf_at_termination' in batch:
-              sdf_at_termination = batch['sdf_at_termination']
-              outputs['sdf_at_termination'] = sdf_at_termination
-
+        if (
+            self.config.loss_inclusions["sdf_l1_loss"] or self.config.loss_inclusions["sdf_l2_loss"]
+        ) and batch is not None:
+            if reni_neus is not None:
+                termination_points = positions + directions * expected_termination_dist.unsqueeze(-1)
+                sdf_at_termination = reni_neus.field.get_sdf_at_pos(termination_points)
+                outputs["sdf_at_termination"] = sdf_at_termination
+            elif batch is not None and "sdf_at_termination" in batch:
+                sdf_at_termination = batch["sdf_at_termination"]
+                outputs["sdf_at_termination"] = sdf_at_termination
 
         # # Compute the gradient of the depths with respect to the ray origins
         if self.config.compute_normals:
-            d_output = torch.ones_like(expected_termination_dist, requires_grad=False, device=expected_termination_dist.device)
+            d_output = torch.ones_like(
+                expected_termination_dist, requires_grad=False, device=expected_termination_dist.device
+            )
             gradients = torch.autograd.grad(
-                outputs=expected_termination_dist, inputs=ray_samples.frustums.origins, grad_outputs=d_output, create_graph=True, retain_graph=True, only_inputs=True
+                outputs=expected_termination_dist,
+                inputs=ray_samples.frustums.origins,
+                grad_outputs=d_output,
+                create_graph=True,
+                retain_graph=True,
+                only_inputs=True,
             )[0]
 
             # Normalize the gradient to obtain the predicted normal
@@ -254,17 +264,19 @@ class DDFModel(Model):
 
             outputs["predicted_normals"] = n_hat
 
-        if self.config.loss_inclusions['multi_view_loss'] and self.training and batch is not None:
+        if self.config.loss_inclusions["multi_view_loss"] and self.training and batch is not None:
             # for every gt termination point we choose a random other position on the sphere
-            # we then sample the ddf at that point and in the direction of the random sample 
-            # to the gt termination point to predict the termination distance. This distance 
+            # we then sample the ddf at that point and in the direction of the random sample
+            # to the gt termination point to predict the termination distance. This distance
             # should be no greater than the distance from the random point to the gt termination point.
 
             # get gt_termination_points using gt_termination_dist
             gt_termination_points = positions + directions * batch["termination_dist"].repeat(1, 3)
 
             # for every termination point we choose a random other position on the sphere
-            points_on_sphere = random_points_on_unit_sphere(num_points=gt_termination_points.shape[0]).type_as(gt_termination_points)
+            points_on_sphere = random_points_on_unit_sphere(num_points=gt_termination_points.shape[0]).type_as(
+                gt_termination_points
+            )
 
             # ensure they are positive z by flipping if not
             points_on_sphere[:, 2] = torch.abs(points_on_sphere[:, 2])
@@ -280,7 +292,7 @@ class DDFModel(Model):
 
             # normalise directions such that [0, 1, 0] is facing the origin
             rotation_matrices = self.get_localised_transforms(points_on_sphere)
-            transformed_directions = torch.einsum('ijl,ij->il', rotation_matrices, direction_to_term_points)
+            transformed_directions = torch.einsum("ijl,ij->il", rotation_matrices, direction_to_term_points)
 
             ray_samples = RaySamples(
                 frustums=Frustums(
@@ -291,13 +303,13 @@ class DDFModel(Model):
                     pixel_area=torch.ones_like(points_on_sphere[:, 0]),
                 ),
             )
-        
+
             field_outputs = self.field.forward(ray_samples)
 
             outputs["multi_view_termintation_dist"] = batch["termination_dist"]
             outputs["multi_view_expected_termination_dist"] = field_outputs[RENINeuSFieldHeadNames.TERMINATION_DISTANCE]
 
-        if self.config.loss_inclusions['sky_ray_loss'] and self.training and batch is not None:
+        if self.config.loss_inclusions["sky_ray_loss"] and self.training and batch is not None:
             # all rays that go from cameras into the sky don't intersect the scene
             # so we know that in the opposite direction the DDF should predict the
             # distance from the DDF sphere to the camera origin, this is a ground truth
@@ -310,7 +322,9 @@ class DDFModel(Model):
             camera_directions = sky_ray_bundle.directions.reshape(-1, 3)
 
             # we need the intersection points of the sky rays with the DDF sphere
-            points_on_sphere = ray_sphere_intersection(positions=camera_origins, directions=camera_directions, radius=self.ddf_radius)
+            points_on_sphere = ray_sphere_intersection(
+                positions=camera_origins, directions=camera_directions, radius=self.ddf_radius
+            )
 
             # we need the ground truth distance from the camera origin to the intersection point
             # this is the distance that the DDF should predict
@@ -319,7 +333,7 @@ class DDFModel(Model):
             # reverse directions (Origins to Sky -> DDF to Origin) and transform such that [0, 1, 0] is facing the origin
             rotation_matrices = self.get_localised_transforms(points_on_sphere)
             # -camera_directions as we are going from the sphere back towards the camera origin
-            transformed_directions = torch.einsum('ijl,ij->il', rotation_matrices, -camera_directions)
+            transformed_directions = torch.einsum("ijl,ij->il", rotation_matrices, -camera_directions)
 
             ray_samples = RaySamples(
                 frustums=Frustums(
@@ -330,19 +344,18 @@ class DDFModel(Model):
                     pixel_area=torch.ones_like(points_on_sphere[:, 0]),
                 ),
             )
-        
+
             field_outputs = self.field.forward(ray_samples)
 
             outputs["sky_ray_termination_dist"] = distance_to_camera_origins
             outputs["sky_ray_expected_termination_dist"] = field_outputs[RENINeuSFieldHeadNames.TERMINATION_DISTANCE]
-
 
         if H is not None and W is not None:
             for key, value in outputs.items():
                 outputs[key] = value.reshape(H, W, 1, -1)
 
         return outputs
-    
+
     def forward(self, ray_bundle: RayBundle, batch, reni_neus) -> Dict[str, torch.Tensor]:
         """Run forward starting with a ray bundle. This outputs different things depending on the configuration
         of the model and whether or not the batch is provided (whether or not we are training basically)
@@ -357,14 +370,13 @@ class DDFModel(Model):
         return self.get_outputs(ray_bundle, batch, reni_neus)
 
     def get_loss_dict(self, outputs, batch, metrics_dict=None):
-        
         # the sdf value at the predicted termination distance
         # should be zero
         loss_dict = {}
 
-        if self.config.loss_inclusions['depth_l1_loss']:
+        if self.config.loss_inclusions["depth_l1_loss"]:
             if self.config.include_depth_loss_scene_center_weight:
-                mask = batch["mask"] * outputs['distance_weight']
+                mask = batch["mask"] * outputs["distance_weight"]
             else:
                 mask = batch["mask"]
 
@@ -372,10 +384,10 @@ class DDFModel(Model):
                 outputs["expected_termination_dist"].unsqueeze(1) * mask,
                 batch["termination_dist"] * mask,
             )
-        
-        if self.config.loss_inclusions['depth_l2_loss']:
+
+        if self.config.loss_inclusions["depth_l2_loss"]:
             if self.config.include_depth_loss_scene_center_weight:
-                mask = batch["mask"] * outputs['distance_weight']
+                mask = batch["mask"] * outputs["distance_weight"]
             else:
                 mask = batch["mask"]
 
@@ -384,42 +396,47 @@ class DDFModel(Model):
                 batch["termination_dist"] * mask,
             )
 
-        if self.config.loss_inclusions['sdf_l1_loss']:
+        if self.config.loss_inclusions["sdf_l1_loss"]:
             loss_dict["sdf_l1_loss"] = self.sdf_l1_loss(
                 outputs["sdf_at_termination"] * batch["mask"],
                 torch.zeros_like(outputs["sdf_at_termination"]) * batch["mask"],
             )
 
-        if self.config.loss_inclusions['sdf_l2_loss']:
+        if self.config.loss_inclusions["sdf_l2_loss"]:
             loss_dict["sdf_l2_loss"] = self.sdf_l2_loss(
                 outputs["sdf_at_termination"] * batch["mask"],
                 torch.zeros_like(outputs["sdf_at_termination"]) * batch["mask"],
             )
 
-        if self.config.loss_inclusions['prob_hit_loss']:
+        if self.config.loss_inclusions["prob_hit_loss"]:
             # this should be matching the mask and use binary cross entropy
             loss_dict["prob_hit_loss"] = self.prob_hit_loss(
                 outputs["expected_probability_of_hit"],
                 batch["mask"].squeeze(-1),
             )
 
-        if self.config.loss_inclusions['normal_loss']:
+        if self.config.loss_inclusions["normal_loss"]:
             loss_dict["normal_loss"] = self.normal_loss(
                 outputs["predicted_normals"] * batch["mask"].unsqueeze(-1),
                 batch["normals"] * batch["mask"].unsqueeze(-1),
             ).sum()
 
-        if self.config.loss_inclusions['multi_view_loss']:
+        if self.config.loss_inclusions["multi_view_loss"]:
             # multi_view_expected_termination_dist must be less than multi_view_termintation_dist
             # so penalise anything over
-            multi_view_loss = torch.zeros_like(outputs["multi_view_expected_termination_dist"])
-            multi_view_loss = torch.max(multi_view_loss, outputs["multi_view_expected_termination_dist"] - outputs["multi_view_termintation_dist"])
-            loss_dict["multi_view_loss"] = torch.mean(multi_view_loss)
+            loss_dict["multi_view_loss"] = torch.mean(
+                torch.nn.functional.relu(
+                    outputs["multi_view_expected_termination_dist"] - outputs["multi_view_termintation_dist"]
+                )
+                ** 2
+            )
 
-        if self.config.loss_inclusions['sky_ray_loss']:
-            sky_ray_loss = torch.zeros_like(outputs["sky_ray_expected_termination_dist"])
-            sky_ray_loss = torch.max(sky_ray_loss, outputs["sky_ray_expected_termination_dist"] - outputs["sky_ray_termination_dist"])
-            loss_dict["sky_ray_loss"] = torch.mean(sky_ray_loss)
+        if self.config.loss_inclusions["sky_ray_loss"]:
+            # use l1 loss between sky_ray_expected_termination_dist and sky_ray_termination_dist
+            loss_dict["sky_ray_loss"] = self.sky_ray_loss(
+                outputs["sky_ray_expected_termination_dist"],
+                outputs["sky_ray_termination_dist"],
+            )
 
         loss_dict = misc.scale_dict(loss_dict, self.config.loss_coefficients)
         return loss_dict
@@ -502,7 +519,7 @@ class DDFModel(Model):
 
         depth_psnr = self.psnr(preds=masked_depth, target=masked_gt_depth)
         depth_ssim = self.ssim(preds=masked_depth, target=masked_gt_depth)
-        
+
         # # lpips expects images in range 0 - 1 so we need to normalize
         # masked_depth = (masked_depth - torch.min(masked_depth)) / (torch.max(masked_depth) - torch.min(masked_depth))
         # masked_gt_depth = (masked_gt_depth - torch.min(masked_gt_depth)) / (torch.max(masked_gt_depth) - torch.min(masked_gt_depth))
@@ -517,9 +534,7 @@ class DDFModel(Model):
             accumulation=gt_accumulations,
             near_plane=self.collider.near_plane,
             far_plane=self.collider.radius * 2,
-            colormap_options=ColormapOptions(normalize=False,
-                                             colormap_min=0.0,
-                                             colormap_max=2.0)
+            colormap_options=ColormapOptions(normalize=False, colormap_min=0.0, colormap_max=2.0),
         )
 
         depth = colormaps.apply_depth_colormap(
@@ -527,16 +542,19 @@ class DDFModel(Model):
             accumulation=gt_accumulations,
             near_plane=self.collider.near_plane,
             far_plane=self.collider.radius * 2,
-            colormap_options=ColormapOptions(normalize=False,
-                                             colormap_min=0.0,
-                                             colormap_max=2.0)
+            colormap_options=ColormapOptions(normalize=False, colormap_min=0.0, colormap_max=2.0),
         )
 
         combined_depth = torch.cat([gt_depth, depth], dim=1)
         images_dict["depth"] = combined_depth
 
-        depth_error = torch.abs(gt_termination_dist * batch['mask'].type_as(gt_termination_dist) - expected_termination_dist * batch['mask'].type_as(expected_termination_dist))
-        depth_error_normalized = (depth_error - torch.min(depth_error)) / (torch.max(depth_error) - torch.min(depth_error))
+        depth_error = torch.abs(
+            gt_termination_dist * batch["mask"].type_as(gt_termination_dist)
+            - expected_termination_dist * batch["mask"].type_as(expected_termination_dist)
+        )
+        depth_error_normalized = (depth_error - torch.min(depth_error)) / (
+            torch.max(depth_error) - torch.min(depth_error)
+        )
         images_dict["depth_error"] = depth_error_normalized
 
         if "expected_probability_of_hit" in outputs:
@@ -544,8 +562,7 @@ class DDFModel(Model):
             combined_probability_of_hit = torch.cat([gt_accumulations, expected_probability_of_hit], dim=1)
             images_dict["probability_of_hit"] = combined_probability_of_hit
 
-
-        if 'predicted_normals' in outputs:
+        if "predicted_normals" in outputs:
             normals = outputs["predicted_normals"]
             normals = (normals + 1.0) / 2.0
             gt_normal = batch["normals"].to(normals.device)
