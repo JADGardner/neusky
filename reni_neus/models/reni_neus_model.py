@@ -105,7 +105,7 @@ class RENINeuSFactoModelConfig(NeuSFactoModelConfig):
     """Norm for scene contraction"""
     collider_shape: Literal["sphere", "box"] = "box"
     """Shape of the collider"""
-    loss_inclusions: Dict[str, any] = to_immutable_dict(
+    loss_inclusions: Dict[str, Any] = to_immutable_dict(
         {
             "rgb_l1_loss": True,
             "rgb_l2_loss": True,

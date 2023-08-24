@@ -369,6 +369,36 @@ class DDFModel(Model):
 
         return self.get_outputs(ray_bundle, batch, reni_neus, stop_gradients=stop_gradients)
 
+    def get_metrics_dict(self, outputs, batch) -> Dict[str, torch.Tensor]:
+        """Compute and returns metrics.
+
+        Args:
+            outputs: the output to compute loss dict to
+            batch: ground truth batch corresponding to outputs
+        """
+        metrics_dict = {}
+
+        gt_accumulations = batch["accumulations"]
+        gt_termination_dist = batch["termination_dist"]
+        expected_termination_dist = outputs["expected_termination_dist"]
+
+        # ensure gt is on the same device as the model
+        gt_accumulations = gt_accumulations.to(expected_termination_dist.device)
+        gt_termination_dist = gt_termination_dist.to(expected_termination_dist.device)
+
+        masked_depth = expected_termination_dist * gt_accumulations + (1 - gt_accumulations)
+        masked_gt_depth = gt_termination_dist * gt_accumulations + (1 - gt_accumulations)
+
+        # need to reshape for metrics from H, W, C to B, C, H, W
+        masked_depth = masked_depth.unsqueeze(0).permute(0, 3, 1, 2)
+        masked_gt_depth = masked_gt_depth.unsqueeze(0).permute(0, 3, 1, 2)
+
+        depth_psnr = self.psnr(preds=masked_depth, target=masked_gt_depth)
+
+        metrics_dict["depth_psnr"] = depth_psnr
+
+        return metrics_dict
+
     def get_loss_dict(self, outputs, batch, metrics_dict=None):
         # the sdf value at the predicted termination distance
         # should be zero
