@@ -133,7 +133,7 @@ RENINeuS = MethodSpecification(
                 eval_num_rays_per_chunk=256,
                 use_visibility=True,
                 fit_visibility_field=True,  # if true, train visibility field, else visibility is static
-                sdf_to_visibility_stop_gradients="sdf",
+                sdf_to_visibility_stop_gradients="both",
                 visibility_threshold=(
                     2.0,
                     0.1,
