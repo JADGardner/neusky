@@ -32,12 +32,17 @@ from nerfstudio.data.dataparsers.base_dataparser import DataparserOutputs
 from nerfstudio.data.datasets.base_dataset import InputDataset
 from nerfstudio.data.pixel_samplers import PixelSampler
 from nerfstudio.data.utils.nerfstudio_collate import nerfstudio_collate
-from nerfstudio.data.datamanagers.base_datamanager import VanillaDataManager, VanillaDataManagerConfig, variable_res_collate
+from nerfstudio.data.datamanagers.base_datamanager import (
+    VanillaDataManager,
+    VanillaDataManagerConfig,
+    variable_res_collate,
+)
 
 from reni_neus.data.reni_neus_pixel_sampler import RENINeuSPixelSampler
 from reni_neus.data.datasets.reni_neus_dataset import RENINeuSDataset
 
 CONSOLE = Console(width=120)
+
 
 @dataclass
 class RENINeuSDataManagerConfig(VanillaDataManagerConfig):
@@ -45,6 +50,7 @@ class RENINeuSDataManagerConfig(VanillaDataManagerConfig):
 
     _target: Type = field(default_factory=lambda: RENINeuSDataManager)
     """Target class to instantiate."""
+
 
 class RENINeuSDataManager(VanillaDataManager):  # pylint: disable=abstract-method
     """Basic stored data manager implementation.
@@ -98,7 +104,7 @@ class RENINeuSDataManager(VanillaDataManager):  # pylint: disable=abstract-metho
             self.exclude_batch_keys_from_device.remove("mask")
         if self.config.images_on_gpu is True:
             self.exclude_batch_keys_from_device.remove("image")
-        
+
         if self.train_dataparser_outputs is not None:
             cameras = self.train_dataparser_outputs.cameras
             if len(cameras) > 1:
@@ -128,6 +134,7 @@ class RENINeuSDataManager(VanillaDataManager):  # pylint: disable=abstract-metho
 
     def get_sky_ray_bundle(self, number_of_rays: int) -> Tuple[RayBundle, Dict]:
         """Returns a sky ray bundle for the given step."""
+        # choose random
         image_batch = next(self.iter_train_image_dataloader)
         assert self.train_pixel_sampler is not None
         batch = self.train_pixel_sampler.collate_sky_ray_batch(image_batch, num_rays_per_batch=number_of_rays)

@@ -131,7 +131,7 @@ RENINeuS = MethodSpecification(
                 illumination_field_ckpt_step=50000,
                 fix_test_illumination_directions=True,
                 eval_num_rays_per_chunk=256,
-                use_visibility=True,
+                use_visibility=False,
                 fit_visibility_field=True,  # if true, train visibility field, else visibility is static
                 sdf_to_visibility_stop_gradients="both",
                 visibility_threshold=(
@@ -220,7 +220,7 @@ RENINeuS = MethodSpecification(
             },
             "ddf_field": {
                 "optimizer": AdamOptimizerConfig(lr=1e-4, eps=1e-15),
-                "scheduler": CosineDecaySchedulerConfig(warm_up_end=500, learning_rate_alpha=0.05, max_steps=100001),
+                "scheduler": CosineDecaySchedulerConfig(warm_up_end=2000, learning_rate_alpha=0.05, max_steps=100001),
             },
         },
         viewer=ViewerConfig(num_rays_per_chunk=1 << 15),

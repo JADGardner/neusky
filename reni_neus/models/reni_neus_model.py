@@ -870,6 +870,32 @@ class RENINeuSFactoModel(NeuSFactoModel):
         return metrics_dict, images_dict
 
     @torch.no_grad()
+    def generate_ddf_ground_truth(self, ray_bundle: RayBundle, mask_threshold: float = 0.5) -> Dict[str, Any]:
+        """Generate ground truth for DDF."""
+        if self.collider is not None:
+            ray_bundle = self.collider(ray_bundle)
+        ray_samples, _, _ = self.proposal_sampler(ray_bundle, density_fns=self.density_fns)
+        field_outputs = self.field(ray_samples, return_alphas=True)
+        weights, _ = ray_samples.get_weights_and_transmittance_from_alphas(field_outputs[FieldHeadNames.ALPHA])
+        accumulations = self.renderer_accumulation(weights=weights).reshape(-1, 1)
+        mask = (accumulations > mask_threshold).float()
+        p2p_dist = self.renderer_depth(weights=weights, ray_samples=ray_samples).reshape(-1, 1)
+        # clamp termination distance to 2 x ddf_sphere_radius
+        termination_dist = torch.clamp(p2p_dist, max=2 * self.visibility_field.ddf_radius)
+        normals = self.renderer_normal(semantics=field_outputs[FieldHeadNames.NORMALS], weights=weights)
+        normals = normals.reshape(-1, 3)
+
+        data = {
+            "ray_bundle": ray_bundle,
+            "accumulations": accumulations,
+            "mask": mask,
+            "termination_dist": termination_dist,
+            "normals": normals,
+        }
+
+        return data
+
+    @torch.no_grad()
     def get_outputs_for_camera_ray_bundle(
         self,
         camera_ray_bundle: RayBundle,

@@ -389,10 +389,11 @@ class DDFModel(Model):
         masked_depth = expected_termination_dist * gt_accumulations + (1 - gt_accumulations)
         masked_gt_depth = gt_termination_dist * gt_accumulations + (1 - gt_accumulations)
 
-        # need to reshape for metrics from H, W, C to B, C, H, W
-        masked_depth = masked_depth.unsqueeze(0).permute(0, 3, 1, 2)
-        masked_gt_depth = masked_gt_depth.unsqueeze(0).permute(0, 3, 1, 2)
-
+        # reshape from (N, C) to (1, C, H, W)
+        masked_depth = masked_depth.unsqueeze(0).unsqueeze(0)  # (1, 1, N, C)
+        masked_gt_depth = masked_gt_depth.unsqueeze(0).unsqueeze(0)  # (1, 1, N, C)
+        masked_depth = masked_depth.permute(0, 3, 2, 1)  # (1, C, N, 1)
+        masked_gt_depth = masked_gt_depth.permute(0, 3, 2, 1)  # (1, C, N, 1)
         depth_psnr = self.psnr(preds=masked_depth, target=masked_gt_depth)
 
         metrics_dict["depth_psnr"] = depth_psnr
