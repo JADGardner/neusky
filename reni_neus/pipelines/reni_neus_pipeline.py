@@ -236,6 +236,7 @@ class RENINeuSPipeline(VanillaPipeline):
                 ray_bundle, batch
             )  # we sample from the 3D scene, we want the visibility (ddf) to be consistent with the scene
             ray_bundle = vis_batch["ray_bundle"]
+            # we stop gradients here as we are just fitting to the scene
             vis_outputs = self._model.visibility_field(
                 ray_bundle=ray_bundle, batch=vis_batch, reni_neus=self.model, stop_gradients=True
             )
@@ -351,7 +352,6 @@ class RENINeuSPipeline(VanillaPipeline):
                 scene_box=self.scene_box,
                 num_train_data=self.num_train_data,
                 ddf_radius=ddf_radius,
-                sdf_to_visibility_stop_gradients=self.config.model.sdf_to_visibility_stop_gradients,
             )
         else:
             ckpt_path = (
@@ -374,7 +374,6 @@ class RENINeuSPipeline(VanillaPipeline):
                 scene_box=self.scene_box,
                 num_train_data=-1,
                 ddf_radius=ddf_radius,
-                sdf_to_visibility_stop_gradient=self.config.model.sdf_to_visibility_stop_gradients,
             )
 
             visibility_field.load_state_dict(model_dict)

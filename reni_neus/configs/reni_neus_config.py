@@ -133,7 +133,7 @@ RENINeuS = MethodSpecification(
                 eval_num_rays_per_chunk=256,
                 use_visibility=True,
                 fit_visibility_field=True,  # if true, train visibility field, else visibility is static
-                sdf_to_visibility_stop_gradients=True,  # Gradient flow from Visibility through SDF
+                sdf_to_visibility_stop_gradients="both",
                 visibility_threshold=(
                     2.0,
                     0.1,
@@ -174,8 +174,8 @@ RENINeuS = MethodSpecification(
                 loss_coefficients={
                     "depth_l1_loss": 50.0,
                     "depth_l2_loss": 0.0,
-                    "sdf_l1_loss": 100.0,
-                    "sdf_l2_loss": 10.0,
+                    "sdf_l1_loss": 1.0,
+                    "sdf_l2_loss": 1.0,
                     "prob_hit_loss": 1.0,
                     "normal_loss": 1.0,
                     "multi_view_loss": 0.1,

@@ -93,8 +93,6 @@ class DDFModel(Model):
     config: DDFModelConfig
 
     def __init__(self, config: DDFModelConfig, ddf_radius, **kwargs) -> None:
-        # if sdf_to_visibility_stop_gradient in kwargs
-        self.sdf_to_visibility_stop_gradients = kwargs.get("sdf_to_visibility_stop_gradients", False)
         self.ddf_radius = ddf_radius
         self.viewer_control = ViewerControl()  # no arguments
 

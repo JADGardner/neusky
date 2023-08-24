@@ -93,7 +93,7 @@ class RENINeuSFactoModelConfig(NeuSFactoModelConfig):
     """Number of steps till min visibility threshold"""
     only_upperhemisphere_visibility: bool = False
     """Lower hemisphere visibility will always be 1.0 if this is True"""
-    sdf_to_visibility_stop_gradients: bool = False
+    sdf_to_visibility_stop_gradients: Literal["none", "sdf", "depth", "both"] = "none"
     """Stop gradients from sdf to visibility"""
     fix_test_illumination_directions: bool = False
     """Fix the test illumination directions"""
@@ -429,20 +429,20 @@ class RENINeuSFactoModel(NeuSFactoModel):
             # we need accumulation so we can ignore samples that don't hit the scene
             accumulation = self.renderer_accumulation(weights=weights)
 
-            if self.config.sdf_to_visibility_stop_gradients:
+            ray_samples_vis = RaySamples(
+                frustums=Frustums(
+                    origins=ray_samples.frustums.origins.clone().detach(),
+                    directions=ray_samples.frustums.directions.clone().detach(),
+                    pixel_area=ray_samples.frustums.pixel_area.clone().detach(),
+                    starts=ray_samples.frustums.starts.clone().detach(),
+                    ends=ray_samples.frustums.ends.clone().detach(),
+                ),
+                camera_indices=ray_samples.camera_indices.clone().detach(),
+            )
+
+            if self.config.sdf_to_visibility_stop_gradients in ["depth", "both"]:
                 depth_vis = depth.clone().detach()
-                ray_samples_vis = RaySamples(
-                    frustums=Frustums(
-                        origins=ray_samples.frustums.origins.clone().detach(),
-                        directions=ray_samples.frustums.directions.clone().detach(),
-                        pixel_area=ray_samples.frustums.pixel_area.clone().detach(),
-                        starts=ray_samples.frustums.starts.clone().detach(),
-                        ends=ray_samples.frustums.ends.clone().detach(),
-                    ),
-                    camera_indices=ray_samples.camera_indices.clone().detach(),
-                )
             else:
-                ray_samples_vis = ray_samples
                 depth_vis = depth
 
             # if we are decaying visibility threshold then compute it here
@@ -1087,6 +1087,182 @@ class RENINeuSFactoModel(NeuSFactoModel):
         # No longer using eval RENI
         self.fitting_eval_latents = False
 
+    def ray_sphere_intersection(self, positions, directions, radius):
+        """Ray sphere intersection"""
+        # ray-sphere intersection
+        # positions is the origins of the rays
+        # directions is the directions of the rays
+        # radius is the radius of the sphere
+
+        sphere_origin = torch.zeros_like(positions)
+        radius = torch.ones_like(positions[..., 0]) * radius
+
+        # ensure normalized directions
+        directions = directions / torch.norm(directions, dim=-1, keepdim=True)
+
+        a = 1  # direction is normalized
+        b = 2 * torch.einsum("ij,ij->i", directions, positions - sphere_origin)
+        c = torch.einsum("ij,ij->i", positions - sphere_origin, positions - sphere_origin) - radius**2
+
+        discriminant = b**2 - 4 * a * c
+
+        t0 = (-b - torch.sqrt(discriminant)) / (2 * a)
+        t1 = (-b + torch.sqrt(discriminant)) / (2 * a)
+
+        # since we are inside the sphere we want the positive t
+        t = torch.max(t0, t1)
+
+        # now we need to point on the sphere that we intersected
+        intersection_point = positions + t.unsqueeze(-1) * directions
+
+        return intersection_point
+
+    def compute_visibility(
+        self,
+        ray_samples: RaySamples,
+        depth: torch.Tensor,
+        illumination_directions: torch.Tensor,
+        threshold_distance: float,
+        compute_shadow_map: bool = False,
+    ):
+        """Compute visibility"""
+        # ray_samples = [num_rays, num_samples]
+        # depth = [num_rays, 1]
+        # illumination_directions = [num_rays * num_samples, num_light_directions, xyz]
+        # threshold_distance = scalar
+        # accumulation = None
+        # batch = dict
+
+        # shortcuts for later
+        num_rays = ray_samples.frustums.origins.shape[0]
+        num_samples = ray_samples.frustums.origins.shape[1]
+        original_num_light_directions = illumination_directions.shape[1]
+
+        # illumination_directions = [num_rays * num_samples, num_light_directions, xyz]
+        # we only want [num_light_directions, xyz]
+        illumination_directions = illumination_directions[0, :, :]
+
+        if self.config.only_upperhemisphere_visibility and not compute_shadow_map:
+            # we dot product illumination_directions with the vertical z axis
+            # and use it as mask to select only the upper hemisphere
+            dot_products = torch.sum(
+                torch.tensor([0, 0, 1]).type_as(illumination_directions) * illumination_directions, dim=1
+            )
+            mask = dot_products > 0
+            directions = illumination_directions[mask]  # [num_light_directions, xyz]
+        else:
+            directions = illumination_directions
+
+        # more shortcuts
+        num_light_directions = directions.shape[0]
+
+        # since we are only using a single sample, the sample we think has hit the object,
+        # we can just use one of each of these values, they are all just copied for each
+        # sample along the ray. So here I'm just taking the first one.
+        origins = ray_samples.frustums.origins[:, 0:1, :]  # [num_rays, 1, 3]
+        ray_directions = ray_samples.frustums.directions[:, 0:1, :]  # [num_rays, 1, 3]
+
+        # Now calculate the new positions
+        positions = origins + ray_directions * depth.unsqueeze(-1)  # [num_rays, 1, 3]
+
+        # check if the new pos are within the sphere
+        inside_sphere = positions.norm(dim=-1) < self.ddf_radius  # [num_rays, 1]
+
+        # for all positions not inside sphere get sphere intersection points for origins and directions
+        # and just subract a small amount from the positions to make sure they are inside the sphere,
+        # bit of a hack as we need a sphere intersection point for each light direction
+        positions[~inside_sphere] = (
+            self.ray_sphere_intersection(origins[~inside_sphere], ray_directions[~inside_sphere], self.ddf_radius)
+            * 0.01
+            * -ray_directions[~inside_sphere]
+        )
+
+        positions = positions.unsqueeze(1).repeat(
+            1, num_light_directions, 1, 1
+        )  # [num_rays, num_light_directions, 1, 3]
+        directions = directions.unsqueeze(0).repeat(num_rays, 1, 1)  # [num_rays, num_light_directions, 1, 3]
+
+        positions = positions.reshape(-1, 3)  # [num_rays * num_light_directions, 3]
+        directions = directions.reshape(-1, 3)  # [num_rays * num_light_directions, 3]
+
+        sphere_intersection_points = self.ray_sphere_intersection(
+            positions, directions, self.ddf_radius
+        )  # [num_rays * num_light_directions, 3]
+
+        termination_dist = torch.norm(
+            sphere_intersection_points - positions, dim=-1
+        )  # [num_rays * num_light_directions]
+
+        # we need directions from intersection points to ray origins
+        directions = -directions
+
+        # build a ray_bundle object to pass to the visibility_field
+        visibility_ray_bundle = RayBundle(
+            origins=sphere_intersection_points,
+            directions=directions,
+            pixel_area=torch.ones_like(positions[..., 0]),  # not used but required for class
+        )
+
+        # Get output of visibility field (DDF)
+        stop_gradients = False
+        if self.config.sdf_to_visibility_stop_gradients in ["sdf", "both"]:
+            stop_gradients = True
+
+        outputs = self.visibility_field(
+            visibility_ray_bundle, batch=None, reni_neus=self, stop_gradients=stop_gradients
+        )  # [N, 2]
+
+        # the ground truth distance from the point on the sphere to the point on the SDF
+        dist_to_ray_origins = torch.norm(positions - sphere_intersection_points, dim=-1)  # [N]
+
+        # as the DDF can only predict 2*its radius, we need to clamp gt to that
+        dist_to_ray_origins = torch.clamp(dist_to_ray_origins, max=self.ddf_radius * 2.0)
+
+        # add threshold_distance extra to the expected_termination_dist (i.e slighly futher into the SDF)
+        # and get the difference between it and the distance from the point on the sphere to the point on the SDF
+        difference = (outputs["expected_termination_dist"] + threshold_distance) - dist_to_ray_origins
+
+        # if the difference is positive then the expected termination distance
+        # is greater than the distance from the point on the sphere to the point on the SDF
+        # so the point on the sphere is visible to it
+        if compute_shadow_map:
+            visibility = (difference > 0).float()
+        else:
+            # Use a large scale to make the transition steep
+            scale = 50.0
+            # Adjust the bias to control the point at which the transition happens
+            bias = 0.0
+            visibility = torch.sigmoid(scale * (difference - bias))
+
+        if self.config.only_upperhemisphere_visibility and not compute_shadow_map:
+            # we now need to use the mask we created earlier to select only the upper hemisphere
+            # and then use the predicted visibility values there
+            total_vis = torch.ones(num_rays, original_num_light_directions, 1).type_as(visibility)
+            # reshape mask to match the total_vis dimensions
+            mask = mask.reshape(1, original_num_light_directions, 1).expand_as(total_vis)
+            # use the mask to replace the values
+            total_vis[mask] = visibility
+            visibility = total_vis
+
+        visibility = visibility.unsqueeze(1).repeat(
+            1, num_samples, 1, 1
+        )  # [num_rays, num_samples, num_light_directions, 1]
+        # and reshape so that it is [num_rays * num_samples, original_num_light_directions, 1]
+        visibility = visibility.reshape(-1, original_num_light_directions, 1)
+
+        visibility_dict = outputs
+        visibility_dict["visibility"] = visibility
+        visibility_dict["expected_termination_dist"] = outputs["expected_termination_dist"]
+        if compute_shadow_map:
+            visibility_dict["difference"] = difference
+
+        visibility_dict["visibility_batch"] = {
+            "termination_dist": termination_dist,
+            "mask": torch.ones_like(termination_dist),
+        }
+
+        return visibility_dict
+
     def setup_gui(self):
         """Setup the GUI."""
         self.viewer_control = ViewerControl()  # no arguments
@@ -1189,176 +1365,6 @@ class RENINeuSFactoModel(NeuSFactoModel):
             self.viewer_control.set_pose(position=(0, 1, 0), look_at=(0, 0, 0), instant=False)
 
         self.viewer_button = ViewerButton(name="Camera on DDF", cb_hook=on_sphere_look_at_origin)
-
-    def ray_sphere_intersection(self, positions, directions, radius):
-        """Ray sphere intersection"""
-        # ray-sphere intersection
-        # positions is the origins of the rays
-        # directions is the directions of the rays
-        # radius is the radius of the sphere
-
-        sphere_origin = torch.zeros_like(positions)
-        radius = torch.ones_like(positions[..., 0]) * radius
-
-        # ensure normalized directions
-        directions = directions / torch.norm(directions, dim=-1, keepdim=True)
-
-        a = 1  # direction is normalized
-        b = 2 * torch.einsum("ij,ij->i", directions, positions - sphere_origin)
-        c = torch.einsum("ij,ij->i", positions - sphere_origin, positions - sphere_origin) - radius**2
-
-        discriminant = b**2 - 4 * a * c
-
-        t0 = (-b - torch.sqrt(discriminant)) / (2 * a)
-        t1 = (-b + torch.sqrt(discriminant)) / (2 * a)
-
-        # since we are inside the sphere we want the positive t
-        t = torch.max(t0, t1)
-
-        # now we need to point on the sphere that we intersected
-        intersection_point = positions + t.unsqueeze(-1) * directions
-
-        return intersection_point
-
-    def compute_visibility(
-        self,
-        ray_samples,
-        depth,
-        illumination_directions,
-        threshold_distance,
-        compute_shadow_map=False,
-    ):
-        """Compute visibility"""
-        # ray_samples = [num_rays, num_samples]
-        # depth = [num_rays, 1]
-        # illumination_directions = [num_rays * num_samples, num_light_directions, xyz]
-        # threshold_distance = scalar
-        # accumulation = None
-        # batch = dict
-
-        # shortcuts for later
-        num_rays = ray_samples.frustums.origins.shape[0]
-        num_samples = ray_samples.frustums.origins.shape[1]
-        original_num_light_directions = illumination_directions.shape[1]
-
-        # illumination_directions = [num_rays * num_samples, num_light_directions, xyz]
-        # we only want [num_light_directions, xyz]
-        illumination_directions = illumination_directions[0, :, :]
-
-        if self.config.only_upperhemisphere_visibility and not compute_shadow_map:
-            # we dot product illumination_directions with the vertical z axis
-            # and use it as mask to select only the upper hemisphere
-            dot_products = torch.sum(
-                torch.tensor([0, 0, 1]).type_as(illumination_directions) * illumination_directions, dim=1
-            )
-            mask = dot_products > 0
-            directions = illumination_directions[mask]  # [num_light_directions, xyz]
-        else:
-            directions = illumination_directions
-
-        # more shortcuts
-        num_light_directions = directions.shape[0]
-
-        # since we are only using a single sample, the sample we think has hit the object,
-        # we can just use one of each of these values, they are all just copied for each
-        # sample along the ray. So here I'm just taking the first one.
-        origins = ray_samples.frustums.origins[:, 0:1, :]  # [num_rays, 1, 3]
-        ray_directions = ray_samples.frustums.directions[:, 0:1, :]  # [num_rays, 1, 3]
-
-        # Now calculate the new positions
-        positions = origins + ray_directions * depth.unsqueeze(-1)  # [num_rays, 1, 3]
-
-        # check if the new pos are within the sphere
-        inside_sphere = positions.norm(dim=-1) < self.ddf_radius  # [num_rays, 1]
-
-        # for all positions not inside sphere get sphere intersection points for origins and directions
-        # and just subract a small amount from the positions to make sure they are inside the sphere,
-        # bit of a hack as we need a sphere intersection point for each light direction
-        positions[~inside_sphere] = (
-            self.ray_sphere_intersection(origins[~inside_sphere], ray_directions[~inside_sphere], self.ddf_radius)
-            * 0.01
-            * -ray_directions[~inside_sphere]
-        )
-
-        positions = positions.unsqueeze(1).repeat(
-            1, num_light_directions, 1, 1
-        )  # [num_rays, num_light_directions, 1, 3]
-        directions = directions.unsqueeze(0).repeat(num_rays, 1, 1)  # [num_rays, num_light_directions, 1, 3]
-
-        positions = positions.reshape(-1, 3)  # [num_rays * num_light_directions, 3]
-        directions = directions.reshape(-1, 3)  # [num_rays * num_light_directions, 3]
-
-        sphere_intersection_points = self.ray_sphere_intersection(
-            positions, directions, self.ddf_radius
-        )  # [num_rays * num_light_directions, 3]
-
-        termination_dist = torch.norm(
-            sphere_intersection_points - positions, dim=-1
-        )  # [num_rays * num_light_directions]
-
-        # we need directions from intersection points to ray origins
-        directions = -directions
-
-        # build a ray_bundle object to pass to the visibility_field
-        visibility_ray_bundle = RayBundle(
-            origins=sphere_intersection_points,
-            directions=directions,
-            pixel_area=torch.ones_like(positions[..., 0]),  # not used but required for class
-        )
-
-        # Get output of visibility field (DDF)
-        outputs = self.visibility_field(visibility_ray_bundle, batch=None, reni_neus=self, stop_gradients=False)  # [N, 2]
-
-        # the ground truth distance from the point on the sphere to the point on the SDF
-        dist_to_ray_origins = torch.norm(positions - sphere_intersection_points, dim=-1)  # [N]
-
-        # as the DDF can only predict 2*its radius, we need to clamp gt to that
-        dist_to_ray_origins = torch.clamp(dist_to_ray_origins, max=self.ddf_radius * 2.0)
-
-        # add threshold_distance extra to the expected_termination_dist (i.e slighly futher into the SDF)
-        # and get the difference between it and the distance from the point on the sphere to the point on the SDF
-        difference = (outputs["expected_termination_dist"] + threshold_distance) - dist_to_ray_origins
-
-        # if the difference is positive then the expected termination distance
-        # is greater than the distance from the point on the sphere to the point on the SDF
-        # so the point on the sphere is visible to it
-        if compute_shadow_map:
-            visibility = (difference > 0).float()
-        else:
-            # Use a large scale to make the transition steep
-            scale = 50.0
-            # Adjust the bias to control the point at which the transition happens
-            bias = 0.0
-            visibility = torch.sigmoid(scale * (difference - bias))
-
-        if self.config.only_upperhemisphere_visibility and not compute_shadow_map:
-            # we now need to use the mask we created earlier to select only the upper hemisphere
-            # and then use the predicted visibility values there
-            total_vis = torch.ones(num_rays, original_num_light_directions, 1).type_as(visibility)
-            # reshape mask to match the total_vis dimensions
-            mask = mask.reshape(1, original_num_light_directions, 1).expand_as(total_vis)
-            # use the mask to replace the values
-            total_vis[mask] = visibility
-            visibility = total_vis
-
-        visibility = visibility.unsqueeze(1).repeat(
-            1, num_samples, 1, 1
-        )  # [num_rays, num_samples, num_light_directions, 1]
-        # and reshape so that it is [num_rays * num_samples, original_num_light_directions, 1]
-        visibility = visibility.reshape(-1, original_num_light_directions, 1)
-
-        visibility_dict = outputs
-        visibility_dict["visibility"] = visibility
-        visibility_dict["expected_termination_dist"] = outputs["expected_termination_dist"]
-        if compute_shadow_map:
-            visibility_dict["difference"] = difference
-
-        visibility_dict["visibility_batch"] = {
-            "termination_dist": termination_dist,
-            "mask": torch.ones_like(termination_dist),
-        }
-
-        return visibility_dict
 
     def render_illumination_animation(
         self,
