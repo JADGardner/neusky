@@ -170,14 +170,8 @@ class RENINeuSFactoModel(NeuSFactoModel):
 
         self.setup_gui()
 
-        # if self.config.ddf_radius == "AABB":
-        #     self.ddf_radius = torch.abs(self.scene_box.aabb[0, 0]).item()
-        # else:
-        #     self.ddf_radius = self.config.ddf_radius
-
         if self.visibility_field is not None:
             self.ddf_radius = self.visibility_field.ddf_radius
-            # self.visibility_field = self._setup_visibility_field()
 
             self.visibility_threshold_end = None
             if self.config.visibility_threshold == "learnable":
@@ -869,21 +863,21 @@ class RENINeuSFactoModel(NeuSFactoModel):
 
         return metrics_dict, images_dict
 
-    @torch.no_grad()
     def generate_ddf_ground_truth(self, ray_bundle: RayBundle, mask_threshold: float = 0.5) -> Dict[str, Any]:
         """Generate ground truth for DDF."""
-        if self.collider is not None:
-            ray_bundle = self.collider(ray_bundle)
-        ray_samples, _, _ = self.proposal_sampler(ray_bundle, density_fns=self.density_fns)
-        field_outputs = self.field(ray_samples, return_alphas=True)
-        weights, _ = ray_samples.get_weights_and_transmittance_from_alphas(field_outputs[FieldHeadNames.ALPHA])
-        accumulations = self.renderer_accumulation(weights=weights).reshape(-1, 1)
-        mask = (accumulations > mask_threshold).float()
-        p2p_dist = self.renderer_depth(weights=weights, ray_samples=ray_samples).reshape(-1, 1)
-        # clamp termination distance to 2 x ddf_sphere_radius
-        termination_dist = torch.clamp(p2p_dist, max=2 * self.visibility_field.ddf_radius)
-        normals = self.renderer_normal(semantics=field_outputs[FieldHeadNames.NORMALS], weights=weights)
-        normals = normals.reshape(-1, 3)
+        with torch.no_grad():
+            if self.collider is not None:
+                ray_bundle = self.collider(ray_bundle)
+            ray_samples, _, _ = self.proposal_sampler(ray_bundle, density_fns=self.density_fns)
+            field_outputs = self.field(ray_samples, return_alphas=True)
+            weights, _ = ray_samples.get_weights_and_transmittance_from_alphas(field_outputs[FieldHeadNames.ALPHA])
+            accumulations = self.renderer_accumulation(weights=weights).reshape(-1, 1)
+            mask = (accumulations > mask_threshold).float()
+            p2p_dist = self.renderer_depth(weights=weights, ray_samples=ray_samples).reshape(-1, 1)
+            # clamp termination distance to 2 x ddf_sphere_radius
+            termination_dist = torch.clamp(p2p_dist, max=2 * self.visibility_field.ddf_radius)
+            normals = self.renderer_normal(semantics=field_outputs[FieldHeadNames.NORMALS], weights=weights)
+            normals = normals.reshape(-1, 3)
 
         data = {
             "ray_bundle": ray_bundle,
@@ -1348,14 +1342,12 @@ class RENINeuSFactoModel(NeuSFactoModel):
             name="Render Accumulation", default_value=True, cb_hook=render_accumulation_callback
         )
 
-        if self.visibility_field is None:
+        def render_depth_callback(handle: ViewerCheckbox) -> None:
+            self.render_depth_flag = handle.value
 
-            def render_depth_callback(handle: ViewerCheckbox) -> None:
-                self.render_depth_flag = handle.value
-
-            self.render_depth_checkbox = ViewerCheckbox(
-                name="Render Depth", default_value=True, cb_hook=render_depth_callback
-            )
+        self.render_depth_checkbox = ViewerCheckbox(
+            name="Render Depth", default_value=True, cb_hook=render_depth_callback
+        )
 
         def render_normal_callback(handle: ViewerCheckbox) -> None:
             self.render_normal_flag = handle.value

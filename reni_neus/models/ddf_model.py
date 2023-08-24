@@ -137,7 +137,7 @@ class DDFModel(Model):
             self.sky_ray_loss = nn.L1Loss()
 
         # metrics
-        self.psnr = PeakSignalNoiseRatio(data_range=1.0)
+        self.psnr = PeakSignalNoiseRatio((0.0, self.ddf_radius))
         self.ssim = structural_similarity_index_measure
         self.lpips = LearnedPerceptualImagePatchSimilarity(normalize=True)
 
@@ -378,22 +378,17 @@ class DDFModel(Model):
         """
         metrics_dict = {}
 
-        gt_accumulations = batch["accumulations"]
+        mask = batch["mask"]
         gt_termination_dist = batch["termination_dist"]
-        expected_termination_dist = outputs["expected_termination_dist"]
+        expected_termination_dist = outputs["expected_termination_dist"].unsqueeze(1)
 
         # ensure gt is on the same device as the model
-        gt_accumulations = gt_accumulations.to(expected_termination_dist.device)
+        mask = mask.to(expected_termination_dist.device)
         gt_termination_dist = gt_termination_dist.to(expected_termination_dist.device)
 
-        masked_depth = expected_termination_dist * gt_accumulations + (1 - gt_accumulations)
-        masked_gt_depth = gt_termination_dist * gt_accumulations + (1 - gt_accumulations)
+        masked_depth = expected_termination_dist * mask
+        masked_gt_depth = gt_termination_dist * mask
 
-        # reshape from (N, C) to (1, C, H, W)
-        masked_depth = masked_depth.unsqueeze(0).unsqueeze(0)  # (1, 1, N, C)
-        masked_gt_depth = masked_gt_depth.unsqueeze(0).unsqueeze(0)  # (1, 1, N, C)
-        masked_depth = masked_depth.permute(0, 3, 2, 1)  # (1, C, N, 1)
-        masked_gt_depth = masked_gt_depth.permute(0, 3, 2, 1)  # (1, C, N, 1)
         depth_psnr = self.psnr(preds=masked_depth, target=masked_gt_depth)
 
         metrics_dict["depth_psnr"] = depth_psnr
@@ -602,3 +597,23 @@ class DDFModel(Model):
             images_dict["normals"] = combined_normal
 
         return metrics_dict, images_dict
+
+    def get_image_dict(
+        self,
+        outputs: Dict[str, torch.Tensor],
+    ) -> Dict[str, torch.Tensor]:
+        images_dict = {}
+
+        expected_termination_dist = outputs["expected_termination_dist"]
+
+        depth = colormaps.apply_depth_colormap(
+            expected_termination_dist,
+            accumulation=None,
+            near_plane=self.collider.near_plane,
+            far_plane=self.collider.radius * 2,
+            colormap_options=ColormapOptions(normalize=False, colormap_min=0.0, colormap_max=2.0),
+        )
+
+        images_dict["ddf_depth"] = depth
+
+        return images_dict

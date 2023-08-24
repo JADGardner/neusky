@@ -47,11 +47,14 @@ from nerfstudio.utils import profiler
 from nerfstudio.pipelines.base_pipeline import VanillaPipelineConfig, VanillaPipeline
 from nerfstudio.field_components.field_heads import FieldHeadNames
 from nerfstudio.cameras.rays import RayBundle, RaySamples, Frustums
+from nerfstudio.cameras.cameras import Cameras, CameraType
 
 from reni_neus.data.datamanagers.reni_neus_datamanager import RENINeuSDataManagerConfig, RENINeuSDataManager
 from reni_neus.models.ddf_model import DDFModelConfig
 from reni_neus.models.reni_neus_model import RENINeuSFactoModelConfig
 from reni_neus.model_components.ddf_sampler import DDFSamplerConfig
+from reni_neus.model_components.illumination_samplers import IcosahedronSamplerConfig
+from reni_neus.utils.utils import look_at_target
 
 
 @dataclass
@@ -141,6 +144,10 @@ class RENINeuSPipeline(VanillaPipeline):
         if self.config.visibility_field is not None:
             visibility_field = self._setup_visibility_field(device=device)
             self.visibility_train_sampler = self.config.visibility_train_sampler.setup(device=device)
+            test_time_sampler_config = IcosahedronSamplerConfig(
+                icosphere_order=1, apply_random_rotation=True, remove_lower_hemisphere=True
+            )
+            self.visibility_test_time_sampler = test_time_sampler_config.setup()
 
         self._model = config.model.setup(
             scene_box=self.scene_box,
@@ -288,7 +295,38 @@ class RENINeuSPipeline(VanillaPipeline):
 
         if self.model.visibility_field is not None and self.model.config.fit_visibility_field:
             # we need to place some cameras on the sphere and sample the visibility field
-            pass
+            positions = self.visibility_test_time_sampler()  # [N, 3]
+            # choose random position from N
+            position_on_sphere = positions[torch.randint(0, len(positions), (1,))]  # [1, 3]
+
+            fx = self.datamanager.eval_dataset.cameras.fx[image_idx]
+            fy = self.datamanager.eval_dataset.cameras.fy[image_idx]
+            cx = self.datamanager.eval_dataset.cameras.cx[image_idx]
+            cy = self.datamanager.eval_dataset.cameras.cy[image_idx]
+
+            # generate c2w looking at the origin
+            c2w = look_at_target(position_on_sphere, torch.zeros_like(position_on_sphere).type_as(position_on_sphere))[
+                ..., :3, :4
+            ]  # (3, 4)
+
+            # # update self.camera.camera_to_worlds
+            camera = Cameras(
+                camera_to_worlds=c2w,
+                fx=fx,
+                fy=fy,
+                cx=cx,
+                cy=cy,
+                camera_type=CameraType.PERSPECTIVE,
+            )
+
+            visibility_ray_bundle = camera.generate_rays(0)
+            visibility_ray_bundle = visibility_ray_bundle.to(self.device)
+            vis_outputs = self.model.visibility_field.get_outputs_for_camera_ray_bundle(
+                visibility_ray_bundle, reni_neus=None, show_progress=True
+            )
+            vis_images_dict = self.model.visibility_field.get_image_dict(vis_outputs)
+
+            images_dict = {**images_dict, **vis_images_dict}
 
         assert "image_idx" not in metrics_dict
         metrics_dict["image_idx"] = image_idx
