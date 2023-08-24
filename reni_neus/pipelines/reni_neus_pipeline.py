@@ -50,6 +50,7 @@ from nerfstudio.cameras.rays import RayBundle, RaySamples, Frustums
 
 from reni_neus.data.datamanagers.reni_neus_datamanager import RENINeuSDataManagerConfig, RENINeuSDataManager
 from reni_neus.models.ddf_model import DDFModelConfig
+from reni_neus.models.reni_neus_model import RENINeuSFactoModelConfig
 from reni_neus.model_components.ddf_sampler import DDFSamplerConfig
 
 
@@ -61,7 +62,7 @@ class RENINeuSPipelineConfig(VanillaPipelineConfig):
     """target class to instantiate"""
     datamanager: DataManagerConfig = RENINeuSDataManagerConfig()
     """specifies the datamanager config"""
-    model: ModelConfig = ModelConfig()
+    model: RENINeuSFactoModelConfig = RENINeuSFactoModelConfig()
     """specifies the model config"""
     eval_latent_optimisation_source: Literal["none", "envmap", "image_half", "image_full"] = "image_half"
     """Source for latent optimisation during eval"""
@@ -136,9 +137,9 @@ class RENINeuSPipeline(VanillaPipeline):
 
         self.scene_box = self.datamanager.train_dataset.scene_box
 
-        self.visibility_field = None
+        visibility_field = None
         if self.config.visibility_field is not None:
-            self.visibility_field = self._setup_visibility_field(device=device)
+            visibility_field = self._setup_visibility_field(device=device)
             self.visibility_train_sampler = self.config.visibility_train_sampler.setup(device=device)
 
         self._model = config.model.setup(
@@ -146,7 +147,7 @@ class RENINeuSPipeline(VanillaPipeline):
             num_train_data=self.num_train_data.item(),
             num_val_data=self.num_val_data.item(),
             num_test_data=self.num_test_data.item(),
-            visibility_field=self.visibility_field,
+            visibility_field=visibility_field,
             test_mode=test_mode,
             metadata=self.datamanager.train_dataset.metadata,
             grad_scaler=grad_scaler,
@@ -193,8 +194,8 @@ class RENINeuSPipeline(VanillaPipeline):
         """
         datamanager_params = self.datamanager.get_param_groups()
         model_params = self.model.get_param_groups()
-        if self.visibility_field is not None:
-            visibility_params = self.visibility_field.get_param_groups()
+        if self.model.visibility_field is not None:
+            visibility_params = self.model.visibility_field.get_param_groups()
             model_params = {**model_params, **visibility_params}
         return {**datamanager_params, **model_params}
 
@@ -207,8 +208,8 @@ class RENINeuSPipeline(VanillaPipeline):
         Args:
             step: current iteration step to update sampler if using DDP (distributed)
         """
-        if self.visibility_field and not self.model.config.fit_visibility_field:
-            self.visibility_field.eval()
+        if self._model.visibility_field and not self.model.config.fit_visibility_field:
+            self._model.visibility_field.eval()
 
         ray_bundle, batch = self.datamanager.next_train(step)
         model_outputs = self._model(
@@ -235,9 +236,11 @@ class RENINeuSPipeline(VanillaPipeline):
                 ray_bundle, batch
             )  # we sample from the 3D scene, we want the visibility (ddf) to be consistent with the scene
             ray_bundle = vis_batch["ray_bundle"]
-            vis_outputs = self.visibility_field(ray_bundle=ray_bundle, batch=vis_batch, reni_neus=self.model)
-            vis_metrics_dict = self.visibility_field.get_metrics_dict(vis_outputs, vis_batch)
-            vis_loss_dict = self.visibility_field.get_loss_dict(vis_outputs, vis_batch, vis_metrics_dict)
+            vis_outputs = self._model.visibility_field(
+                ray_bundle=ray_bundle, batch=vis_batch, reni_neus=self.model, stop_gradients=True
+            )
+            vis_metrics_dict = self.model.visibility_field.get_metrics_dict(vis_outputs, vis_batch)
+            vis_loss_dict = self.model.visibility_field.get_loss_dict(vis_outputs, vis_batch, vis_metrics_dict)
 
             model_outputs = {**model_outputs, **vis_outputs}
             loss_dict = {**loss_dict, **vis_loss_dict}
@@ -255,15 +258,15 @@ class RENINeuSPipeline(VanillaPipeline):
         """
         self._optimise_evaluation_latents(step)
         self.model.eval()
-        if self.visibility_field is not None:
-            self.visibility_field.eval()
+        if self.model.visibility_field is not None:
+            self.model.visibility_field.eval()
         ray_bundle, batch = self.datamanager.next_eval(step)
         model_outputs = self.model(ray_bundle, step=step)
         metrics_dict = self.model.get_metrics_dict(model_outputs, batch)
         loss_dict = self.model.get_loss_dict(model_outputs, batch, metrics_dict)
         self.model.train()
-        if self.visibility_field is not None and self.model.config.fit_visibility_field:
-            self.visibility_field.train()
+        if self.model.visibility_field is not None and self.model.config.fit_visibility_field:
+            self.model.visibility_field.train()
         return model_outputs, loss_dict, metrics_dict
 
     @profiler.time_function
@@ -276,8 +279,8 @@ class RENINeuSPipeline(VanillaPipeline):
         """
         self._optimise_evaluation_latents(step)
         self.model.eval()
-        if self.visibility_field is not None:
-            self.visibility_field.eval()
+        if self.model.visibility_field is not None:
+            self.model.visibility_field.eval()
         image_idx, camera_ray_bundle, batch = self.datamanager.next_eval_image(step)
         outputs = self.model.get_outputs_for_camera_ray_bundle(camera_ray_bundle, show_progress=True, step=step)
         metrics_dict, images_dict = self.model.get_image_metrics_and_images(outputs, batch)
@@ -286,8 +289,8 @@ class RENINeuSPipeline(VanillaPipeline):
         assert "num_rays" not in metrics_dict
         metrics_dict["num_rays"] = len(camera_ray_bundle)
         self.model.train()
-        if self.visibility_field is not None and self.model.config.fit_visibility_field:
-            self.visibility_field.train()
+        if self.model.visibility_field is not None and self.model.config.fit_visibility_field:
+            self.model.visibility_field.train()
         return metrics_dict, images_dict
 
     @profiler.time_function
@@ -299,8 +302,8 @@ class RENINeuSPipeline(VanillaPipeline):
         """
         self._optimise_evaluation_latents(step)
         self.model.eval()
-        if self.visibility_field is not None:
-            self.visibility_field.eval()
+        if self.model.visibility_field is not None:
+            self.model.visibility_field.eval()
         metrics_dict_list = []
         num_images = len(self.datamanager.fixed_indices_eval_dataloader)
         with Progress(
@@ -332,8 +335,8 @@ class RENINeuSPipeline(VanillaPipeline):
                 torch.mean(torch.tensor([metrics_dict[key] for metrics_dict in metrics_dict_list]))
             )
         self.model.train()
-        if self.visibility_field is not None and self.model.config.fit_visibility_field:
-            self.visibility_field.train()
+        if self.model.visibility_field is not None and self.model.config.fit_visibility_field:
+            self.model.visibility_field.train()
         return metrics_dict
 
     def _setup_visibility_field(self, device):
@@ -345,7 +348,10 @@ class RENINeuSPipeline(VanillaPipeline):
 
         if self.config.visibility_ckpt_path is None:
             return self.config.visibility_field.setup(
-                scene_box=self.scene_box, num_train_data=self.num_train_data, ddf_radius=ddf_radius
+                scene_box=self.scene_box,
+                num_train_data=self.num_train_data,
+                ddf_radius=ddf_radius,
+                sdf_to_visibility_stop_gradients=self.config.model.sdf_to_visibility_stop_gradients,
             )
         else:
             ckpt_path = (
@@ -368,6 +374,7 @@ class RENINeuSPipeline(VanillaPipeline):
                 scene_box=self.scene_box,
                 num_train_data=-1,
                 ddf_radius=ddf_radius,
+                sdf_to_visibility_stop_gradient=self.config.model.sdf_to_visibility_stop_gradients,
             )
 
             visibility_field.load_state_dict(model_dict)
@@ -401,7 +408,7 @@ class RENINeuSPipeline(VanillaPipeline):
         )
         mask = (accumulations > self.config.visibility_accumulation_mask_threshold).float()
         # clamp termination distance to 2 x ddf_sphere_radius
-        termination_dist = torch.clamp(termination_dist, max=2 * self.visibility_field.ddf_radius)
+        termination_dist = torch.clamp(termination_dist, max=2 * self.model.visibility_field.ddf_radius)
 
         # this is so we can use the fact that sky rays don't intersect anything
         # so we can go from the DDF boundary to the known camera position as

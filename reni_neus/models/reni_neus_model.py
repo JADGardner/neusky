@@ -226,7 +226,12 @@ class RENINeuSFactoModel(NeuSFactoModel):
             ckpt = torch.load(str(ckpt_path))
             illumination_field_dict = {}
             match_str = "_model.field."
-            ignore_strs = ["_model.field.train_logvar", "_model.field.eval_logvar", "_model.field.train_mu", "_model.field.eval_mu"]
+            ignore_strs = [
+                "_model.field.train_logvar",
+                "_model.field.eval_logvar",
+                "_model.field.train_mu",
+                "_model.field.eval_mu",
+            ]
             for key in ckpt["pipeline"].keys():
                 if key.startswith(match_str) and not any([ignore_str in key for ignore_str in ignore_strs]):
                     illumination_field_dict[key[len(match_str) :]] = ckpt["pipeline"][key]
@@ -438,6 +443,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
                 )
             else:
                 ray_samples_vis = ray_samples
+                depth_vis = depth
 
             # if we are decaying visibility threshold then compute it here
             if self.visibility_threshold_end is not None:
@@ -447,7 +453,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
 
             visibility_dict = self.compute_visibility(
                 ray_samples=ray_samples_vis,
-                depth=depth_vis, # TODO Need to understand why depth and not p2p_dist
+                depth=depth_vis,  # TODO Need to understand why depth and not p2p_dist
                 illumination_directions=illumination_directions,
                 threshold_distance=visibility_threshold,
             )
@@ -701,7 +707,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
         fg_mask = batch["mask"][..., 1].to(self.device)  # [num_rays]
         ground_mask = batch["mask"][..., 2].to(self.device)  # [num_rays]
         loss_dict = {}
-        
+
         image = batch["image"].to(self.device)
         pred_image = outputs["rgb"]
         if self.config.loss_inclusions["rgb_l1_loss"]:
@@ -833,7 +839,6 @@ class RENINeuSFactoModel(NeuSFactoModel):
                 accumulation=outputs["accumulation"],
             )
             images_dict[key] = prop_depth_i
-
 
         illumination_field = self.get_illumination_field()
 
@@ -1302,7 +1307,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
         )
 
         # Get output of visibility field (DDF)
-        outputs = self.visibility_field(visibility_ray_bundle, batch=None, reni_neus=self)  # [N, 2]
+        outputs = self.visibility_field(visibility_ray_bundle, batch=None, reni_neus=self, stop_gradients=False)  # [N, 2]
 
         # the ground truth distance from the point on the sphere to the point on the SDF
         dist_to_ray_origins = torch.norm(positions - sphere_intersection_points, dim=-1)  # [N]

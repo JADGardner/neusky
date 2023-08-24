@@ -93,8 +93,9 @@ class DDFModel(Model):
     config: DDFModelConfig
 
     def __init__(self, config: DDFModelConfig, ddf_radius, **kwargs) -> None:
+        # if sdf_to_visibility_stop_gradient in kwargs
+        self.sdf_to_visibility_stop_gradients = kwargs.get("sdf_to_visibility_stop_gradients", False)
         self.ddf_radius = ddf_radius
-        super().__init__(config=config, **kwargs)
         self.viewer_control = ViewerControl()  # no arguments
 
         def on_sphere_look_at_origin(button):
@@ -103,6 +104,8 @@ class DDFModel(Model):
             self.viewer_control.set_pose(position=(0, 1, 0), look_at=(0, 0, 0), instant=False)
 
         self.viewer_button = ViewerButton(name="Camera on DDF", cb_hook=on_sphere_look_at_origin)
+
+        super().__init__(config=config, **kwargs)
 
     def populate_modules(self):
         """Set the fields and modules"""
@@ -172,7 +175,7 @@ class DDFModel(Model):
 
         return rotation_matrices
 
-    def get_outputs(self, ray_bundle: RayBundle, batch, reni_neus):
+    def get_outputs(self, ray_bundle: RayBundle, batch, reni_neus, stop_gradients: bool = True):
         if self.field is None:
             raise ValueError("populate_fields() must be called before get_outputs")
 
@@ -230,12 +233,14 @@ class DDFModel(Model):
             outputs["distance_weight"] = distance_weight
 
         # get sdf at expected termination distance for loss
-        if (
-            self.config.loss_inclusions["sdf_l1_loss"] or self.config.loss_inclusions["sdf_l2_loss"]
-        ) and self.training and batch is not None:
+        if (self.config.loss_inclusions["sdf_l1_loss"] or self.config.loss_inclusions["sdf_l2_loss"]) and self.training:
             if reni_neus is not None:
                 termination_points = positions + directions * expected_termination_dist.unsqueeze(-1)
-                sdf_at_termination = reni_neus.field.get_sdf_at_pos(termination_points)
+                if stop_gradients:
+                    with torch.no_grad():
+                        sdf_at_termination = reni_neus.field.get_sdf_at_pos(termination_points)
+                else:
+                    sdf_at_termination = reni_neus.field.get_sdf_at_pos(termination_points)
                 outputs["sdf_at_termination"] = sdf_at_termination
             elif batch is not None and "sdf_at_termination" in batch:
                 sdf_at_termination = batch["sdf_at_termination"]
@@ -356,7 +361,7 @@ class DDFModel(Model):
 
         return outputs
 
-    def forward(self, ray_bundle: RayBundle, batch, reni_neus) -> Dict[str, torch.Tensor]:
+    def forward(self, ray_bundle: RayBundle, batch, reni_neus, stop_gradients: bool = True) -> Dict[str, torch.Tensor]:
         """Run forward starting with a ray bundle. This outputs different things depending on the configuration
         of the model and whether or not the batch is provided (whether or not we are training basically)
 
@@ -364,10 +369,7 @@ class DDFModel(Model):
             ray_bundle: containing all the information needed to render that ray latents included
         """
 
-        # if self.collider is not None:
-        #     ray_bundle = self.collider(ray_bundle)
-
-        return self.get_outputs(ray_bundle, batch, reni_neus)
+        return self.get_outputs(ray_bundle, batch, reni_neus, stop_gradients=stop_gradients)
 
     def get_loss_dict(self, outputs, batch, metrics_dict=None):
         # the sdf value at the predicted termination distance

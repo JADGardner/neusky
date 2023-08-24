@@ -54,7 +54,7 @@ RENINeuS = MethodSpecification(
                     pad_to_equal_size=False,
                 ),
                 train_num_images_to_sample_from=-1,
-                train_num_times_to_repeat_images=-1, # # Iterations before resample a new subset
+                train_num_times_to_repeat_images=-1,  # # Iterations before resample a new subset
                 pixel_sampler=RENINeuSPixelSamplerConfig(),
                 images_on_gpu=True,
                 masks_on_gpu=True,
@@ -131,9 +131,9 @@ RENINeuS = MethodSpecification(
                 illumination_field_ckpt_step=50000,
                 fix_test_illumination_directions=True,
                 eval_num_rays_per_chunk=256,
-                use_visibility=False,
+                use_visibility=True,
                 fit_visibility_field=True,  # if true, train visibility field, else visibility is static
-                sdf_to_visibility_stop_gradients=True, # Gradient flow from Visibility through SDF
+                sdf_to_visibility_stop_gradients=True,  # Gradient flow from Visibility through SDF
                 visibility_threshold=(
                     2.0,
                     0.1,
@@ -172,10 +172,10 @@ RENINeuS = MethodSpecification(
                     "sky_ray_loss": True,
                 },
                 loss_coefficients={
-                    "depth_l1_loss": 20.0,
+                    "depth_l1_loss": 50.0,
                     "depth_l2_loss": 0.0,
                     "sdf_l1_loss": 100.0,
-                    "sdf_l2_loss": 100.0,
+                    "sdf_l2_loss": 10.0,
                     "prob_hit_loss": 1.0,
                     "normal_loss": 1.0,
                     "multi_view_loss": 0.1,
@@ -183,15 +183,15 @@ RENINeuS = MethodSpecification(
                 },
                 multi_view_loss_stop_gradient=False,
                 include_depth_loss_scene_center_weight=True,
-                compute_normals=False, # This currently does not work, the input to the network need changing to work with autograd
+                compute_normals=False,  # This currently does not work, the input to the network need changing to work with autograd
                 eval_num_rays_per_chunk=1024,
                 scene_center_weight_exp=3.0,
-                scene_center_use_xyz=False, # only xy
-                mask_depth_to_circumference=False, # force depth under mask to circumference of ddf (not implemented)
+                scene_center_use_xyz=False,  # only xy
+                mask_depth_to_circumference=False,  # force depth under mask to circumference of ddf (not implemented)
             ),
             visibility_train_sampler=VMFDDFSamplerConfig(
                 num_samples_on_sphere=8,
-                num_rays_per_sample=128, # 8 * 128 = 1024 rays per batch
+                num_rays_per_sample=128,  # 8 * 128 = 1024 rays per batch
                 only_sample_upper_hemisphere=True,
                 concentration=20.0,
             ),
