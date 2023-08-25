@@ -190,8 +190,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
             self.visibility_threshold_end = None
             if self.config.visibility_threshold == "learnable":
                 self.visibility_threshold_loss = torch.nn.MSELoss()
-                self.visibility_threshold = Parameter(torch.tensor(2.0))
-                self.gt_visibility_min = torch.tensor(0.0001)
+                self.visibility_threshold = Parameter(torch.tensor(self.visibility_field.ddf_radius * 2.0))
             elif isinstance(self.config.visibility_threshold, tuple):
                 # this is start and end and we decrease exponentially
                 self.visibility_threshold_start = torch.tensor(self.config.visibility_threshold[0])
@@ -281,6 +280,8 @@ class RENINeuSFactoModel(NeuSFactoModel):
         param_groups["fields"] = list(self.field.parameters())
         param_groups["proposal_networks"] = list(self.proposal_networks.parameters())
         param_groups["illumination_field"] = list(self.illumination_field_train.parameters())
+        if self.config.visibility_threshold == "learnable":
+            param_groups["visibility_threshold"] = [self.visibility_threshold]
         return param_groups
 
     def get_illumination_field(self):
@@ -784,7 +785,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
 
             if self.config.visibility_threshold == "learnable":
                 loss_dict["visibility_threshold_loss"] = self.visibility_threshold_loss(
-                    self.visibility_threshold, self.gt_visibility_min
+                    self.visibility_threshold, torch.tensor(0.0001).type_as(self.visibility_threshold)
                 )
 
         loss_dict = misc.scale_dict(loss_dict, self.config.loss_coefficients)

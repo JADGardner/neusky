@@ -138,11 +138,8 @@ RENINeuS = MethodSpecification(
                 eval_num_rays_per_chunk=256,
                 use_visibility=True,
                 fit_visibility_field=True,  # if true, train visibility field, else visibility is static
-                sdf_to_visibility_stop_gradients="both",
-                visibility_threshold=(
-                    2.0,
-                    0.1,
-                ),  # "learnable", float, tuple(start, end) ... tuple will exponentially decay from start to end
+                sdf_to_visibility_stop_gradients="depth",
+                visibility_threshold="learnable",  # "learnable", float, tuple(start, end) ... tuple will exponentially decay from start to end
                 steps_till_min_visibility_threshold=50000,
                 only_upperhemisphere_visibility=True,
                 scene_contraction_order="L2",  # L2, Linf
@@ -219,8 +216,8 @@ RENINeuS = MethodSpecification(
                 "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-5, max_steps=100001),
             },
             "visibility_threshold": {
-                "optimizer": AdamOptimizerConfig(lr=1e-6, eps=1e-15),
-                "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-4, max_steps=100001),
+                "optimizer": AdamOptimizerConfig(lr=1e-3, eps=1e-15),
+                "scheduler": ExponentialDecaySchedulerConfig(warmup_steps=4000, lr_final=1e-4, max_steps=100001),
             },
             "ddf_field": {
                 "optimizer": AdamOptimizerConfig(lr=1e-4, eps=1e-15),
