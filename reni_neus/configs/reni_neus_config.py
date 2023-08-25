@@ -123,6 +123,7 @@ RENINeuS = MethodSpecification(
                     "sky_pixel_loss": 1.0,
                     "hashgrid_density_loss": 1e-4,
                     "ground_plane_loss": 0.1,
+                    "visibility_threshold_loss": 0.01,
                 },
                 eval_latent_optimizer={
                     "eval_latents": {
@@ -185,12 +186,12 @@ RENINeuS = MethodSpecification(
                     "multi_view_loss": 0.01,
                     "sky_ray_loss": 1.0,
                 },
-                multi_view_loss_stop_gradient=False,
                 include_depth_loss_scene_center_weight=True,
                 compute_normals=False,  # This currently does not work, the input to the network need changing to work with autograd
                 eval_num_rays_per_chunk=1024,
                 scene_center_weight_exp=3.0,
                 scene_center_weight_include_z=False,  # only xy
+                mask_to_circumference=True,
             ),
             visibility_train_sampler=VMFDDFSamplerConfig(
                 num_samples_on_sphere=8,

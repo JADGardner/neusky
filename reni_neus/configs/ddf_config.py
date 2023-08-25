@@ -78,12 +78,12 @@ DirectionalDistanceField = MethodSpecification(
                     "multi_view_loss": 0.1,
                     "sky_ray_loss": 1.0,
                 },
-                multi_view_loss_stop_gradient=False,
                 include_depth_loss_scene_center_weight=True,
                 compute_normals=False,  # This currently does not work, the input to the network need changing to work with autograd
                 eval_num_rays_per_chunk=1024,
                 scene_center_weight_exp=3.0,
                 scene_center_weight_include_z=False,  # only xy
+                mask_to_circumference=True,
             ),
             reni_neus_ckpt_path=Path("outputs/unnamed/reni-neus/2023-08-09_150349"),
             reni_neus_ckpt_step=85000,

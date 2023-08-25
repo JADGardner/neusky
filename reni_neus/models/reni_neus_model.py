@@ -189,7 +189,9 @@ class RENINeuSFactoModel(NeuSFactoModel):
 
             self.visibility_threshold_end = None
             if self.config.visibility_threshold == "learnable":
-                self.visibility_threshold = Parameter(torch.tensor(1.0))
+                self.visibility_threshold_loss = torch.nn.MSELoss()
+                self.visibility_threshold = Parameter(torch.tensor(2.0))
+                self.gt_visibility_min = torch.tensor(0.0001)
             elif isinstance(self.config.visibility_threshold, tuple):
                 # this is start and end and we decrease exponentially
                 self.visibility_threshold_start = torch.tensor(self.config.visibility_threshold[0])
@@ -457,6 +459,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
             if self.visibility_threshold_end is not None:
                 visibility_threshold = self.decay_threshold(step)
             else:
+                # otherwise we are using a fixed or learnable threshold
                 visibility_threshold = self.visibility_threshold
 
             visibility_dict = self.compute_visibility(
@@ -779,8 +782,28 @@ class RENINeuSFactoModel(NeuSFactoModel):
                 ground_mask = ground_mask.unsqueeze(1).expand_as(normal_pred)
                 loss_dict["ground_plane_loss"] = monosdf_normal_loss(normal_pred * ground_mask, normal_gt * ground_mask)
 
+            if self.config.visibility_threshold == "learnable":
+                loss_dict["visibility_threshold_loss"] = self.visibility_threshold_loss(
+                    self.visibility_threshold, self.gt_visibility_min
+                )
+
         loss_dict = misc.scale_dict(loss_dict, self.config.loss_coefficients)
         return loss_dict
+
+    def get_metrics_dict(self, outputs, batch) -> Dict:
+        metrics_dict = {}
+        image = batch["image"].to(self.device)
+        image = self.renderer_rgb.blend_background(image)
+        metrics_dict["psnr"] = self.psnr(outputs["rgb"], image)
+        if self.training:
+            # training statics
+            metrics_dict["s_val"] = self.field.deviation_network.get_variance().item()
+            metrics_dict["inv_s"] = 1.0 / self.field.deviation_network.get_variance().item()
+
+            if self.config.visibility_threshold == "learnable":
+                metrics_dict["visibility_threshold"] = self.visibility_threshold.item()
+
+        return metrics_dict
 
     def get_image_metrics_and_images(
         self, outputs: Dict[str, Any], batch: Dict[str, Any]

@@ -425,4 +425,14 @@ class RENINeuSPipeline(VanillaPipeline):
 
         data["sky_ray_bundle"] = self.datamanager.get_sky_ray_bundle(256)
 
+        # just ensuring no gradients
+        data["ray_bundle"].origins.requires_grad = False
+        data["ray_bundle"].directions.requires_grad = False
+        data["sky_ray_bundle"].origins.requires_grad = False
+        data["sky_ray_bundle"].directions.requires_grad = False
+        data["accumulations"].requires_grad = False
+        data["mask"].requires_grad = False
+        data["termination_dist"].requires_grad = False
+        data["normals"].requires_grad = False
+
         return data

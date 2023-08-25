@@ -58,14 +58,14 @@ class DDFModelConfig(ModelConfig):
     """DDF field configuration"""
     compute_normals: bool = False
     """Whether to compute normals"""
-    multi_view_loss_stop_gradient: bool = False
-    """Whether to stop gradient for the multi-view loss"""
     include_depth_loss_scene_center_weight: bool = False
     """Whether to include depth loss scene center weight"""
     scene_center_weight_exp: float = 1.0
     """Exponent for the scene center weight"""
     scene_center_weight_include_z: bool = False
     """Whether to use xyz or xy for the scene center weight"""
+    mask_to_circumference: bool = True
+    """Whether to set depths outside of accumulation mask to the radius of the DDF sphere"""
     loss_inclusions: Dict[str, bool] = to_immutable_dict(
         {
             "depth_l1_loss": True,
@@ -117,10 +117,14 @@ class DDFModel(Model):
         self.renderer_depth = DepthRenderer()
 
         # losses
+        if self.config.include_depth_loss_scene_center_weight:
+            reduction = "none"
+        else:
+            reduction = "mean"
         if self.config.loss_inclusions["depth_l1_loss"]:
-            self.depth_l1_loss = nn.L1Loss()
+            self.depth_l1_loss = nn.L1Loss(reduction=reduction)
         if self.config.loss_inclusions["depth_l2_loss"]:
-            self.depth_l2_loss = nn.MSELoss()
+            self.depth_l2_loss = nn.MSELoss(reduction=reduction)
         if self.config.loss_inclusions["sdf_l1_loss"]:
             self.sdf_l1_loss = nn.L1Loss()
         if self.config.loss_inclusions["sdf_l2_loss"]:
@@ -398,27 +402,29 @@ class DDFModel(Model):
         # should be zero
         loss_dict = {}
 
+        if self.config.mask_to_circumference:
+            expected_termination_dist = outputs["expected_termination_dist"].unsqueeze(1)
+            gt_termination_dist = batch["termination_dist"]
+            gt_termination_dist[batch["mask"] == 0] = self.ddf_radius * 2
+        else:
+            expected_termination_dist = outputs["expected_termination_dist"].unsqueeze(1) * batch["mask"]
+            gt_termination_dist = batch["termination_dist"] * batch["mask"]
+
         if self.config.loss_inclusions["depth_l1_loss"]:
             if self.config.include_depth_loss_scene_center_weight:
-                mask = batch["mask"] * outputs["distance_weight"]
+                loss = self.depth_l1_loss(expected_termination_dist, gt_termination_dist)
+                # now we weight by distance_weight and reduce using mean
+                loss_dict["depth_l1_loss"] = torch.mean(loss * outputs["distance_weight"].unsqueeze(-1))
             else:
-                mask = batch["mask"]
-
-            loss_dict["depth_l1_loss"] = self.depth_l1_loss(
-                outputs["expected_termination_dist"].unsqueeze(1) * mask,
-                batch["termination_dist"] * mask,
-            )
+                loss_dict["depth_l1_loss"] = self.depth_l1_loss(expected_termination_dist, gt_termination_dist)
 
         if self.config.loss_inclusions["depth_l2_loss"]:
             if self.config.include_depth_loss_scene_center_weight:
-                mask = batch["mask"] * outputs["distance_weight"]
+                loss = self.depth_l2_loss(expected_termination_dist, gt_termination_dist)
+                # now we weight by distance_weight and reduce using mean
+                loss_dict["depth_l2_loss"] = torch.mean(loss * outputs["distance_weight"].unsqueeze(-1))
             else:
-                mask = batch["mask"]
-
-            loss_dict["depth_l2_loss"] = self.depth_l2_loss(
-                outputs["expected_termination_dist"].unsqueeze(1) * mask,
-                batch["termination_dist"] * mask,
-            )
+                loss_dict["depth_l2_loss"] = self.depth_l2_loss(expected_termination_dist, gt_termination_dist)
 
         if self.config.loss_inclusions["sdf_l1_loss"]:
             loss_dict["sdf_l1_loss"] = self.sdf_l1_loss(
