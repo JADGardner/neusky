@@ -64,10 +64,8 @@ class DDFModelConfig(ModelConfig):
     """Whether to include depth loss scene center weight"""
     scene_center_weight_exp: float = 1.0
     """Exponent for the scene center weight"""
-    scene_center_use_xyz: bool = False
+    scene_center_weight_include_z: bool = False
     """Whether to use xyz or xy for the scene center weight"""
-    mask_depth_to_circumference: bool = False
-    """Whether to set depth under mask to the circumference"""
     loss_inclusions: Dict[str, bool] = to_immutable_dict(
         {
             "depth_l1_loss": True,
@@ -217,7 +215,7 @@ class DDFModel(Model):
         if self.config.include_depth_loss_scene_center_weight and self.training and batch is not None:
             gt_termination_points = positions + directions * batch["termination_dist"].repeat(1, 3)
 
-            if self.config.scene_center_use_xyz:
+            if self.config.scene_center_weight_include_z:
                 # use XYZ
                 distance_from_center = torch.norm(positions, dim=-1)
             else:

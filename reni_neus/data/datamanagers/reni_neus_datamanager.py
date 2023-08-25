@@ -141,3 +141,13 @@ class RENINeuSDataManager(VanillaDataManager):  # pylint: disable=abstract-metho
         ray_indices = batch["indices"].cpu()
         ray_bundle = self.train_ray_generator(ray_indices)
         return ray_bundle
+
+    def get_eval_image_half_bundle(self, sample_region: Literal['left_image_half', 'right_image_half', 'full_image']) -> Tuple[RayBundle, Dict]:
+        """Returns a ray bundle of rays within the left image half and within standard mask."""
+        image_batch = next(self.iter_eval_image_dataloader)
+        assert self.eval_pixel_sampler is not None
+        assert isinstance(image_batch, dict)
+        batch = self.eval_pixel_sampler.collate_image_half(batch=image_batch, num_rays_per_batch=self.config.eval_num_rays_per_batch, sample_region=sample_region)
+        ray_indices = batch["indices"].cpu()
+        ray_bundle = self.eval_ray_generator(ray_indices)
+        return ray_bundle, batch

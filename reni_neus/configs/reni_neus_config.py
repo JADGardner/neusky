@@ -43,9 +43,6 @@ RENINeuS = MethodSpecification(
         # load_dir=Path("/workspace/outputs/unnamed/reni-neus/2023-08-09_075320/nerfstudio_models"),
         # load_step=50000,
         pipeline=RENINeuSPipelineConfig(
-            eval_latent_optimisation_source="image_full",
-            eval_latent_optimisation_epochs=50,
-            eval_latent_optimisation_lr=1e-2,
             datamanager=RENINeuSDataManagerConfig(
                 dataparser=NeRFOSRCityScapesDataParserConfig(
                     scene="lk2",
@@ -127,11 +124,18 @@ RENINeuS = MethodSpecification(
                     "hashgrid_density_loss": 1e-4,
                     "ground_plane_loss": 0.1,
                 },
+                eval_latent_optimizer={
+                    "eval_latents": {
+                        "optimizer": AdamOptimizerConfig(lr=1e-1, eps=1e-15),
+                        "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-7, max_steps=250),
+                    },
+                },
+                eval_latent_sample_region="full_image",
                 illumination_field_ckpt_path=Path("outputs/reni/reni/2023-08-23_075123/"),
                 illumination_field_ckpt_step=50000,
                 fix_test_illumination_directions=True,
                 eval_num_rays_per_chunk=256,
-                use_visibility=False,
+                use_visibility=True,
                 fit_visibility_field=True,  # if true, train visibility field, else visibility is static
                 sdf_to_visibility_stop_gradients="both",
                 visibility_threshold=(
@@ -186,8 +190,7 @@ RENINeuS = MethodSpecification(
                 compute_normals=False,  # This currently does not work, the input to the network need changing to work with autograd
                 eval_num_rays_per_chunk=1024,
                 scene_center_weight_exp=3.0,
-                scene_center_use_xyz=False,  # only xy
-                mask_depth_to_circumference=False,  # force depth under mask to circumference of ddf (not implemented)
+                scene_center_weight_include_z=False,  # only xy
             ),
             visibility_train_sampler=VMFDDFSamplerConfig(
                 num_samples_on_sphere=8,

@@ -53,12 +53,15 @@ from nerfstudio.model_components.losses import (
 
 from nerfstudio.viewer.server.viewer_elements import *
 from nerfstudio.utils.math import normalized_depth_scale_and_shift
+from nerfstudio.engine.optimizers import OptimizerConfig, Optimizers
+from nerfstudio.engine.schedulers import SchedulerConfig
 
 from reni_neus.model_components.renderers import RGBLambertianRendererWithVisibility
 from reni_neus.model_components.losses import RENISkyPixelLoss
 from reni_neus.field_components.reni_neus_fieldheadnames import RENINeuSFieldHeadNames
 from reni_neus.models.ddf_model import DDFModelConfig, DDFModel
 from reni_neus.model_components.ddf_sampler import DDFSamplerConfig
+from reni_neus.data.datamangers.reni_neus_datamanager import RENINeuSDataManager
 
 from reni.illumination_fields.base_spherical_field import SphericalFieldConfig
 from reni.illumination_fields.reni_illumination_field import RENIField, RENIFieldConfig
@@ -126,6 +129,17 @@ class RENINeuSFactoModelConfig(NeuSFactoModelConfig):
         }
     )
     """Which losses to include in the training"""
+    eval_latent_optimizer: Dict[str, Any] = to_immutable_dict(
+        {
+            "eval_latents": {
+                "optimizer": OptimizerConfig(),
+                "scheduler": SchedulerConfig(),
+            }
+        }
+    )
+    """Optimizer and scheduler for latent code optimisation"""
+    eval_latent_sample_region: Literal["left_image_half", "right_image_half", "full_image"] = "full_image"
+    """Sample region of images for eval latent optimisation"""
 
 
 class RENINeuSFactoModel(NeuSFactoModel):
@@ -1021,7 +1035,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
 
         return outputs
 
-    def fit_latent_codes_for_eval(self, datamanager, gt_source, epochs, learning_rate, step):
+    def fit_latent_codes_for_eval(self, datamanager: RENINeuSDataManager, step: int):
         """Fit evaluation latent codes to session envmaps so that illumination is correct."""
 
         # Make sure we are using eval RENI
@@ -1033,7 +1047,9 @@ class RENINeuSFactoModel(NeuSFactoModel):
         # Reset latents to zeros for fitting
         illumination_field.reset_eval_latents()
 
-        opt = torch.optim.Adam(illumination_field.parameters(), lr=learning_rate)
+        param_group = {"eval_latents": [illumination_field.eval_mu]}
+        optimizer = Optimizers(self.config.eval_latent_optimizer, param_group)
+        steps = optimizer.config['eval_latents']['scheduler'].max_steps
 
         with Progress(
             TextColumn("[progress.description]{task.description}"),
@@ -1041,69 +1057,21 @@ class RENINeuSFactoModel(NeuSFactoModel):
             TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
             TimeRemainingColumn(),
             TextColumn("[blue]Loss: {task.fields[extra]}"),
+            TextColumn("[green]LR: {task.fields[lr]}"),
         ) as progress:
-            task = progress.add_task("[green]Optimising eval latents... ", total=epochs, extra="")
-
-            # Fit latents
-            for _ in range(epochs):
-                epoch_loss = 0.0
-                for step in range(len(datamanager.eval_dataset)):
-                    # Lots of admin to get the data in the right format depending on task
-                    idx, ray_bundle, batch = datamanager.next_eval_image(step)
-                    mask = batch["mask"]
-
-                    if gt_source == "envmap":
-                        raise NotImplementedError
-                    elif gt_source in ["image_half", "image_full"]:
-                        divisor = 2 if gt_source == "image_half" else 1
-
-                        rgb = batch["image"].to(self.device)  # [H, W, 3]
-                        rgb = rgb[:, : rgb.shape[1] // divisor, :]  # [H, W//divisor, 3]
-                        rgb = rgb.reshape(-1, 3)  # [H*W, 3]
-
-                        # Use with the left half of the image or the full image, depending on divisor
-                        ray_bundle = ray_bundle[:, : ray_bundle.shape[1] // divisor]
-
-                        ray_bundle = ray_bundle.get_row_major_sliced_ray_bundle(
-                            0, len(ray_bundle)
-                        )  # [H * W//divisor, N]
-
-                        if "mask" in batch:
-                            mask = mask.to(self.device)  # [H, W, 3]
-                            mask = mask[:, : mask.shape[1] // divisor, :].unsqueeze(-1)  # [H, W//divisor, 3]
-                            mask = mask.reshape(-1, 3)  # [H*W, 3]
-                            nonzero_indices = torch.nonzero(mask[..., 0], as_tuple=False)
-                            chosen_indices = random.sample(range(len(nonzero_indices)), k=256)
-                            indices = nonzero_indices[chosen_indices].squeeze()
-                        else:
-                            # Sample N rays and build a new ray_bundle
-                            indices = random.sample(range(len(ray_bundle)), k=256)
-
-                        ray_bundle = ray_bundle[indices]  # [N]
-
-                        # Get GT RGB values for the sampled rays
-                        batch["image"] = rgb[indices, :]  # [N, 3]
-                        batch["mask"] = mask[indices, :]  # [N, 3]
-
-                    # Get model output
-                    if gt_source == "envmap":
-                        raise NotImplementedError
-                    else:
-                        model_output = self.forward(ray_bundle=ray_bundle, step=step)
-
-                    opt.zero_grad()
-                    if gt_source in ["envmap", "image_half_sky"]:
-                        raise NotImplementedError
-                        # loss, _, _, _ = reni_test_loss(model_output, rgb, S, Z)
-                    else:
-                        loss_dict = self.get_loss_dict(model_output, batch)
-                        loss = functools.reduce(torch.add, loss_dict.values())
-                    epoch_loss += loss.item()
-                    loss.backward()
-                    opt.step()
-
-                progress.update(task, advance=1, extra=f"{epoch_loss:.4f}")
-
+            task = progress.add_task("[green]Optimising eval latents... ", total=steps, loss="", lr="")
+            
+            for step in range(steps):
+                ray_bundle, batch = datamanager.get_eval_image_half_bundle(sample_region=self.config.eval_latent_sample_region)
+                model_outputs = self.forward(ray_bundle=ray_bundle, step=step)
+                loss_dict = self.get_loss_dict(model_outputs, batch, ray_bundle)
+                loss = functools.reduce(torch.add, loss_dict.values())
+                optimizer.zero_grad_all()
+                loss.backward()
+                optimizer.optimizer_step("eval_latents")
+                optimizer.scheduler_step("eval_latents")
+                
+                progress.update(task, advance=1, loss=f"{loss.item():.4f}", lr=f"{optimizer.schedulers['eval_latents'].get_last_lr()[0]:.8f}")
         # No longer using eval RENI
         self.fitting_eval_latents = False
 

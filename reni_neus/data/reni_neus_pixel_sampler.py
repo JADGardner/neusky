@@ -17,7 +17,7 @@ Code for sampling pixels.
 """
 
 import torch
-from typing import Dict, Optional, Union, Type
+from typing import Dict, Optional, Union, Type, Literal
 from torchtyping import TensorType
 from dataclasses import dataclass, field
 
@@ -160,5 +160,46 @@ class RENINeuSPixelSampler(PixelSampler):
 
         if keep_full_image:
             collated_batch["full_image"] = batch["image"]
+
+        return collated_batch
+
+    def collate_image_half(self, batch: Dict, num_rays_per_batch: int, sample_region: Literal['left_image_half', 'right_image_half', 'full_image']):
+        """
+        Operates on a batch of images and samples pixels to use for generating rays.
+        Returns a collated batch which is input to the Graph.
+        It will sample only within the valid 'sky_mask' if it's specified.
+
+        Args:
+            batch: batch of images to sample from
+            num_rays_per_batch: number of rays to sample per batch
+            keep_full_image: whether or not to include a reference to the full image in returned batch
+        """
+
+        device = batch["image"].device
+        num_images, image_height, image_width, _ = batch["image"].shape
+
+        mask = batch["mask"][..., 0:1] # 1 is static, 0 is transient, [N, H, W, 1]
+
+        # we only want to sample in the sample region so set other region of the of the mask to 0
+        if sample_region == 'left_image_half':
+            mask[:, :, image_width//2:, :] = 0
+        elif sample_region == 'right_image_half':
+            mask[:, :, :image_width//2, :] = 0
+
+        indices = self.sample_method(
+            num_rays_per_batch, num_images, image_height, image_width, mask=mask, device=device
+        )
+
+        c, y, x = (i.flatten() for i in torch.split(indices, 1, dim=-1))
+        c, y, x = c.cpu(), y.cpu(), x.cpu()
+        collated_batch = {
+            key: value[c, y, x] for key, value in batch.items() if key != "image_idx" and value is not None
+        }
+
+        assert collated_batch["image"].shape[0] == num_rays_per_batch
+
+        # Needed to correct the random indices to their actual camera idx locations.
+        indices[:, 0] = batch["image_idx"][c]
+        collated_batch["indices"] = indices  # with the abs camera indices
 
         return collated_batch

@@ -67,12 +67,6 @@ class RENINeuSPipelineConfig(VanillaPipelineConfig):
     """specifies the datamanager config"""
     model: RENINeuSFactoModelConfig = RENINeuSFactoModelConfig()
     """specifies the model config"""
-    eval_latent_optimisation_source: Literal["none", "envmap", "image_half", "image_full"] = "image_half"
-    """Source for latent optimisation during eval"""
-    eval_latent_optimisation_epochs: int = 100
-    """Number of epochs to optimise latent during eval"""
-    eval_latent_optimisation_lr: float = 0.1
-    """Learning rate for latent optimisation during eval"""
     visibility_field: Union[DDFModelConfig, None] = DDFModelConfig()
     """Visibility field"""
     visibility_ckpt_path: Union[Path, None] = None
@@ -183,15 +177,10 @@ class RENINeuSPipeline(VanillaPipeline):
             dist.barrier(device_ids=[local_rank])
 
     def _optimise_evaluation_latents(self, step):
-        # If we are optimising per eval image latents then we need to do that first
-        if self.config.eval_latent_optimisation_source in ["envmap", "image_half", "image_full"]:
-            self.model.fit_latent_codes_for_eval(
-                datamanager=self.datamanager,
-                gt_source=self.config.eval_latent_optimisation_source,
-                epochs=self.config.eval_latent_optimisation_epochs,
-                learning_rate=self.config.eval_latent_optimisation_lr,
-                step=step,
-            )
+        self.model.fit_latent_codes_for_eval(
+            datamanager=self.datamanager,
+            step=step,
+        )
 
     def get_param_groups(self) -> Dict[str, List[Parameter]]:
         """Get the param groups for the pipeline.
