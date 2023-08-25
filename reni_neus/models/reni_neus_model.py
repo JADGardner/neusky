@@ -61,7 +61,7 @@ from reni_neus.model_components.losses import RENISkyPixelLoss
 from reni_neus.field_components.reni_neus_fieldheadnames import RENINeuSFieldHeadNames
 from reni_neus.models.ddf_model import DDFModelConfig, DDFModel
 from reni_neus.model_components.ddf_sampler import DDFSamplerConfig
-from reni_neus.data.datamangers.reni_neus_datamanager import RENINeuSDataManager
+from reni_neus.data.datamanagers.reni_neus_datamanager import RENINeuSDataManager
 
 from reni.illumination_fields.base_spherical_field import SphericalFieldConfig
 from reni.illumination_fields.reni_illumination_field import RENIField, RENIFieldConfig
@@ -1049,20 +1049,22 @@ class RENINeuSFactoModel(NeuSFactoModel):
 
         param_group = {"eval_latents": [illumination_field.eval_mu]}
         optimizer = Optimizers(self.config.eval_latent_optimizer, param_group)
-        steps = optimizer.config['eval_latents']['scheduler'].max_steps
+        steps = optimizer.config["eval_latents"]["scheduler"].max_steps
 
         with Progress(
             TextColumn("[progress.description]{task.description}"),
             BarColumn(),
             TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
             TimeRemainingColumn(),
-            TextColumn("[blue]Loss: {task.fields[extra]}"),
+            TextColumn("[blue]Loss: {task.fields[loss]}"),
             TextColumn("[green]LR: {task.fields[lr]}"),
         ) as progress:
             task = progress.add_task("[green]Optimising eval latents... ", total=steps, loss="", lr="")
-            
+
             for step in range(steps):
-                ray_bundle, batch = datamanager.get_eval_image_half_bundle(sample_region=self.config.eval_latent_sample_region)
+                ray_bundle, batch = datamanager.get_eval_image_half_bundle(
+                    sample_region=self.config.eval_latent_sample_region
+                )
                 model_outputs = self.forward(ray_bundle=ray_bundle, step=step)
                 loss_dict = self.get_loss_dict(model_outputs, batch, ray_bundle)
                 loss = functools.reduce(torch.add, loss_dict.values())
@@ -1070,8 +1072,13 @@ class RENINeuSFactoModel(NeuSFactoModel):
                 loss.backward()
                 optimizer.optimizer_step("eval_latents")
                 optimizer.scheduler_step("eval_latents")
-                
-                progress.update(task, advance=1, loss=f"{loss.item():.4f}", lr=f"{optimizer.schedulers['eval_latents'].get_last_lr()[0]:.8f}")
+
+                progress.update(
+                    task,
+                    advance=1,
+                    loss=f"{loss.item():.4f}",
+                    lr=f"{optimizer.schedulers['eval_latents'].get_last_lr()[0]:.8f}",
+                )
         # No longer using eval RENI
         self.fitting_eval_latents = False
 

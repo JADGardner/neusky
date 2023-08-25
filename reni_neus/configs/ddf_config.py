@@ -32,11 +32,11 @@ DirectionalDistanceField = MethodSpecification(
                 num_test_images_to_generate=8,
                 test_image_cache_dir=Path("outputs/ddf/cache/"),
                 accumulation_mask_threshold=0.7,
-                training_data_type="rand_pnts_on_sphere", # "rand_pnts_on_sphere", "single_camera", "all_cameras"
-                train_data_idx=5, # idx if using single_camera for training data
+                training_data_type="rand_pnts_on_sphere",  # "rand_pnts_on_sphere", "single_camera", "all_cameras"
+                train_data_idx=5,  # idx if using single_camera for training data
                 ddf_sampler=VMFDDFSamplerConfig(
                     num_samples_on_sphere=8,
-                    num_rays_per_sample=128, # 8 * 128 = 1024 rays per batch
+                    num_rays_per_sample=128,  # 8 * 128 = 1024 rays per batch
                     only_sample_upper_hemisphere=True,
                     concentration=20.0,
                 ),
@@ -44,10 +44,10 @@ DirectionalDistanceField = MethodSpecification(
             ),
             model=DDFModelConfig(
                 ddf_field=DirectionalDistanceFieldConfig(
-                    ddf_type="ddf", # pddf
-                    position_encoding_type="hash", # none, hash, nerf, sh
+                    ddf_type="ddf",  # pddf
+                    position_encoding_type="hash",  # none, hash, nerf, sh
                     direction_encoding_type="nerf",
-                    conditioning="Attention", # FiLM, Concat, Attention
+                    conditioning="Attention",  # FiLM, Concat, Attention
                     termination_output_activation="sigmoid",
                     probability_of_hit_output_activation="sigmoid",
                     hidden_layers=5,
@@ -80,11 +80,10 @@ DirectionalDistanceField = MethodSpecification(
                 },
                 multi_view_loss_stop_gradient=False,
                 include_depth_loss_scene_center_weight=True,
-                compute_normals=False, # This currently does not work, the input to the network need changing to work with autograd
+                compute_normals=False,  # This currently does not work, the input to the network need changing to work with autograd
                 eval_num_rays_per_chunk=1024,
                 scene_center_weight_exp=3.0,
-                scene_center_use_xyz=False, # only xy
-                mask_depth_to_circumference=False, # force depth under mask to circumference of ddf (not implemented)
+                scene_center_weight_include_z=False,  # only xy
             ),
             reni_neus_ckpt_path=Path("outputs/unnamed/reni-neus/2023-08-09_150349"),
             reni_neus_ckpt_step=85000,
@@ -101,4 +100,3 @@ DirectionalDistanceField = MethodSpecification(
     ),
     description="Base config for Directional Distance Field.",
 )
-
