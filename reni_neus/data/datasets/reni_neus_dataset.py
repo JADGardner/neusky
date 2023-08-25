@@ -108,6 +108,8 @@ class RENINeuSDataset(InputDataset):
             self.max_width = self.metadata["width_height"][0]
             self.max_height = self.metadata["width_height"][1]
 
+        self.metadata["c2w"] = dataparser_outputs.cameras.camera_to_worlds
+
     def get_numpy_image(self, image_idx: int) -> npt.NDArray[np.uint8]:
         """Returns the image of shape (H, W, 3 or 4).
 

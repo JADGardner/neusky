@@ -72,6 +72,7 @@ RENINeuS = MethodSpecification(
                     beta_init=0.1,
                     use_appearance_embedding=False,
                     inside_outside=False,
+                    predict_shininess=False,
                 ),
                 illumination_field=RENIFieldConfig(
                     conditioning="Attention",

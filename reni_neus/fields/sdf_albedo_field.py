@@ -72,6 +72,8 @@ class SDFAlbedoFieldConfig(SDFFieldConfig):
     """SDF Albedo Field Config"""
 
     _target: Type = field(default_factory=lambda: SDFAlbedoField)
+    predict_shininess: bool = False
+    """Whether to predict specular."""
 
 
 class SDFAlbedoField(SDFField):
@@ -141,11 +143,12 @@ class SDFAlbedoField(SDFField):
         # deviation_network to compute alpha from sdf from NeuS
         self.deviation_network = LearnedVariance(init_val=self.config.beta_init)
 
-        # albedo network, only depends on position and geo features
+        # colour network, only depends on position and geo features
         dims = [self.config.hidden_dim_color for _ in range(self.config.num_layers_color)]
         # point, feature
         in_dim = 3 + self.position_encoding.get_out_dim() + self.config.geo_feat_dim
-        dims = [in_dim] + dims + [3]
+        final_out_dims = 3 if not self.config.predict_shininess else 4
+        dims = [in_dim] + dims + [final_out_dims]
         self.num_layers_color = len(dims)
 
         for l in range(0, self.num_layers_color - 1):
@@ -234,7 +237,12 @@ class SDFAlbedoField(SDFField):
         )[0]
 
         # doesn't actually use directions or normals or camera_indices
-        albedo = self.get_colors(points=inputs, geo_features=geo_feature)
+        colours = self.get_colors(points=inputs, geo_features=geo_feature)
+
+        if self.config.predict_shininess:
+            albedo, shininess = torch.split(colours, [3, 1], dim=-1)
+        else:
+            albedo = colours
 
         albedo = albedo.view(*ray_samples.frustums.directions.shape[:-1], -1)
         sdf = sdf.view(*ray_samples.frustums.directions.shape[:-1], -1)
@@ -249,6 +257,9 @@ class SDFAlbedoField(SDFField):
                 FieldHeadNames.GRADIENT: gradients,
             }
         )
+
+        if self.config.predict_shininess:
+            outputs.update({RENINeuSFieldHeadNames.SHININESS: shininess})
 
         if return_alphas:
             alphas = self.get_alpha(ray_samples, sdf, gradients)

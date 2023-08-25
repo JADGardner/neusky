@@ -56,7 +56,10 @@ from nerfstudio.utils.math import normalized_depth_scale_and_shift
 from nerfstudio.engine.optimizers import OptimizerConfig, Optimizers
 from nerfstudio.engine.schedulers import SchedulerConfig
 
-from reni_neus.model_components.renderers import RGBLambertianRendererWithVisibility
+from reni_neus.model_components.renderers import (
+    RGBLambertianRendererWithVisibility,
+    RGBBlinnPhongRendererWithVisibility,
+)
 from reni_neus.model_components.losses import RENISkyPixelLoss
 from reni_neus.field_components.reni_neus_fieldheadnames import RENINeuSFieldHeadNames
 from reni_neus.models.ddf_model import DDFModelConfig, DDFModel
@@ -171,6 +174,8 @@ class RENINeuSFactoModel(NeuSFactoModel):
         self.fitting_eval_latents = False
         super().__init__(config, scene_box, num_train_data, **kwargs)
         self.visibility_field = visibility_field
+        self.train_metadata = kwargs.get("train_metadata", None)
+        self.val_metadata = kwargs.get("val_metadata", None)
 
         if self.config.scene_contraction_order == "Linf":
             self.scene_contraction = SceneContraction(order=float("inf"))
@@ -257,6 +262,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
 
         self.albedo_renderer = RGBRenderer(background_color=torch.tensor([1.0, 1.0, 1.0]))
         self.lambertian_renderer = RGBLambertianRendererWithVisibility()
+        self.blinn_phong_renderer = RGBBlinnPhongRendererWithVisibility()
 
         assert not (
             self.config.loss_inclusions["rgb_l1_loss"] and self.config.loss_inclusions["rgb_l2_loss"]
@@ -617,15 +623,28 @@ class RENINeuSFactoModel(NeuSFactoModel):
             depth = samples_and_field_outputs["depth"]
 
         if self.training:
-            rgb = self.lambertian_renderer(
-                albedos=field_outputs[RENINeuSFieldHeadNames.ALBEDO],
-                normals=field_outputs[FieldHeadNames.NORMALS],
-                light_directions=illumination_directions,
-                light_colors=hdr_illumination_colours,
-                visibility=visibility,
-                background_illumination=hdr_background_colours,
-                weights=weights,
-            )
+            if RENINeuSFieldHeadNames.SHININESS in field_outputs:
+                rgb = self.blinn_phong_renderer(
+                    albedos=field_outputs[RENINeuSFieldHeadNames.ALBEDO],
+                    normals=field_outputs[FieldHeadNames.NORMALS],
+                    light_directions=illumination_directions,
+                    light_colors=hdr_illumination_colours,
+                    visibility=visibility,
+                    background_illumination=hdr_background_colours,
+                    weights=weights,
+                    shininess=field_outputs[RENINeuSFieldHeadNames.SHININESS],
+                    c2w_matrices=self.train_metadata["c2w"][ray_samples.camera_indices.to("cpu")],
+                )
+            else:
+                rgb = self.lambertian_renderer(
+                    albedos=field_outputs[RENINeuSFieldHeadNames.ALBEDO],
+                    normals=field_outputs[FieldHeadNames.NORMALS],
+                    light_directions=illumination_directions,
+                    light_colors=hdr_illumination_colours,
+                    visibility=visibility,
+                    background_illumination=hdr_background_colours,
+                    weights=weights,
+                )
             if accumulation is None:
                 accumulation = self.renderer_accumulation(weights=weights)
             if p2p_dist is None:
@@ -636,15 +655,28 @@ class RENINeuSFactoModel(NeuSFactoModel):
             albedo = self.albedo_renderer(rgb=field_outputs[RENINeuSFieldHeadNames.ALBEDO], weights=weights)
         else:
             if self.render_rgb_static_flag:
-                rgb = self.lambertian_renderer(
-                    albedos=field_outputs[RENINeuSFieldHeadNames.ALBEDO],
-                    normals=field_outputs[FieldHeadNames.NORMALS],
-                    light_directions=illumination_directions,
-                    light_colors=hdr_illumination_colours,
-                    visibility=visibility,
-                    background_illumination=hdr_background_colours,
-                    weights=weights,
-                )
+                if RENINeuSFieldHeadNames.SHININESS in field_outputs:
+                    rgb = self.blinn_phong_renderer(
+                        albedos=field_outputs[RENINeuSFieldHeadNames.ALBEDO],
+                        normals=field_outputs[FieldHeadNames.NORMALS],
+                        light_directions=illumination_directions,
+                        light_colors=hdr_illumination_colours,
+                        visibility=visibility,
+                        background_illumination=hdr_background_colours,
+                        weights=weights,
+                        shininess=field_outputs[RENINeuSFieldHeadNames.SHININESS],
+                        c2w_matrices=self.eval_metadata["c2w"][ray_samples.camera_indices],
+                    )
+                else:
+                    rgb = self.lambertian_renderer(
+                        albedos=field_outputs[RENINeuSFieldHeadNames.ALBEDO],
+                        normals=field_outputs[FieldHeadNames.NORMALS],
+                        light_directions=illumination_directions,
+                        light_colors=hdr_illumination_colours,
+                        visibility=visibility,
+                        background_illumination=hdr_background_colours,
+                        weights=weights,
+                    )
             else:
                 rgb = torch.zeros((ray_bundle.shape[0], 3)).to(self.device)
 

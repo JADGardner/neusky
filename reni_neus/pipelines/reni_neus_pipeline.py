@@ -150,7 +150,8 @@ class RENINeuSPipeline(VanillaPipeline):
             num_test_data=self.num_test_data.item(),
             visibility_field=visibility_field,
             test_mode=test_mode,
-            metadata=self.datamanager.train_dataset.metadata,
+            train_metadata=self.datamanager.train_dataset.metadata,
+            eval_metadata=self.datamanager.eval_dataset.metadata,
             grad_scaler=grad_scaler,
         )
 
