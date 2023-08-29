@@ -286,7 +286,7 @@ class RENINeuSPipeline(VanillaPipeline):
 
         if self.model.visibility_field is not None and self.model.config.fit_visibility_field:
             positions = self.visibility_test_time_sampler()  # [N, 3]
-            
+
             fx = self.datamanager.eval_dataset.cameras.fx[image_idx]
             fy = self.datamanager.eval_dataset.cameras.fy[image_idx]
             cx = self.datamanager.eval_dataset.cameras.cx[image_idx]
@@ -295,8 +295,8 @@ class RENINeuSPipeline(VanillaPipeline):
             all_visibility_images = []
 
             for position_on_sphere in positions:
-                position_on_sphere = position_on_sphere.unsqueeze(0) # [1, 3]
-                c2w = look_at_target(position_on_sphere, torch.zeros_like(position_on_sphere).type_as(position_on_sphere))[..., :3, :4]  # (3, 4)
+                position_on_sphere = position_on_sphere.unsqueeze(0)  # [1, 3]
+                c2w = look_at_target(position_on_sphere, torch.zeros_like(position_on_sphere))[..., :3, :4]  # (3, 4)
 
                 # update self.camera.camera_to_worlds
                 camera = Cameras(
@@ -314,13 +314,13 @@ class RENINeuSPipeline(VanillaPipeline):
                     visibility_ray_bundle, reni_neus=None, show_progress=True
                 )
                 vis_images_dict = self.model.visibility_field.get_image_dict(vis_outputs)
-                
+
                 # Assuming the main visibility image is stored with a key 'visibility_image' in vis_images_dict
-                all_visibility_images.append(vis_images_dict['ddf_depth'])
+                all_visibility_images.append(vis_images_dict["ddf_depth"].permute(2, 0, 1))  # [3, H, W]
 
             # Combine all visibility images into a grid
-            grid_image = make_grid(all_visibility_images)
-            images_dict['visibility_grid'] = grid_image
+            grid_image = make_grid(all_visibility_images).permute(1, 2, 0)  # [H, W, 3]
+            images_dict["ddf_depth_grid"] = grid_image
 
         assert "image_idx" not in metrics_dict
         metrics_dict["image_idx"] = image_idx
