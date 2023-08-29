@@ -167,12 +167,12 @@ class RENINeuSPixelSampler(PixelSampler):
         """
         Operates on a batch of images and samples pixels to use for generating rays.
         Returns a collated batch which is input to the Graph.
-        It will sample only within the valid 'sky_mask' if it's specified.
+        It will sample only within the valid 'mask' and 'sample_region'.
 
         Args:
             batch: batch of images to sample from
             num_rays_per_batch: number of rays to sample per batch
-            keep_full_image: whether or not to include a reference to the full image in returned batch
+            sample_region: which region of the image to sample from
         """
 
         device = batch["image"].device

@@ -148,21 +148,8 @@ class RENINeuSDataset(InputDataset):
 
     def get_metadata(self, data: Dict) -> Dict:
         metadata = {}
-        # if self.include_mono_prior:
-        #     depth_filepath = self.depth_filenames[data["image_idx"]]
-        #     normal_filepath = self.normal_filenames[data["image_idx"]]
-        #     camtoworld = self.c2w_colmap[data["image_idx"]]
-
-        #     # Scale depth images to meter units and also by scaling applied to cameras
-        #     depth_image, normal_image = self.get_depths_and_normals(
-        #         depth_filepath=depth_filepath, normal_filename=normal_filepath, camtoworld=camtoworld
-        #     )
-        #     metadata["depth"] = depth_image
-        #     metadata["normal"] = normal_image
 
         metadata["mask"] = self.get_mask(data["image_idx"])
-        # metadata["fg_mask"] = self.metadata["fg_mask"][data["image_idx"]] if "fg_mask" in self.metadata else None
-        # metadata["ground_mask"] = self.metadata["ground_mask"][data["image_idx"]] if "ground_mask" in self.metadata else None
 
         return metadata
 
@@ -176,15 +163,19 @@ class RENINeuSDataset(InputDataset):
         mask = (~mask).unsqueeze(-1).float()  # 1 is static, 0 is transient
 
         # get_foreground_mask
-        fg_mask = self.get_mask_from_semantics(idx=idx, semantics=self.semantics, mask_classes=["sky"])
-        fg_mask = (~fg_mask).unsqueeze(-1).float()  # 1 is foreground, 0 is background
-
+        fg_mask = self.get_mask_from_semantics(idx=idx, semantics=self.semantics, mask_classes=["road", "sidewalk", "building", "wall", "fence", "pole", "traffic light", "traffic sign", "terrain"])
+        fg_mask = fg_mask.unsqueeze(-1).float()  # 1 is foreground + statics, 0 is background + transients
+        
         # get_ground_mask
         ground_mask = self.get_mask_from_semantics(idx=idx, semantics=self.semantics, mask_classes=["road", "sidewalk"])
         ground_mask = (ground_mask).unsqueeze(-1).float()  # 1 is ground, 0 is not ground
 
+        # sky_mask
+        sky_mask = self.get_mask_from_semantics(idx=idx, semantics=self.semantics, mask_classes=["sky"])
+        sky_mask = sky_mask.unsqueeze(-1).float()  # 1 is sky, 0 is not sky
+
         # stack masks to shape H, W, 3
-        mask = torch.cat([mask, fg_mask, ground_mask], dim=-1)
+        mask = torch.cat([mask, fg_mask, ground_mask, sky_mask], dim=-1)
 
         if self.crop_to_equal_size:
             height, width = mask.shape[:2]
@@ -226,37 +217,3 @@ class RENINeuSDataset(InputDataset):
             combined_mask += class_mask
         combined_mask = combined_mask.bool()
         return combined_mask
-
-    # def get_depths_and_normals(self, depth_filepath: Path, normal_filename: Path, camtoworld: np.ndarray):
-    #     """function to process additional depths and normal information
-    #     Args:
-    #         depth_filepath: path to depth file
-    #         normal_filename: path to normal file
-    #         camtoworld: camera to world transformation matrix
-    #     """
-
-    #     # load mono depth
-    #     depth = np.load(depth_filepath)
-    #     depth = torch.from_numpy(depth).float()
-
-    #     # load mono normal
-    #     normal = np.load(normal_filename)
-
-    #     # transform normal to world coordinate system
-    #     normal = normal * 2.0 - 1.0  # omnidata output is normalized so we convert it back to normal here
-    #     normal = torch.from_numpy(normal).float()
-
-    #     rot = camtoworld[:3, :3]
-
-    #     normal_map = normal.reshape(3, -1)
-    #     normal_map = torch.nn.functional.normalize(normal_map, p=2, dim=0)
-
-    #     normal_map = rot @ normal_map
-    #     normal = normal_map.permute(1, 0).reshape(*normal.shape[1:], 3)
-
-    #     if self.transform is not None:
-    #         h, w, _ = normal.shape
-    #         normal = self.transform[:3, :3] @ normal.reshape(-1, 3).permute(1, 0)
-    #         normal = normal.permute(1, 0).reshape(h, w, 3)
-
-    #     return depth, normal

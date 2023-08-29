@@ -750,6 +750,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
         """Compute the loss dictionary, including interlevel loss for proposal networks."""
         fg_mask = batch["mask"][..., 1].to(self.device)  # [num_rays]
         ground_mask = batch["mask"][..., 2].to(self.device)  # [num_rays]
+        sky_mask = batch["mask"][..., 3].to(self.device)  # [num_rays
         loss_dict = {}
 
         image = batch["image"].to(self.device)
@@ -761,13 +762,12 @@ class RENINeuSFactoModel(NeuSFactoModel):
 
         # SKY PIXEL LOSS
         if self.config.loss_inclusions["sky_pixel_loss"]["enabled"]:
-            sky_colours = linear_to_sRGB(outputs["hdr_background_colours"])
-            fg_label = fg_mask.float().unsqueeze(1).expand_as(sky_colours)
-            sky_label = 1 - fg_label
+            sky_colours = linear_to_sRGB(outputs["hdr_background_colours"]) # as GT images as LDR
+            sky_mask = sky_mask.float().unsqueeze(1).expand_as(sky_colours)
             loss_dict["sky_pixel_loss"] = self.sky_pixel_loss(
                 inputs=linear_to_sRGB(outputs["hdr_background_colours"]),
-                targets=batch["image"].type_as(sky_label),
-                mask=sky_label,
+                targets=batch["image"].type_as(sky_mask),
+                mask=sky_mask,
             )
 
         if self.training:
@@ -846,12 +846,13 @@ class RENINeuSFactoModel(NeuSFactoModel):
         image = self.renderer_rgb.blend_background(image)
         rgb = outputs["rgb"]
         acc = colormaps.apply_colormap(outputs["accumulation"])
+        gt_acc = colormaps.apply_colormap(batch["mask"][..., 1:2]) # fg_mask
 
         normal = outputs["normal"]
         normal = (normal + 1.0) / 2.0
 
         combined_rgb = torch.cat([image, rgb], dim=1)
-        combined_acc = torch.cat([acc], dim=1)
+        combined_acc = torch.cat([gt_acc, acc], dim=1)
         if "depth" in batch:
             depth_gt = batch["depth"].to(self.device)
             depth_pred = outputs["depth"]

@@ -55,8 +55,8 @@ RENINeuS = MethodSpecification(
                 pixel_sampler=RENINeuSPixelSamplerConfig(),
                 images_on_gpu=True,
                 masks_on_gpu=True,
-                train_num_rays_per_batch=256,
-                eval_num_rays_per_batch=256,
+                train_num_rays_per_batch=512,
+                eval_num_rays_per_batch=512,
                 camera_optimizer=CameraOptimizerConfig(
                     mode="off", optimizer=AdamOptimizerConfig(lr=6e-4, eps=1e-8, weight_decay=1e-2)
                 ),
@@ -94,7 +94,7 @@ RENINeuS = MethodSpecification(
                     trainable_scale=True,
                 ),
                 illumination_sampler=IcosahedronSamplerConfig(
-                    num_directions=300,
+                    num_directions=512,
                     apply_random_rotation=True,
                     remove_lower_hemisphere=False,
                 ),
@@ -117,7 +117,7 @@ RENINeuS = MethodSpecification(
                     "rgb_l1_loss": 1.0,
                     "rgb_l2_loss": 0.0,
                     "eikonal loss": 0.1,
-                    "fg_mask_loss": 0.01,
+                    "fg_mask_loss": 0.1,
                     "normal_loss": 1.0,
                     "depth_loss": 1.0,
                     "interlevel_loss": 1.0,
@@ -139,7 +139,7 @@ RENINeuS = MethodSpecification(
                 eval_num_rays_per_chunk=256,
                 use_visibility=True,
                 fit_visibility_field=True,  # if true, train visibility field, else visibility is static
-                sdf_to_visibility_stop_gradients="depth",
+                sdf_to_visibility_stop_gradients="depth", # "depth", "sdf", "none" # if depth then visibility can affect sdf
                 visibility_threshold="learnable",  # "learnable", float, tuple(start, end) ... tuple will exponentially decay from start to end
                 steps_till_min_visibility_threshold=50000,  # if visibility_threshold is tuple
                 only_upperhemisphere_visibility=True,
