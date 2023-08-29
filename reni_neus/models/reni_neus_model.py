@@ -107,6 +107,8 @@ class RENINeuSFactoModelConfig(NeuSFactoModelConfig):
     """Use visibility field either bool or after int steps"""
     fit_visibility_field: bool = False
     """Whether to fit the visibility field to the scene"""
+    visibility_sigmoid_scale: float = 50
+    """Scale for sigmoid for visibility"""
     scene_contraction_order: Literal["Linf", "L2"] = "Linf"
     """Norm for scene contraction"""
     collider_shape: Literal["sphere", "box"] = "box"
@@ -884,11 +886,20 @@ class RENINeuSFactoModel(NeuSFactoModel):
         else:
             combined_normal = torch.cat([normal], dim=1)
 
+        squared_error = (rgb - image) ** 2
+        normalised_error = (squared_error - squared_error.min()) / (squared_error.max() - squared_error.min())
+        # take mean across colour dim
+        normalised_error = normalised_error.mean(dim=-1).unsqueeze(-1)
+        normalised_error = colormaps.apply_depth_colormap(
+                normalised_error,
+        )
+
         images_dict = {
             "img": combined_rgb,
             "accumulation": combined_acc,
             "depth": combined_depth,
             "normal": combined_normal,
+            "normalised_error": normalised_error,
         }
 
         # Switch images from [H, W, C] to [1, C, H, W] for metrics computations
@@ -1287,10 +1298,8 @@ class RENINeuSFactoModel(NeuSFactoModel):
             visibility = (difference > 0).float()
         else:
             # Use a large scale to make the transition steep
-            scale = 50.0
-            # Adjust the bias to control the point at which the transition happens
-            bias = 0.0
-            visibility = torch.sigmoid(scale * (difference - bias))
+            scale = self.config.visibility_sigmoid_scale
+            visibility = torch.sigmoid(scale * difference)
 
         if self.config.only_upperhemisphere_visibility and not compute_shadow_map:
             # we now need to use the mask we created earlier to select only the upper hemisphere

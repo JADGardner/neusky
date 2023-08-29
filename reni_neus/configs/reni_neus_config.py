@@ -143,6 +143,7 @@ RENINeuS = MethodSpecification(
                 fit_visibility_field=True,  # if true, train visibility field, else visibility is static
                 sdf_to_visibility_stop_gradients="depth", # "depth", "sdf", "none" # if depth then visibility can affect sdf
                 visibility_threshold="learnable",  # "learnable", float, tuple(start, end) ... tuple will exponentially decay from start to end
+                visibility_sigmoid_scale=500.0,
                 steps_till_min_visibility_threshold=50000,  # if visibility_threshold is tuple
                 only_upperhemisphere_visibility=True,
                 scene_contraction_order="L2",  # L2, Linf
@@ -204,6 +205,7 @@ RENINeuS = MethodSpecification(
             # reni_neus_ckpt_path=Path('/workspace/outputs/unnamed/reni-neus/2023-08-02_102036/'),
             # reni_neus_ckpt_step=55000,
             visibility_field_radius="AABB",
+            visibility_accumulation_mask_threshold=0.99,
         ),
         optimizers={
             "proposal_networks": {

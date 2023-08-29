@@ -140,7 +140,7 @@ class RENINeuSPipeline(VanillaPipeline):
             visibility_field = self._setup_visibility_field(device=device)
             self.visibility_train_sampler = self.config.visibility_train_sampler.setup(device=device)
             test_time_sampler_config = IcosahedronSamplerConfig(
-                icosphere_order=1, apply_random_rotation=True, remove_lower_hemisphere=True
+                icosphere_order=2, apply_random_rotation=False, remove_lower_hemisphere=True
             )
             self.visibility_test_time_sampler = test_time_sampler_config.setup()
 
@@ -285,7 +285,7 @@ class RENINeuSPipeline(VanillaPipeline):
         metrics_dict, images_dict = self.model.get_image_metrics_and_images(outputs, batch)
 
         if self.model.visibility_field is not None and self.model.config.fit_visibility_field:
-            positions = self.visibility_test_time_sampler()  # [N, 3]
+            positions = self.visibility_test_time_sampler()[:12] # shape [12, 3]
 
             fx = self.datamanager.eval_dataset.cameras.fx[image_idx]
             fy = self.datamanager.eval_dataset.cameras.fy[image_idx]
@@ -311,7 +311,7 @@ class RENINeuSPipeline(VanillaPipeline):
                 visibility_ray_bundle = camera.generate_rays(0)
                 visibility_ray_bundle = visibility_ray_bundle.to(self.device)
                 vis_outputs = self.model.visibility_field.get_outputs_for_camera_ray_bundle(
-                    visibility_ray_bundle, reni_neus=None, show_progress=True
+                    visibility_ray_bundle, reni_neus=None, show_progress=False
                 )
                 vis_images_dict = self.model.visibility_field.get_image_dict(vis_outputs)
 
@@ -319,7 +319,7 @@ class RENINeuSPipeline(VanillaPipeline):
                 all_visibility_images.append(vis_images_dict["ddf_depth"].permute(2, 0, 1))  # [3, H, W]
 
             # Combine all visibility images into a grid
-            grid_image = make_grid(all_visibility_images).permute(1, 2, 0)  # [H, W, 3]
+            grid_image = make_grid(all_visibility_images, nrow=4).permute(1, 2, 0)  # [H, W, 3]
             images_dict["ddf_depth_grid"] = grid_image
 
         assert "image_idx" not in metrics_dict
