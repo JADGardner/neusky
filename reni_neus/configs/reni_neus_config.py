@@ -55,8 +55,8 @@ RENINeuS = MethodSpecification(
                 pixel_sampler=RENINeuSPixelSamplerConfig(),
                 images_on_gpu=True,
                 masks_on_gpu=True,
-                train_num_rays_per_batch=512,
-                eval_num_rays_per_batch=512,
+                train_num_rays_per_batch=256,
+                eval_num_rays_per_batch=256,
                 camera_optimizer=CameraOptimizerConfig(
                     mode="off", optimizer=AdamOptimizerConfig(lr=6e-4, eps=1e-8, weight_decay=1e-2)
                 ),
@@ -101,6 +101,7 @@ RENINeuS = MethodSpecification(
                 loss_inclusions={
                     "rgb_l1_loss": True,
                     "rgb_l2_loss": False,
+                    "cosine_colour_loss": True,
                     "eikonal loss": True,
                     "fg_mask_loss": True,
                     "normal_loss": False,
@@ -116,6 +117,7 @@ RENINeuS = MethodSpecification(
                 loss_coefficients={
                     "rgb_l1_loss": 1.0,
                     "rgb_l2_loss": 0.0,
+                    "cosine_colour_loss": 1.0,
                     "eikonal loss": 0.1,
                     "fg_mask_loss": 0.1,
                     "normal_loss": 1.0,

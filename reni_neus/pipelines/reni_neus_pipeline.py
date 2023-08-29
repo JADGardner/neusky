@@ -25,6 +25,7 @@ import yaml
 from pathlib import Path
 
 import torch
+from torchvision.utils import make_grid
 import torch.distributed as dist
 from rich.progress import (
     BarColumn,
@@ -284,39 +285,42 @@ class RENINeuSPipeline(VanillaPipeline):
         metrics_dict, images_dict = self.model.get_image_metrics_and_images(outputs, batch)
 
         if self.model.visibility_field is not None and self.model.config.fit_visibility_field:
-            # we need to place some cameras on the sphere and sample the visibility field
             positions = self.visibility_test_time_sampler()  # [N, 3]
-            # choose random position from N
-            position_on_sphere = positions[torch.randint(0, len(positions), (1,))]  # [1, 3]
-
+            
             fx = self.datamanager.eval_dataset.cameras.fx[image_idx]
             fy = self.datamanager.eval_dataset.cameras.fy[image_idx]
             cx = self.datamanager.eval_dataset.cameras.cx[image_idx]
             cy = self.datamanager.eval_dataset.cameras.cy[image_idx]
 
-            # generate c2w looking at the origin
-            c2w = look_at_target(position_on_sphere, torch.zeros_like(position_on_sphere).type_as(position_on_sphere))[
-                ..., :3, :4
-            ]  # (3, 4)
+            all_visibility_images = []
 
-            # # update self.camera.camera_to_worlds
-            camera = Cameras(
-                camera_to_worlds=c2w,
-                fx=fx,
-                fy=fy,
-                cx=cx,
-                cy=cy,
-                camera_type=CameraType.PERSPECTIVE,
-            )
+            for position_on_sphere in positions:
+                position_on_sphere = position_on_sphere.unsqueeze(0) # [1, 3]
+                c2w = look_at_target(position_on_sphere, torch.zeros_like(position_on_sphere).type_as(position_on_sphere))[..., :3, :4]  # (3, 4)
 
-            visibility_ray_bundle = camera.generate_rays(0)
-            visibility_ray_bundle = visibility_ray_bundle.to(self.device)
-            vis_outputs = self.model.visibility_field.get_outputs_for_camera_ray_bundle(
-                visibility_ray_bundle, reni_neus=None, show_progress=True
-            )
-            vis_images_dict = self.model.visibility_field.get_image_dict(vis_outputs)
+                # update self.camera.camera_to_worlds
+                camera = Cameras(
+                    camera_to_worlds=c2w,
+                    fx=fx,
+                    fy=fy,
+                    cx=cx,
+                    cy=cy,
+                    camera_type=CameraType.PERSPECTIVE,
+                )
 
-            images_dict = {**images_dict, **vis_images_dict}
+                visibility_ray_bundle = camera.generate_rays(0)
+                visibility_ray_bundle = visibility_ray_bundle.to(self.device)
+                vis_outputs = self.model.visibility_field.get_outputs_for_camera_ray_bundle(
+                    visibility_ray_bundle, reni_neus=None, show_progress=True
+                )
+                vis_images_dict = self.model.visibility_field.get_image_dict(vis_outputs)
+                
+                # Assuming the main visibility image is stored with a key 'visibility_image' in vis_images_dict
+                all_visibility_images.append(vis_images_dict['ddf_depth'])
+
+            # Combine all visibility images into a grid
+            grid_image = make_grid(all_visibility_images)
+            images_dict['visibility_grid'] = grid_image
 
         assert "image_idx" not in metrics_dict
         metrics_dict["image_idx"] = image_idx

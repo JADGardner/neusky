@@ -115,6 +115,7 @@ class RENINeuSFactoModelConfig(NeuSFactoModelConfig):
         {
             "rgb_l1_loss": True,
             "rgb_l2_loss": True,
+            "cosine_colour_loss": True, 
             "eikonal loss": True,
             "fg_mask_loss": True,
             "normal_loss": True,
@@ -271,6 +272,8 @@ class RENINeuSFactoModel(NeuSFactoModel):
             self.rgb_l1_loss = torch.nn.L1Loss()
         if self.config.loss_inclusions["rgb_l2_loss"]:
             self.rgb_l2_loss = torch.nn.MSELoss()
+        if self.config.loss_inclusions["cosine_colour_loss"]:
+            self.cosine_colour_loss = torch.nn.CosineSimilarity(dim=1)
         if self.config.loss_inclusions["sky_pixel_loss"]["enabled"]:
             self.sky_pixel_loss = RENISkyPixelLoss(
                 alpha=self.config.loss_inclusions["sky_pixel_loss"]["cosine_weight"],
@@ -759,6 +762,9 @@ class RENINeuSFactoModel(NeuSFactoModel):
             loss_dict["rgb_l1_loss"] = self.rgb_l1_loss(image, pred_image)
         if self.config.loss_inclusions["rgb_l2_loss"]:
             loss_dict["rgb_l2_loss"] = self.rgb_l2_loss(image, pred_image)
+        if self.config.loss_inclusions["cosine_colour_loss"]:
+            similarity = self.cosine_colour_loss(image, pred_image)
+            loss_dict["cosine_colour_loss"] = torch.mean(1 - similarity)
 
         # SKY PIXEL LOSS
         if self.config.loss_inclusions["sky_pixel_loss"]["enabled"]:
