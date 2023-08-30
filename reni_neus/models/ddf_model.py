@@ -621,8 +621,8 @@ class DDFModel(Model):
         depth = colormaps.apply_depth_colormap(
             expected_termination_dist,
             accumulation=expected_probability_of_hit,
-            near_plane=self.collider.near_plane,
-            far_plane=self.collider.radius * 2,
+            near_plane=0.0,
+            far_plane=self.ddf_radius * 2,
             colormap_options=ColormapOptions(normalize=False, colormap_min=0.0, colormap_max=2.0),
         )
 
