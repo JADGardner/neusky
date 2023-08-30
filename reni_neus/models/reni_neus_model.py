@@ -464,7 +464,9 @@ class RENINeuSFactoModel(NeuSFactoModel):
 
             if self.config.sdf_to_visibility_stop_gradients in ["depth", "both"]:
                 depth_vis = depth.clone().detach()
+                depth_vis.requires_grad = False
                 p2p_dist_vis = p2p_dist.clone().detach()
+                p2p_dist_vis.requires_grad = False
             else:
                 depth_vis = depth
                 p2p_dist_vis = p2p_dist
@@ -478,7 +480,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
 
             visibility_dict = self.compute_visibility(
                 ray_samples=ray_samples_vis,
-                depth=depth_vis,  # TODO Need to understand why depth and not p2p_dist
+                depth=p2p_dist_vis,  # TODO Need to understand why depth and not p2p_dist
                 illumination_directions=illumination_directions,
                 threshold_distance=visibility_threshold,
             )
@@ -506,7 +508,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
                 # illumination_directions = [num_rays * num_samples, num_light_directions, xyz]
                 shadow_map = self.compute_visibility(
                     ray_samples=ray_samples[:, 0:1],  # Shape: [num_rays, 1]
-                    depth=depth_vis,
+                    depth=p2p_dist_vis,
                     illumination_directions=shadow_map_direction,
                     threshold_distance=self.shadow_map_threshold_static,
                     compute_shadow_map=True,

@@ -293,6 +293,7 @@ class RENINeuSPipeline(VanillaPipeline):
             cy = self.datamanager.eval_dataset.cameras.cy[image_idx]
 
             all_visibility_images = []
+            all_accumulation_images = []
 
             for position_on_sphere in positions:
                 position_on_sphere = position_on_sphere.unsqueeze(0)  # [1, 3]
@@ -319,9 +320,17 @@ class RENINeuSPipeline(VanillaPipeline):
                 # Assuming the main visibility image is stored with a key 'visibility_image' in vis_images_dict
                 all_visibility_images.append(vis_images_dict["ddf_depth"].permute(2, 0, 1))  # [3, H, W]
 
+                if "ddf_accumulation" in vis_images_dict:
+                    all_accumulation_images.append(vis_images_dict["ddf_accumulation"].permute(2, 0, 1))  # [3, H, W]
+
             # Combine all visibility images into a grid
             grid_image = make_grid(all_visibility_images, nrow=4).permute(1, 2, 0)  # [H, W, 3]
             images_dict["ddf_depth_grid"] = grid_image
+
+            if len(all_accumulation_images) > 0:
+                # Combine all accumulation images into a grid
+                grid_image = make_grid(all_accumulation_images, nrow=4).permute(1, 2, 0)
+                images_dict["ddf_accumulation_grid"] = grid_image
 
         assert "image_idx" not in metrics_dict
         metrics_dict["image_idx"] = image_idx

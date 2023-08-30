@@ -239,6 +239,8 @@ class DDFModel(Model):
                 if stop_gradients:
                     with torch.no_grad():
                         sdf_at_termination = reni_neus.field.get_sdf_at_pos(termination_points)
+                        sdf_at_termination = sdf_at_termination.detach()
+                        sdf_at_termination.requires_grad = False
                 else:
                     sdf_at_termination = reni_neus.field.get_sdf_at_pos(termination_points)
                 outputs["sdf_at_termination"] = sdf_at_termination

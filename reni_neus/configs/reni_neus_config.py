@@ -120,7 +120,7 @@ RENINeuS = MethodSpecification(
                     "rgb_l2_loss": 0.0,
                     "cosine_colour_loss": 1.0,
                     "eikonal loss": 0.1,
-                    "fg_mask_loss": 0.1,
+                    "fg_mask_loss": 0.01,
                     "normal_loss": 1.0,
                     "depth_loss": 1.0,
                     "interlevel_loss": 1.0,
@@ -142,7 +142,7 @@ RENINeuS = MethodSpecification(
                 eval_num_rays_per_chunk=256,
                 use_visibility=True,
                 fit_visibility_field=True,  # if true, train visibility field, else visibility is static
-                sdf_to_visibility_stop_gradients="depth", # "depth", "sdf", "none" # if depth then visibility can affect sdf
+                sdf_to_visibility_stop_gradients="both", # "depth", "sdf", "none" # if depth then visibility can affect sdf
                 visibility_threshold="learnable",  # "learnable", float, tuple(start, end) ... tuple will exponentially decay from start to end
                 visibility_sigmoid_scale=500.0,
                 steps_till_min_visibility_threshold=50000,  # if visibility_threshold is tuple
@@ -227,7 +227,7 @@ RENINeuS = MethodSpecification(
             },
             "ddf_field": {
                 "optimizer": AdamOptimizerConfig(lr=1e-4, eps=1e-15),
-                "scheduler": CosineDecaySchedulerConfig(warm_up_end=2000, learning_rate_alpha=0.05, max_steps=100001),
+                "scheduler": CosineDecaySchedulerConfig(warm_up_end=500, learning_rate_alpha=0.05, max_steps=100001),
             },
         },
         viewer=ViewerConfig(num_rays_per_chunk=1 << 15),
