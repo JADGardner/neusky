@@ -81,7 +81,7 @@ class RENINeuSPipelineConfig(VanillaPipelineConfig):
     visibility_train_sampler: DDFSamplerConfig = DDFSamplerConfig()
     """Visibility field sampler for training"""
     visibility_accumulation_mask_threshold: float = 0.7
-    """Threshold for visibility accumulation mask"""
+    """Threshold for visibility accumulation mask, 0.0 means no mask as mask = accum > threshold"""
     reni_neus_ckpt_path: Union[Path, None] = None
     """Path to reni_neus checkpoint"""
     reni_neus_ckpt_step: int = 0
@@ -440,7 +440,7 @@ class RENINeuSPipeline(VanillaPipeline):
 
         data["sky_ray_bundle"] = self.datamanager.get_sky_ray_bundle(256)
 
-        # just ensuring no gradients
+        # just ensuring no gradients back to reni-neus
         data["ray_bundle"].origins.requires_grad = False
         data["ray_bundle"].directions.requires_grad = False
         data["sky_ray_bundle"].origins.requires_grad = False

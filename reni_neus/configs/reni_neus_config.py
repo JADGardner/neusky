@@ -142,7 +142,7 @@ RENINeuS = MethodSpecification(
                 eval_num_rays_per_chunk=256,
                 use_visibility=True,
                 fit_visibility_field=True,  # if true, train visibility field, else visibility is static
-                sdf_to_visibility_stop_gradients="both", # "depth", "sdf", "none" # if depth then visibility can affect sdf
+                sdf_to_visibility_stop_gradients="depth", # "depth", "sdf", "none" # if depth then visibility can affect sdf
                 visibility_threshold="learnable",  # "learnable", float, tuple(start, end) ... tuple will exponentially decay from start to end
                 visibility_sigmoid_scale=500.0,
                 steps_till_min_visibility_threshold=50000,  # if visibility_threshold is tuple
@@ -166,14 +166,14 @@ RENINeuS = MethodSpecification(
                     mapping_features=256,
                     num_attention_heads=8,
                     num_attention_layers=6,
-                    predict_probability_of_hit=True,
+                    predict_probability_of_hit=False,
                 ),
                 loss_inclusions={
                     "depth_l1_loss": True,
                     "depth_l2_loss": False,
                     "sdf_l1_loss": False,
                     "sdf_l2_loss": True,
-                    "prob_hit_loss": True,
+                    "prob_hit_loss": False,
                     "normal_loss": False,
                     "multi_view_loss": True,
                     "sky_ray_loss": True,
@@ -183,7 +183,7 @@ RENINeuS = MethodSpecification(
                     "depth_l2_loss": 0.0,
                     "sdf_l1_loss": 1.0,
                     "sdf_l2_loss": 0.01,
-                    "prob_hit_loss": 1.0,
+                    "prob_hit_loss": 0.1,
                     "normal_loss": 1.0,
                     "multi_view_loss": 0.01,
                     "sky_ray_loss": 1.0,
@@ -206,7 +206,7 @@ RENINeuS = MethodSpecification(
             # reni_neus_ckpt_path=Path('/workspace/outputs/unnamed/reni-neus/2023-08-02_102036/'),
             # reni_neus_ckpt_step=55000,
             visibility_field_radius="AABB", # From dataparser
-            visibility_accumulation_mask_threshold=0.99,
+            visibility_accumulation_mask_threshold=0.0, # 0.0 means no mask as mask = accum > threshold
         ),
         optimizers={
             "proposal_networks": {
