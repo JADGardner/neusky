@@ -131,6 +131,13 @@ class RENINeuSDataManager(VanillaDataManager):  # pylint: disable=abstract-metho
             dataparser_outputs=test_outputs if self.test_mode == "test" else val_outputs,
             scale_factor=self.config.camera_res_scale_factor,
         )
+    
+    def next_eval_image(self, step: int) -> Tuple[int, RayBundle, Dict]:
+        for camera_ray_bundle, batch in self.eval_dataloader[step]:
+            assert camera_ray_bundle.camera_indices is not None
+            image_idx = int(camera_ray_bundle.camera_indices[0, 0, 0])
+            return image_idx, camera_ray_bundle, batch
+        raise ValueError("No more eval images")
 
     def get_sky_ray_bundle(self, number_of_rays: int) -> Tuple[RayBundle, Dict]:
         """Returns a sky ray bundle for the given step."""

@@ -86,6 +86,8 @@ class RENINeuSPipelineConfig(VanillaPipelineConfig):
     """Path to reni_neus checkpoint"""
     reni_neus_ckpt_step: int = 0
     """Step of the reni_neus checkpoint"""
+    eval_using_gt_envmaps: bool = False
+    """Whether to use ground truth envmaps for evaluation"""
 
 
 class RENINeuSPipeline(VanillaPipeline):
@@ -126,6 +128,9 @@ class RENINeuSPipeline(VanillaPipeline):
 
         if test_mode in ["val", "test"]:
             assert self.datamanager.eval_dataset is not None, "Missing validation dataset"
+        
+        self.eval_image_num = 0
+        self.max_eval_num = self.datamanager.num_val if test_mode == "val" else self.datamanager.num_test
 
         # register buffers
         # this is for access when training DDF seperately
@@ -280,7 +285,8 @@ class RENINeuSPipeline(VanillaPipeline):
         self.model.eval()
         if self.model.visibility_field is not None:
             self.model.visibility_field.eval()
-        image_idx, camera_ray_bundle, batch = self.datamanager.next_eval_image(step)
+        self.eval_image_num = self.eval_image_num % self.max_eval_num
+        image_idx, camera_ray_bundle, batch = self.datamanager.next_eval_image(self.eval_image_num)
         outputs = self.model.get_outputs_for_camera_ray_bundle(camera_ray_bundle, show_progress=True, step=step)
         metrics_dict, images_dict = self.model.get_image_metrics_and_images(outputs, batch)
 
@@ -339,6 +345,7 @@ class RENINeuSPipeline(VanillaPipeline):
         self.model.train()
         if self.model.visibility_field is not None and self.model.config.fit_visibility_field:
             self.model.visibility_field.train()
+        self.eval_image_num += 1
         return metrics_dict, images_dict
 
     @profiler.time_function
