@@ -49,6 +49,7 @@ RENINeuS = MethodSpecification(
                     auto_scale_poses=True,
                     crop_to_equal_size=True,
                     pad_to_equal_size=False,
+                    scene_scale=1.0, # AABB
                 ),
                 train_num_images_to_sample_from=-1,
                 train_num_times_to_repeat_images=-1,  # # Iterations before resample a new subset
@@ -165,14 +166,14 @@ RENINeuS = MethodSpecification(
                     mapping_features=256,
                     num_attention_heads=8,
                     num_attention_layers=6,
-                    predict_probability_of_hit=False,
+                    predict_probability_of_hit=True,
                 ),
                 loss_inclusions={
                     "depth_l1_loss": True,
                     "depth_l2_loss": False,
                     "sdf_l1_loss": False,
                     "sdf_l2_loss": True,
-                    "prob_hit_loss": False,
+                    "prob_hit_loss": True,
                     "normal_loss": False,
                     "multi_view_loss": True,
                     "sky_ray_loss": True,
@@ -192,7 +193,7 @@ RENINeuS = MethodSpecification(
                 eval_num_rays_per_chunk=1024,
                 scene_center_weight_exp=3.0,
                 scene_center_weight_include_z=False,  # only xy
-                mask_to_circumference=True,
+                mask_to_circumference=False,
             ),
             visibility_train_sampler=VMFDDFSamplerConfig(
                 num_samples_on_sphere=8,
@@ -204,7 +205,7 @@ RENINeuS = MethodSpecification(
             # visibility_ckpt_step=20000,
             # reni_neus_ckpt_path=Path('/workspace/outputs/unnamed/reni-neus/2023-08-02_102036/'),
             # reni_neus_ckpt_step=55000,
-            visibility_field_radius="AABB",
+            visibility_field_radius="AABB", # From dataparser
             visibility_accumulation_mask_threshold=0.99,
         ),
         optimizers={

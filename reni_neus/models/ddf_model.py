@@ -439,7 +439,6 @@ class DDFModel(Model):
             )
 
         if self.config.loss_inclusions["prob_hit_loss"]:
-            # this should be matching the mask and use binary cross entropy
             loss_dict["prob_hit_loss"] = self.prob_hit_loss(
                 outputs["expected_probability_of_hit"],
                 batch["mask"].squeeze(-1),
@@ -610,9 +609,16 @@ class DDFModel(Model):
 
         expected_termination_dist = outputs["expected_termination_dist"]
 
+        expected_probability_of_hit = None
+        if RENINeuSFieldHeadNames.PROBABILITY_OF_HIT in outputs:
+            expected_probability_of_hit = outputs[RENINeuSFieldHeadNames.PROBABILITY_OF_HIT]
+            expected_probability_of_hit = expected_probability_of_hit.unsqueeze(-1)
+            accumulation = colormaps.apply_colormap(outputs["accumulation"])
+            images_dict["ddf_accumulation"] = accumulation
+
         depth = colormaps.apply_depth_colormap(
             expected_termination_dist,
-            accumulation=None,
+            accumulation=expected_probability_of_hit,
             near_plane=self.collider.near_plane,
             far_plane=self.collider.radius * 2,
             colormap_options=ColormapOptions(normalize=False, colormap_min=0.0, colormap_max=2.0),

@@ -103,8 +103,8 @@ class RENINeuSFactoModelConfig(NeuSFactoModelConfig):
     """Stop gradients from sdf to visibility"""
     fix_test_illumination_directions: bool = False
     """Fix the test illumination directions"""
-    use_visibility: Union[int, bool] = False
-    """Use visibility field either bool or after int steps"""
+    use_visibility: bool = False
+    """Use visibility field either bool"""
     fit_visibility_field: bool = False
     """Whether to fit the visibility field to the scene"""
     visibility_sigmoid_scale: float = 50
@@ -203,7 +203,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
                 # this is start and end and we decrease exponentially
                 self.visibility_threshold_start = torch.tensor(self.config.visibility_threshold[0])
                 self.visibility_threshold_end = torch.tensor(self.config.visibility_threshold[1])
-            else:
+            elif isinstance(self.config.visibility_threshold, float):
                 self.visibility_threshold = torch.tensor(self.config.visibility_threshold)
 
     def populate_modules(self):
@@ -464,8 +464,10 @@ class RENINeuSFactoModel(NeuSFactoModel):
 
             if self.config.sdf_to_visibility_stop_gradients in ["depth", "both"]:
                 depth_vis = depth.clone().detach()
+                p2p_dist_vis = p2p_dist.clone().detach()
             else:
                 depth_vis = depth
+                p2p_dist_vis = p2p_dist
 
             # if we are decaying visibility threshold then compute it here
             if self.visibility_threshold_end is not None:
@@ -504,7 +506,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
                 # illumination_directions = [num_rays * num_samples, num_light_directions, xyz]
                 shadow_map = self.compute_visibility(
                     ray_samples=ray_samples[:, 0:1],  # Shape: [num_rays, 1]
-                    depth=p2p_dist,
+                    depth=depth_vis,
                     illumination_directions=shadow_map_direction,
                     threshold_distance=self.shadow_map_threshold_static,
                     compute_shadow_map=True,
@@ -619,7 +621,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
         accumulation = None
         p2p_dist = None
         depth = None
-        if "visibility_dict" in samples_and_field_outputs and self.config.use_visibility:
+        if self.config.use_visibility:
             visibility = samples_and_field_outputs["visibility_dict"]["visibility"]
         if "accumulation" in samples_and_field_outputs:
             accumulation = samples_and_field_outputs["accumulation"]
@@ -1284,22 +1286,20 @@ class RENINeuSFactoModel(NeuSFactoModel):
         # the ground truth distance from the point on the sphere to the point on the SDF
         dist_to_ray_origins = torch.norm(positions - sphere_intersection_points, dim=-1)  # [N]
 
-        # as the DDF can only predict 2*its radius, we need to clamp gt to that
+        # as the DDF can only predict a max of 2*its radius, we need to clamp gt to that
         dist_to_ray_origins = torch.clamp(dist_to_ray_origins, max=self.ddf_radius * 2.0)
 
         # add threshold_distance extra to the expected_termination_dist (i.e slighly futher into the SDF)
         # and get the difference between it and the distance from the point on the sphere to the point on the SDF
-        difference = (outputs["expected_termination_dist"] + threshold_distance) - dist_to_ray_origins
+        # difference = (outputs["expected_termination_dist"] + threshold_distance) - dist_to_ray_origins
+        difference = dist_to_ray_origins - (outputs["expected_termination_dist"] + threshold_distance)
 
         # if the difference is positive then the expected termination distance
         # is greater than the distance from the point on the sphere to the point on the SDF
         # so the point on the sphere is visible to it
-        if compute_shadow_map:
-            visibility = (difference > 0).float()
-        else:
-            # Use a large scale to make the transition steep
-            scale = self.config.visibility_sigmoid_scale
-            visibility = torch.sigmoid(scale * difference)
+        # Use a large scale to make the transition steep
+        scale = self.config.visibility_sigmoid_scale
+        visibility = torch.sigmoid(scale * difference)
 
         if self.config.only_upperhemisphere_visibility and not compute_shadow_map:
             # we now need to use the mask we created earlier to select only the upper hemisphere

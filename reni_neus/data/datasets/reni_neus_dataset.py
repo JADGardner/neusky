@@ -157,7 +157,7 @@ class RENINeuSDataset(InputDataset):
         mask = self.get_mask_from_semantics(
             idx=idx,
             semantics=self.semantics,
-            mask_classes=["person", "rider", "car", "truck", "bus", "train", "motorcycle", "bicycle"],
+            mask_classes=["person", "rider", "car", "truck", "bus", "train", "motorcycle", "bicycle", "vegetation"],
         )
 
         mask = (~mask).unsqueeze(-1).float()  # 1 is static, 0 is transient

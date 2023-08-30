@@ -313,6 +313,7 @@ class RENINeuSPipeline(VanillaPipeline):
                 vis_outputs = self.model.visibility_field.get_outputs_for_camera_ray_bundle(
                     visibility_ray_bundle, reni_neus=None, show_progress=False
                 )
+                
                 vis_images_dict = self.model.visibility_field.get_image_dict(vis_outputs)
 
                 # Assuming the main visibility image is stored with a key 'visibility_image' in vis_images_dict
