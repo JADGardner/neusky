@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Dict, List, Union, Literal, Tuple
-
+from collections import defaultdict
 import numpy as np
 import numpy.typing as npt
 import torch
@@ -29,6 +29,7 @@ from pathlib import Path
 import os
 import sys
 import random
+from rich.progress import BarColumn, Console, Progress, TextColumn, TimeRemainingColumn
 
 from torch import Tensor
 from torch.utils.data import Dataset
@@ -47,6 +48,9 @@ from reni_neus.models.reni_neus_model import RENINeuSFactoModel
 from reni_neus.model_components.ddf_sampler import DDFSampler
 from reni_neus.model_components.illumination_samplers import IcosahedronSamplerConfig
 from reni_neus.utils.utils import find_nerfstudio_project_root
+
+CONSOLE = Console(width=120)
+
 
 class DDFDataset(Dataset):
     """Dataset that returns images.
@@ -70,6 +74,7 @@ class DDFDataset(Dataset):
         num_generated_imgs: int = 10,
         cache_dir: Path = Path("path_to_img_cache"),
         ddf_sphere_radius: float = 1.0,
+        log_depth: bool = False,
         accumulation_mask_threshold: float = 0.7,
         num_sky_ray_samples: int = 256,
         old_datamanager: VanillaDataManager = None,
@@ -84,6 +89,7 @@ class DDFDataset(Dataset):
         self.num_generated_imgs = num_generated_imgs
         self.cache_dir = cache_dir
         self.ddf_sphere_radius = ddf_sphere_radius
+        self.log_depth = log_depth
         self.accumulation_mask_threshold = accumulation_mask_threshold
         self.device = device
         self.metadata = {}
@@ -92,9 +98,11 @@ class DDFDataset(Dataset):
         self.num_sky_ray_samples = num_sky_ray_samples
         self.old_datamanager = old_datamanager
         self.dir_to_average_cam_pos = dir_to_average_cam_pos
-        
+
         # for creating eval images
-        camera_sampler_config = IcosahedronSamplerConfig(icosphere_order=1, apply_random_rotation=True, remove_lower_hemisphere=True)
+        camera_sampler_config = IcosahedronSamplerConfig(
+            icosphere_order=1, apply_random_rotation=True, remove_lower_hemisphere=True
+        )
         self.camera_sampler = camera_sampler_config.setup()
 
         config = Path(self.reni_neus_ckpt_path) / "config.yml"
@@ -116,13 +124,10 @@ class DDFDataset(Dataset):
                 cx=torch.tensor([640]).unsqueeze(0).to(self.device),
                 cy=torch.tensor([411.5]).unsqueeze(0).to(self.device),
                 camera_type=CameraType.PERSPECTIVE,
-
             )
             self.cached_images = self._generate_images()
             os.makedirs(self.cache_dir, exist_ok=True)
-            torch.save(
-                self.cached_images, str(self.cache_dir / f"{scene_name}_data.pt")
-            )
+            torch.save(self.cached_images, str(self.cache_dir / f"{scene_name}_data.pt"))
 
         # get all the c2w from self.cached_images and concatenate them, same with intrinsics
         camera_to_worlds = torch.cat([img["c2w"] for img in self.cached_images], dim=0)
@@ -137,7 +142,9 @@ class DDFDataset(Dataset):
             camera_type=CameraType.PERSPECTIVE,
         )
 
-        self.dataparser_outputs = DataparserOutputs(image_filenames=['filename']*len(self.cached_images), cameras=self.cameras)
+        self.dataparser_outputs = DataparserOutputs(
+            image_filenames=["filename"] * len(self.cached_images), cameras=self.cameras
+        )
 
     def __len__(self):
         return self.num_generated_imgs
@@ -149,7 +156,7 @@ class DDFDataset(Dataset):
         intrinsics[0, 1, 1] = self.camera.fy[0]
         intrinsics[0, 0, 2] = self.camera.cx[0]
         intrinsics[0, 1, 2] = self.camera.cy[0]
-        
+
         batch_list = []
 
         # TODO this is a bodge due to illumination sampler not being refactored
@@ -161,9 +168,9 @@ class DDFDataset(Dataset):
             position_sample = self.camera_sampler()
             position_sample = position_sample.type_as(ddf_sample_positions)
             ddf_sample_positions = torch.cat([ddf_sample_positions, position_sample], dim=0)
-        
+
         # select only the first num_generated_imgs positions if we've gone over
-        ddf_sample_positions = ddf_sample_positions[:self.num_generated_imgs]
+        ddf_sample_positions = ddf_sample_positions[: self.num_generated_imgs]
 
         for _, position in enumerate(ddf_sample_positions):
             position = position.unsqueeze(0)  # [1, 3]
@@ -176,26 +183,39 @@ class DDFDataset(Dataset):
 
             camera_ray_bundle = self.camera.generate_rays(0)
 
-            outputs = self.reni_neus.get_outputs_for_camera_ray_bundle(camera_ray_bundle, show_progress=True)
+            num_rays_per_chunk = 256
+            image_height, image_width = camera_ray_bundle.origins.shape[:2]
+            num_rays = len(camera_ray_bundle)
+            outputs_lists = defaultdict(list)
+
+            with Progress(
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+                TimeRemainingColumn(),
+            ) as progress:
+                task = progress.add_task("[green]Generating eval images...", total=num_rays, extra="")
+                for i in range(0, num_rays, num_rays_per_chunk):
+                    start_idx = i
+                    end_idx = i + num_rays_per_chunk
+                    ray_bundle = camera_ray_bundle.get_row_major_sliced_ray_bundle(start_idx, end_idx)
+                    outputs = self.reni_neus.generate_ddf_ground_truth(
+                        ray_bundle, self.accumulation_mask_threshold, self.log_depth
+                    )
+                    for output_name, output in outputs.items():  # type: ignore
+                        outputs_lists[output_name].append(output)
+                    progress.update(task, completed=i)
+
+            outputs = {}
+            for output_name, outputs_list in outputs_lists.items():
+                if output_name != "ray_bundle":
+                    outputs[output_name] = torch.cat(outputs_list).view(image_height, image_width, -1)  # type: ignore
 
             H, W = camera_ray_bundle.origins.shape[:2]
             positions = position.unsqueeze(0).repeat(H, W, 1)  # [H, W, 3]
-            # positions = positions.reshape(-1, 3)  # [N, 3]
             directions = camera_ray_bundle.directions  # [H, W, 3]
-            # directions = directions.reshape(-1, 3)  # [N, 3]
-            # accumulations = outputs["accumulation"].reshape(-1, 1).squeeze()  # [N]
-            accumulations = outputs["accumulation"]  # [H, W, 1]
-            # termination_dist = outputs["p2p_dist"].reshape(-1, 1).squeeze()  # [N]
-            termination_dist = outputs["p2p_dist"]  # [H, W, 1]
-            # clamp termination distance to 2 x ddf_sphere_radius
-            termination_dist = torch.clamp(termination_dist, max=2 * self.ddf_sphere_radius)
-            # normals = outputs["normal"].reshape(-1, 3).squeeze()  # [N, 3]
-            normals = outputs["normal"]  # [H, W, 1, 3]
-            mask = (accumulations > self.accumulation_mask_threshold).float()
-            # pixel_area = camera_ray_bundle.pixel_area.reshape(-1, 1).squeeze()  # [N]
             pixel_area = camera_ray_bundle.pixel_area  # [H, W, 1]
             metadata = camera_ray_bundle.metadata
-            # metadata["directions_norm"] = metadata["directions_norm"].reshape(-1, 1).squeeze()  # [N]
 
             ray_bundle = RayBundle(
                 origins=positions,
@@ -205,54 +225,34 @@ class DDFDataset(Dataset):
                 metadata=metadata,
             )
 
-            data = {
-                "c2w": c2w.cpu(),
-                "intrinsics": intrinsics.cpu(),
-                "image": outputs["p2p_dist"].cpu(),
-                "ray_bundle": ray_bundle,
-                "accumulations": accumulations.cpu(),
-                "mask": mask.cpu(),
-                "termination_dist": termination_dist.cpu(),
-                "normals": normals.cpu(),
-                "H": H,
-                "W": W,
-            }
+            outputs["c2w"] = c2w
+            outputs["intrinsics"] = intrinsics
+            outputs["termination_dist"] = torch.clamp(outputs["termination_dist"], max=2 * self.ddf_sphere_radius)
+            outputs["image"] = outputs["termination_dist"]
+            outputs["ray_bundle"] = ray_bundle
+            outputs["H"] = image_height
+            outputs["W"] = image_width
 
-            batch_list.append(data)
+            batch_list.append(outputs)
 
         return batch_list
 
     def _ddf_rays(self):
         ray_bundle = self.sampler()
 
-        accumulations = None
-        termination_dist = None
-        normals = None
-
-        field_outputs = self.reni_neus(ray_bundle)
-        accumulations = field_outputs["accumulation"].reshape(-1, 1)
-        termination_dist = field_outputs["p2p_dist"].reshape(-1, 1)
-        normals = field_outputs["normal"].reshape(-1, 3).squeeze()
-        mask = (accumulations > self.accumulation_mask_threshold).float()
-
-        # clamp termination distance to 2 x ddf_sphere_radius
-        termination_dist = torch.clamp(termination_dist, max=2 * self.ddf_sphere_radius)
+        outputs = self.reni_neus.generate_ddf_ground_truth(
+            ray_bundle, mask_threshold=self.accumulation_mask_threshold, log_depth=self.log_depth
+        )
+        outputs["termination_dist"] = torch.clamp(outputs["termination_dist"], max=2 * self.ddf_sphere_radius)
 
         # this is so we can use the fact that sky rays don't intersect anything
         # so we can go from the DDF boundary to the known camera position as
         # ground truth distance for DDF.
         sky_ray_bundle = self.old_datamanager.get_sky_ray_bundle(number_of_rays=self.num_sky_ray_samples)
 
-        data = {
-            "ray_bundle": ray_bundle,
-            "accumulations": accumulations,
-            "mask": mask,
-            "termination_dist": termination_dist,
-            "normals": normals,
-            "sky_ray_bundle": sky_ray_bundle,
-        }
+        outputs["sky_ray_bundle"] = sky_ray_bundle
 
-        return data
+        return outputs
 
     def _get_generated_image(self, image_idx: int, is_viewer: bool = False) -> Dict:
         data = self.cached_images[image_idx]
@@ -263,11 +263,11 @@ class DDFDataset(Dataset):
             # we want to select self.num_rays_per_batch rays from the data
             # and return that
             num_samples = self.num_rays_per_batch
-            indices = random.sample(range(data['ray_bundle'].origins.reshape(-1, 3).shape[0]), k=num_samples)
+            indices = random.sample(range(data["ray_bundle"].origins.reshape(-1, 3).shape[0]), k=num_samples)
             ray_bundle = RayBundle(
-                origins=data['ray_bundle'].origins.reshape(-1, 3)[indices].to(self.device),
-                directions=data['ray_bundle'].directions.reshape(-1, 3)[indices].to(self.device),
-                pixel_area=data['ray_bundle'].pixel_area.reshape(-1, 1)[indices].to(self.device),
+                origins=data["ray_bundle"].origins.reshape(-1, 3)[indices].to(self.device),
+                directions=data["ray_bundle"].directions.reshape(-1, 3)[indices].to(self.device),
+                pixel_area=data["ray_bundle"].pixel_area.reshape(-1, 1)[indices].to(self.device),
             )
             new_data = {
                 "ray_bundle": ray_bundle,
@@ -277,7 +277,6 @@ class DDFDataset(Dataset):
                 "normals": data["normals"].reshape(-1, 3)[indices].to(self.device),
             }
             return new_data
-        
 
     def get_data(self, image_idx: int, is_viewer: bool) -> Dict:
         """Returns the ImageDataset data as a dictionary.
@@ -299,7 +298,7 @@ class DDFDataset(Dataset):
             image_idx, flag = idx_flag
         else:
             image_idx = idx_flag
-            flag = True # the viewer needs to have a full image returned
+            flag = True  # the viewer needs to have a full image returned
 
         data = self.get_data(image_idx, is_viewer=flag)
         return data

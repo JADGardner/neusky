@@ -49,7 +49,7 @@ RENINeuS = MethodSpecification(
                     auto_scale_poses=True,
                     crop_to_equal_size=True,
                     pad_to_equal_size=False,
-                    scene_scale=1.0, # AABB
+                    scene_scale=1.0,  # AABB
                 ),
                 train_num_images_to_sample_from=-1,
                 train_num_times_to_repeat_images=-1,  # # Iterations before resample a new subset
@@ -102,7 +102,7 @@ RENINeuS = MethodSpecification(
                 loss_inclusions={
                     "rgb_l1_loss": True,
                     "rgb_l2_loss": False,
-                    "cosine_colour_loss": True,
+                    "cosine_colour_loss": False,
                     "eikonal loss": True,
                     "fg_mask_loss": True,
                     "normal_loss": False,
@@ -120,14 +120,14 @@ RENINeuS = MethodSpecification(
                     "rgb_l2_loss": 0.0,
                     "cosine_colour_loss": 1.0,
                     "eikonal loss": 0.1,
-                    "fg_mask_loss": 0.1,
+                    "fg_mask_loss": 0.01,
                     "normal_loss": 1.0,
                     "depth_loss": 1.0,
                     "interlevel_loss": 1.0,
                     "sky_pixel_loss": 1.0,
                     "hashgrid_density_loss": 1e-4,
                     "ground_plane_loss": 0.1,
-                    "visibility_threshold_loss": 0.01,
+                    "visibility_threshold_loss": 0.01,  # if learnable
                 },
                 eval_latent_optimizer={
                     "eval_latents": {
@@ -142,9 +142,9 @@ RENINeuS = MethodSpecification(
                 eval_num_rays_per_chunk=256,
                 use_visibility=False,
                 fit_visibility_field=False,  # if true, train visibility field, else visibility is static
-                sdf_to_visibility_stop_gradients="depth", # "depth", "sdf", "both", "none" # if depth then visibility can affect sdf
+                sdf_to_visibility_stop_gradients="depth",  # "depth", "sdf", "both", "none" # if depth then visibility can affect sdf
                 visibility_threshold="learnable",  # "learnable", float, tuple(start, end) ... tuple will exponentially decay from start to end
-                visibility_sigmoid_scale=500.0,
+                visibility_sigmoid_scale=100.0,
                 steps_till_min_visibility_threshold=50000,  # if visibility_threshold is tuple
                 only_upperhemisphere_visibility=True,
                 scene_contraction_order="L2",  # L2, Linf
@@ -205,8 +205,8 @@ RENINeuS = MethodSpecification(
             # visibility_ckpt_step=20000,
             # reni_neus_ckpt_path=Path('/workspace/outputs/unnamed/reni-neus/2023-08-02_102036/'),
             # reni_neus_ckpt_step=55000,
-            visibility_field_radius="AABB", # From dataparser
-            visibility_accumulation_mask_threshold=0.0, # 0.0 means no mask as mask = accum > threshold
+            visibility_field_radius="AABB",  # From dataparser
+            visibility_accumulation_mask_threshold=0.0,  # 0.0 means no mask as mask = accum > threshold
         ),
         optimizers={
             "proposal_networks": {

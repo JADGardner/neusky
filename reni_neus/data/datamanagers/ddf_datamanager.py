@@ -87,6 +87,7 @@ class DDFDataManager(DataManager):  # pylint: disable=abstract-method
         reni_neus_ckpt_path: Path,
         scene_box,
         ddf_radius: float,
+        log_depth: bool = False,
         device: Union[torch.device, str] = "cpu",
         world_size: int = 1,
         local_rank: int = 0,
@@ -101,6 +102,7 @@ class DDFDataManager(DataManager):  # pylint: disable=abstract-method
         self.reni_neus_ckpt_path = reni_neus_ckpt_path
         self.scene_box = scene_box
         self.ddf_radius = ddf_radius
+        self.log_depth = log_depth
         self.ddf_sampler = self.config.ddf_sampler.setup(device=self.device)
 
         config = Path(self.reni_neus_ckpt_path) / "config.yml"
@@ -137,6 +139,7 @@ class DDFDataManager(DataManager):  # pylint: disable=abstract-method
             num_generated_imgs=self.config.num_test_images_to_generate,
             cache_dir=self.config.test_image_cache_dir,
             ddf_sphere_radius=self.ddf_radius,
+            log_depth=self.log_depth,
             accumulation_mask_threshold=self.config.accumulation_mask_threshold,
             num_sky_ray_samples=self.config.num_of_sky_ray_samples,
             old_datamanager=self.old_datamanager,

@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Tuple, Type
 from rich.progress import BarColumn, Console, Progress, TextColumn, TimeRemainingColumn
 from collections import defaultdict
+import matplotlib.cm as cm
 
 import torch
 from torch.nn import Parameter
@@ -66,6 +67,10 @@ class DDFModelConfig(ModelConfig):
     """Whether to use xyz or xy for the scene center weight"""
     mask_to_circumference: bool = True
     """Whether to set depths outside of accumulation mask to the radius of the DDF sphere"""
+    inverse_depth_weight: bool = False
+    """Whether to weight the depth loss by the inverse of the depth"""
+    log_depth: bool = False
+    """Whether to log the depth before computing the loss"""
     loss_inclusions: Dict[str, bool] = to_immutable_dict(
         {
             "depth_l1_loss": True,
@@ -412,21 +417,36 @@ class DDFModel(Model):
             expected_termination_dist = outputs["expected_termination_dist"].unsqueeze(1) * batch["mask"]
             gt_termination_dist = batch["termination_dist"] * batch["mask"]
 
+        # Compute inverse depth weights if required
+        if self.config.inverse_depth_weight:
+            # Adding a small constant to prevent division by zero
+            inverse_depth_weights = 1.0 / (gt_termination_dist + 1e-6)
+        else:
+            inverse_depth_weights = 1.0
+
         if self.config.loss_inclusions["depth_l1_loss"]:
             if self.config.include_depth_loss_scene_center_weight:
                 loss = self.depth_l1_loss(expected_termination_dist, gt_termination_dist)
-                # now we weight by distance_weight and reduce using mean
-                loss_dict["depth_l1_loss"] = torch.mean(loss * outputs["distance_weight"].unsqueeze(-1))
+                # now we weight by distance_weight and inverse depth and reduce using mean
+                loss_dict["depth_l1_loss"] = torch.mean(
+                    loss * outputs["distance_weight"].unsqueeze(-1) * inverse_depth_weights
+                )
             else:
-                loss_dict["depth_l1_loss"] = self.depth_l1_loss(expected_termination_dist, gt_termination_dist)
+                loss = self.depth_l1_loss(expected_termination_dist, gt_termination_dist)
+                # now we weight by inverse depth and reduce using mean
+                loss_dict["depth_l1_loss"] = torch.mean(loss * inverse_depth_weights)
 
         if self.config.loss_inclusions["depth_l2_loss"]:
             if self.config.include_depth_loss_scene_center_weight:
                 loss = self.depth_l2_loss(expected_termination_dist, gt_termination_dist)
-                # now we weight by distance_weight and reduce using mean
-                loss_dict["depth_l2_loss"] = torch.mean(loss * outputs["distance_weight"].unsqueeze(-1))
+                # now we weight by distance_weight and inverse depth and reduce using mean
+                loss_dict["depth_l2_loss"] = torch.mean(
+                    loss * outputs["distance_weight"].unsqueeze(-1) * inverse_depth_weights
+                )
             else:
-                loss_dict["depth_l2_loss"] = self.depth_l2_loss(expected_termination_dist, gt_termination_dist)
+                loss = self.depth_l2_loss(expected_termination_dist, gt_termination_dist)
+                # now we weight by inverse depth and reduce using mean
+                loss_dict["depth_l2_loss"] = torch.mean(loss * inverse_depth_weights)
 
         if self.config.loss_inclusions["sdf_l1_loss"]:
             loss_dict["sdf_l1_loss"] = self.sdf_l1_loss(
@@ -537,6 +557,10 @@ class DDFModel(Model):
         gt_termination_dist = batch["termination_dist"]
         expected_termination_dist = outputs["expected_termination_dist"]
 
+        if self.config.log_depth:
+            gt_termination_dist = torch.exp(gt_termination_dist)
+            expected_termination_dist = torch.exp(expected_termination_dist)
+
         # ensure gt is on the same device as the model
         gt_accumulations = gt_accumulations.to(expected_termination_dist.device)
         gt_termination_dist = gt_termination_dist.to(expected_termination_dist.device)
@@ -560,23 +584,27 @@ class DDFModel(Model):
         metrics_dict["depth_ssim"] = depth_ssim
         # metrics_dict["depth_lpips"] = depth_lpips
 
-        gt_depth = colormaps.apply_depth_colormap(
-            gt_termination_dist,
-            accumulation=gt_accumulations,
-            near_plane=self.collider.near_plane,
-            far_plane=self.collider.radius * 2,
-            colormap_options=ColormapOptions(normalize=False, colormap_min=0.0, colormap_max=2.0),
-        )
+        combined_depth = torch.cat([gt_accumulations, expected_termination_dist], dim=1)
 
-        depth = colormaps.apply_depth_colormap(
-            expected_termination_dist,
-            accumulation=gt_accumulations,
-            near_plane=self.collider.near_plane,
-            far_plane=self.collider.radius * 2,
-            colormap_options=ColormapOptions(normalize=False, colormap_min=0.0, colormap_max=2.0),
-        )
+        def adjusted_sigmoid(tensor, a=15, b=0.95):
+            return 1 / (1 + torch.exp(-a * (tensor - b)))
 
+        def to_rgb_tensor(gray_tensor, cmap="viridis"):
+            # Ensure the tensor is in the range [0, 1]
+            normalized_tensor = (gray_tensor - 0.0) / (2.0 - 0.0)
+
+            # Convert to numpy and use colormap to get RGB values
+            cmapped = cm.get_cmap(cmap)(normalized_tensor.cpu().numpy())
+
+            # Convert back to tensor and take only RGB channels (discard alpha)
+            rgb_tensor = torch.tensor(cmapped[..., :3])
+
+            return rgb_tensor
+
+        gt_depth = to_rgb_tensor((gt_termination_dist * gt_accumulations).squeeze())
+        depth = to_rgb_tensor((expected_termination_dist * gt_accumulations).squeeze())
         combined_depth = torch.cat([gt_depth, depth], dim=1)
+
         images_dict["depth"] = combined_depth
 
         depth_error = torch.abs(
@@ -617,6 +645,21 @@ class DDFModel(Model):
             expected_probability_of_hit = expected_probability_of_hit.unsqueeze(-1)
             accumulation = colormaps.apply_colormap(outputs["accumulation"])
             images_dict["ddf_accumulation"] = accumulation
+
+        def adjusted_sigmoid(tensor, a=15, b=0.95):
+            return 1 / (1 + torch.exp(-a * (tensor - b)))
+
+        def to_rgb_tensor(gray_tensor, cmap="viridis"):
+            # Ensure the tensor is in the range [0, 1]
+            normalized_tensor = (gray_tensor - 0.0) / (2.0 - 0.0)
+
+            # Convert to numpy and use colormap to get RGB values
+            cmapped = cm.get_cmap(cmap)(normalized_tensor.cpu().numpy())
+
+            # Convert back to tensor and take only RGB channels (discard alpha)
+            rgb_tensor = torch.tensor(cmapped[..., :3])
+
+            return rgb_tensor
 
         depth = colormaps.apply_depth_colormap(
             expected_termination_dist,

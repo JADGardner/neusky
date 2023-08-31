@@ -47,7 +47,7 @@ DirectionalDistanceField = MethodSpecification(
                     ddf_type="ddf",  # pddf
                     position_encoding_type="hash",  # none, hash, nerf, sh
                     direction_encoding_type="nerf",
-                    conditioning="Attention",  # FiLM, Concat, Attention
+                    conditioning="FiLM",  # FiLM, Concat, Attention
                     termination_output_activation="sigmoid",
                     probability_of_hit_output_activation="sigmoid",
                     hidden_layers=5,
@@ -69,10 +69,10 @@ DirectionalDistanceField = MethodSpecification(
                     "sky_ray_loss": True,
                 },
                 loss_coefficients={
-                    "depth_l1_loss": 20.0,
+                    "depth_l1_loss": 1.0,
                     "depth_l2_loss": 0.0,
-                    "sdf_l1_loss": 100.0,
-                    "sdf_l2_loss": 100.0,
+                    "sdf_l1_loss": 1.0,
+                    "sdf_l2_loss": 0.01,
                     "prob_hit_loss": 1.0,
                     "normal_loss": 1.0,
                     "multi_view_loss": 0.1,
@@ -83,10 +83,12 @@ DirectionalDistanceField = MethodSpecification(
                 eval_num_rays_per_chunk=1024,
                 scene_center_weight_exp=3.0,
                 scene_center_weight_include_z=False,  # only xy
-                mask_to_circumference=True,
+                mask_to_circumference=False,
+                inverse_depth_weight=False,
+                log_depth=False,
             ),
-            reni_neus_ckpt_path=Path("outputs/unnamed/reni-neus/2023-08-09_150349"),
-            reni_neus_ckpt_step=85000,
+            reni_neus_ckpt_path=Path("outputs/reni-neus/reni-neus/2023-08-30_111340"),
+            reni_neus_ckpt_step=100000,
             ddf_radius="AABB",
         ),
         optimizers={

@@ -106,7 +106,7 @@ class DDFPipeline(VanillaPipeline):
         super(VanillaPipeline, self).__init__()  # Call grandparent class constructor ignoring parent class
         self.config = config
         self.test_mode = test_mode
-        
+
         scene_box = self._setup_reni_neus_model(device)
 
         if self.config.ddf_radius == "AABB":
@@ -115,13 +115,14 @@ class DDFPipeline(VanillaPipeline):
             self.ddf_radius = self.config.ddf_radius
 
         self.datamanager: DDFDataManager = config.datamanager.setup(
-            device=device, 
-            world_size=world_size, 
-            local_rank=local_rank, 
-            reni_neus=self.reni_neus, 
-            reni_neus_ckpt_path=self.config.reni_neus_ckpt_path, 
-            scene_box=scene_box, 
-            ddf_radius=self.ddf_radius
+            device=device,
+            world_size=world_size,
+            local_rank=local_rank,
+            reni_neus=self.reni_neus,
+            reni_neus_ckpt_path=self.config.reni_neus_ckpt_path,
+            scene_box=scene_box,
+            ddf_radius=self.ddf_radius,
+            log_depth=self.config.model.log_depth,
         )
         self.datamanager.to(device)
         assert self.datamanager.train_dataset is not None, "Missing input dataset"
@@ -138,22 +139,22 @@ class DDFPipeline(VanillaPipeline):
         )
         self.model.to(device)
 
-
         self.world_size = world_size
         if world_size > 1:
             self._model = typing.cast(Model, DDP(self._model, device_ids=[local_rank], find_unused_parameters=True))
             dist.barrier(device_ids=[local_rank])
 
     def _setup_reni_neus_model(self, device):
-        
         # Now you can use this to construct paths:
         project_root = find_nerfstudio_project_root(Path(__file__))
-        relative_path = self.config.reni_neus_ckpt_path / 'nerfstudio_models' / f'step-{self.config.reni_neus_ckpt_step:09d}.ckpt'
+        relative_path = (
+            self.config.reni_neus_ckpt_path / "nerfstudio_models" / f"step-{self.config.reni_neus_ckpt_step:09d}.ckpt"
+        )
         ckpt_path = project_root / relative_path
 
         if not ckpt_path.exists():
-            raise ValueError(f'Could not find illumination field checkpoint at {ckpt_path}')
-        
+            raise ValueError(f"Could not find illumination field checkpoint at {ckpt_path}")
+
         ckpt = torch.load(str(ckpt_path))
 
         model_dict = {}
@@ -163,9 +164,9 @@ class DDFPipeline(VanillaPipeline):
 
         scene_box = SceneBox(aabb=model_dict["field.aabb"])
 
-        num_train_data = ckpt["pipeline"]['num_train_data'].item()
-        num_val_data = ckpt["pipeline"]['num_val_data'].item()
-        num_test_data = ckpt["pipeline"]['num_test_data'].item()
+        num_train_data = ckpt["pipeline"]["num_train_data"].item()
+        num_val_data = ckpt["pipeline"]["num_val_data"].item()
+        num_test_data = ckpt["pipeline"]["num_test_data"].item()
 
         # load yaml checkpoint config
         reni_neus_config = Path(self.config.reni_neus_ckpt_path) / "config.yml"
@@ -180,7 +181,7 @@ class DDFPipeline(VanillaPipeline):
             visibility_field=None,
         )
 
-        self.reni_neus.load_state_dict(model_dict, strict=False) # no visiblity field
+        self.reni_neus.load_state_dict(model_dict, strict=False)  # no visiblity field
         self.reni_neus.eval()
         self.reni_neus.to(device)
         # things we don't need to render
@@ -188,7 +189,7 @@ class DDFPipeline(VanillaPipeline):
         self.reni_neus.render_albedo_flag = False
 
         return scene_box
-    
+
     @profiler.time_function
     def get_train_loss_dict(self, step: int):
         """This function gets your training loss dict. This will be responsible for
@@ -199,7 +200,9 @@ class DDFPipeline(VanillaPipeline):
             step: current iteration step to update sampler if using DDP (distributed)
         """
         ray_bundle, batch = self.datamanager.next_train(step)
-        model_outputs = self._model(ray_bundle, batch, self.reni_neus)  # train distributed data parallel model if world_size > 1
+        model_outputs = self._model(
+            ray_bundle, batch, self.reni_neus
+        )  # train distributed data parallel model if world_size > 1
         metrics_dict = self.model.get_metrics_dict(model_outputs, batch)
 
         if self.config.datamanager.camera_optimizer is not None:
@@ -216,7 +219,6 @@ class DDFPipeline(VanillaPipeline):
         loss_dict = self.model.get_loss_dict(model_outputs, batch, metrics_dict)
 
         return model_outputs, loss_dict, metrics_dict
-
 
     @profiler.time_function
     def get_eval_loss_dict(self, step: int):
@@ -279,7 +281,9 @@ class DDFPipeline(VanillaPipeline):
                 inner_start = time()
                 height, width = camera_ray_bundle.shape
                 num_rays = height * width
-                outputs = self.model.get_outputs_for_camera_ray_bundle(camera_ray_bundle, self.reni_neus, show_progress=False)
+                outputs = self.model.get_outputs_for_camera_ray_bundle(
+                    camera_ray_bundle, self.reni_neus, show_progress=False
+                )
                 metrics_dict, _ = self.model.get_image_metrics_and_images(outputs, batch)
                 assert "num_rays_per_sec" not in metrics_dict
                 metrics_dict["num_rays_per_sec"] = num_rays / (time() - inner_start)

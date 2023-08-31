@@ -117,7 +117,7 @@ class RENINeuSFactoModelConfig(NeuSFactoModelConfig):
         {
             "rgb_l1_loss": True,
             "rgb_l2_loss": True,
-            "cosine_colour_loss": True, 
+            "cosine_colour_loss": True,
             "eikonal loss": True,
             "fg_mask_loss": True,
             "normal_loss": True,
@@ -774,7 +774,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
 
         # SKY PIXEL LOSS
         if self.config.loss_inclusions["sky_pixel_loss"]["enabled"]:
-            sky_colours = linear_to_sRGB(outputs["hdr_background_colours"]) # as GT images as LDR
+            sky_colours = linear_to_sRGB(outputs["hdr_background_colours"])  # as GT images as LDR
             sky_mask = sky_mask.float().unsqueeze(1).expand_as(sky_colours)
             loss_dict["sky_pixel_loss"] = self.sky_pixel_loss(
                 inputs=linear_to_sRGB(outputs["hdr_background_colours"]),
@@ -829,7 +829,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
 
             if self.config.visibility_threshold == "learnable":
                 loss_dict["visibility_threshold_loss"] = self.visibility_threshold_loss(
-                    self.visibility_threshold, torch.tensor(0.0001).type_as(self.visibility_threshold)
+                    self.visibility_threshold, torch.tensor(0.001).type_as(self.visibility_threshold)
                 )
 
         loss_dict = misc.scale_dict(loss_dict, self.config.loss_coefficients)
@@ -858,7 +858,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
         image = self.renderer_rgb.blend_background(image)
         rgb = outputs["rgb"]
         acc = colormaps.apply_colormap(outputs["accumulation"])
-        gt_acc = colormaps.apply_colormap(batch["mask"][..., 1:2]) # fg_mask
+        gt_acc = colormaps.apply_colormap(batch["mask"][..., 1:2])  # fg_mask
 
         normal = outputs["normal"]
         normal = (normal + 1.0) / 2.0
@@ -895,7 +895,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
         # take mean across colour dim
         normalised_error = normalised_error.mean(dim=-1).unsqueeze(-1)
         normalised_error = colormaps.apply_depth_colormap(
-                normalised_error,
+            normalised_error,
         )
 
         images_dict = {
@@ -955,7 +955,9 @@ class RENINeuSFactoModel(NeuSFactoModel):
 
         return metrics_dict, images_dict
 
-    def generate_ddf_ground_truth(self, ray_bundle: RayBundle, mask_threshold: float = 0.5) -> Dict[str, Any]:
+    def generate_ddf_ground_truth(
+        self, ray_bundle: RayBundle, mask_threshold: float = 0.5, log_depth: bool = False
+    ) -> Dict[str, Any]:
         """Generate ground truth for DDF."""
         with torch.no_grad():
             if self.collider is not None:
@@ -967,7 +969,12 @@ class RENINeuSFactoModel(NeuSFactoModel):
             mask = (accumulations > mask_threshold).float()
             p2p_dist = self.renderer_depth(weights=weights, ray_samples=ray_samples).reshape(-1, 1)
             # clamp termination distance to 2 x ddf_sphere_radius
-            termination_dist = torch.clamp(p2p_dist, max=2 * self.visibility_field.ddf_radius)
+            if self.visibility_field is not None:
+                p2p_dist = torch.clamp(p2p_dist, max=2 * self.visibility_field.ddf_radius)
+
+            if log_depth:
+                p2p_dist = torch.log(p2p_dist + 1e-6)
+
             normals = self.renderer_normal(semantics=field_outputs[FieldHeadNames.NORMALS], weights=weights)
             normals = normals.reshape(-1, 3)
 
@@ -975,7 +982,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
             "ray_bundle": ray_bundle,
             "accumulations": accumulations,
             "mask": mask,
-            "termination_dist": termination_dist,
+            "termination_dist": p2p_dist,
             "normals": normals,
         }
 
@@ -1285,23 +1292,26 @@ class RENINeuSFactoModel(NeuSFactoModel):
             visibility_ray_bundle, batch=None, reni_neus=self, stop_gradients=stop_gradients
         )  # [N, 2]
 
-        # the ground truth distance from the point on the sphere to the point on the SDF
+        # the ground truth distance from the point on the surrounding DDF sphere to the point on the
+        # zero level set of the SDF
         dist_to_ray_origins = torch.norm(positions - sphere_intersection_points, dim=-1)  # [N]
 
         # as the DDF can only predict a max of 2*its radius, we need to clamp gt to that
         dist_to_ray_origins = torch.clamp(dist_to_ray_origins, max=self.ddf_radius * 2.0)
 
-        # add threshold_distance extra to the expected_termination_dist (i.e slighly futher into the SDF)
         # and get the difference between it and the distance from the point on the sphere to the point on the SDF
-        # difference = (outputs["expected_termination_dist"] + threshold_distance) - dist_to_ray_origins
-        difference = dist_to_ray_origins - (outputs["expected_termination_dist"] + threshold_distance)
+        difference = dist_to_ray_origins - outputs["expected_termination_dist"]
 
-        # if the difference is positive then the expected termination distance
-        # is greater than the distance from the point on the sphere to the point on the SDF
-        # so the point on the sphere is visible to it
-        # Use a large scale to make the transition steep
+        # if the difference is POSITIVE then the point on the SDF is further away than
+        # the DDF predicted and so the point is OCCLUDED to illumination from that direction.
+        # if the difference is ZERO/NEGATIVE then the point on the SDF is closer than
+        # the DDF predicted and so the point is VISIBILE to illumination from that direction.
+        # we want to use the sigmoid of the difference as the visibility value
+        # and we want to scale so its close to a step function and shift by 'threshold_distance'
+        # so be biases towards being visible.
         scale = self.config.visibility_sigmoid_scale
-        visibility = torch.sigmoid(scale * difference)
+        occlusion = torch.sigmoid(scale * (difference - threshold_distance))
+        visibility = 1.0 - occlusion
 
         if self.config.only_upperhemisphere_visibility and not compute_shadow_map:
             # we now need to use the mask we created earlier to select only the upper hemisphere
