@@ -131,9 +131,9 @@ class RENINeuSDataManager(VanillaDataManager):  # pylint: disable=abstract-metho
             dataparser_outputs=test_outputs if self.test_mode == "test" else val_outputs,
             scale_factor=self.config.camera_res_scale_factor,
         )
-    
+
     def next_eval_image(self, step: int) -> Tuple[int, RayBundle, Dict]:
-        for camera_ray_bundle, batch in self.eval_dataloader[step]:
+        for camera_ray_bundle, batch in self.eval_dataloader:
             assert camera_ray_bundle.camera_indices is not None
             image_idx = int(camera_ray_bundle.camera_indices[0, 0, 0])
             return image_idx, camera_ray_bundle, batch
@@ -149,12 +149,16 @@ class RENINeuSDataManager(VanillaDataManager):  # pylint: disable=abstract-metho
         ray_bundle = self.train_ray_generator(ray_indices)
         return ray_bundle
 
-    def get_eval_image_half_bundle(self, sample_region: Literal['left_image_half', 'right_image_half', 'full_image']) -> Tuple[RayBundle, Dict]:
+    def get_eval_image_half_bundle(
+        self, sample_region: Literal["left_image_half", "right_image_half", "full_image"]
+    ) -> Tuple[RayBundle, Dict]:
         """Returns a ray bundle of rays within the left image half and within standard mask."""
         image_batch = next(self.iter_eval_image_dataloader)
         assert self.eval_pixel_sampler is not None
         assert isinstance(image_batch, dict)
-        batch = self.eval_pixel_sampler.collate_image_half(batch=image_batch, num_rays_per_batch=self.config.eval_num_rays_per_batch, sample_region=sample_region)
+        batch = self.eval_pixel_sampler.collate_image_half(
+            batch=image_batch, num_rays_per_batch=self.config.eval_num_rays_per_batch, sample_region=sample_region
+        )
         ray_indices = batch["indices"].cpu()
         ray_bundle = self.eval_ray_generator(ray_indices)
         return ray_bundle, batch
