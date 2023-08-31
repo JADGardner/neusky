@@ -73,7 +73,7 @@ class DirectionalDistanceFieldConfig(FieldConfig):
     """Number of attention layers"""
     out_features: int = 3  # RGB
     """Number of output features"""
-    last_layer_linear: bool = False
+    last_layer_linear: bool = True
     """Whether to use a linear layer as the last layer"""
     first_omega_0: float = 30.0
     """Omega_0 for first layer"""
@@ -238,7 +238,7 @@ class DirectionalDistanceField(Field):
                 mapping_network_layers=self.config.mapping_layers,
                 mapping_network_features=self.config.mapping_features,
                 out_dim=out_features,
-                outermost_linear=True,
+                outermost_linear=self.config.last_layer_linear,
                 out_activation=None,
             )
         elif self.config.conditioning == "Attention":

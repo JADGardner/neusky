@@ -128,7 +128,7 @@ class RENINeuSPipeline(VanillaPipeline):
 
         if test_mode in ["val", "test"]:
             assert self.datamanager.eval_dataset is not None, "Missing validation dataset"
-        
+
         self.eval_image_num = 0
         self.max_eval_num = self.datamanager.num_val if test_mode == "val" else self.datamanager.num_test
 
@@ -171,8 +171,13 @@ class RENINeuSPipeline(VanillaPipeline):
             )
             model_dict = {}
             for key in ckpt["pipeline"].keys():
-                if key.startswith("_model."):
-                    model_dict[key[7:]] = ckpt["pipeline"][key]
+                if self.config.visibility_ckpt_path is not None:
+                    if key.startswith("_model.") and not key.startswith("_model.visibility_field."):
+                        model_dict[key[7:]] = ckpt["pipeline"][key]
+                else:
+                    if key.startswith("_model."):
+                        model_dict[key[7:]] = ckpt["pipeline"][key]
+
             self.model.load_state_dict(
                 model_dict, strict=False
             )  # false as it will be loading the visibility field weights too # TODO is there a better way to share visibility field?
@@ -291,7 +296,7 @@ class RENINeuSPipeline(VanillaPipeline):
         metrics_dict, images_dict = self.model.get_image_metrics_and_images(outputs, batch)
 
         if self.model.visibility_field is not None and self.model.config.fit_visibility_field:
-            positions = self.visibility_test_time_sampler()[:12] # shape [12, 3]
+            positions = self.visibility_test_time_sampler()[:12]  # shape [12, 3]
 
             fx = self.datamanager.eval_dataset.cameras.fx[image_idx]
             fy = self.datamanager.eval_dataset.cameras.fy[image_idx]
@@ -320,7 +325,7 @@ class RENINeuSPipeline(VanillaPipeline):
                 vis_outputs = self.model.visibility_field.get_outputs_for_camera_ray_bundle(
                     visibility_ray_bundle, reni_neus=None, show_progress=False
                 )
-                
+
                 vis_images_dict = self.model.visibility_field.get_image_dict(vis_outputs)
 
                 # Assuming the main visibility image is stored with a key 'visibility_image' in vis_images_dict
@@ -403,7 +408,7 @@ class RENINeuSPipeline(VanillaPipeline):
 
         if self.config.visibility_ckpt_path is None:
             return self.config.visibility_field.setup(
-                scene_box=self.scene_box,
+                scene_box=None,
                 num_train_data=self.num_train_data,
                 ddf_radius=ddf_radius,
             )
@@ -425,7 +430,7 @@ class RENINeuSPipeline(VanillaPipeline):
             visibility_config = yaml.load(visibility_config.open(), Loader=yaml.Loader)
 
             visibility_field = visibility_config.pipeline.model.setup(
-                scene_box=self.scene_box,
+                scene_box=None,
                 num_train_data=-1,
                 ddf_radius=ddf_radius,
             )
@@ -433,10 +438,12 @@ class RENINeuSPipeline(VanillaPipeline):
             visibility_field.load_state_dict(model_dict)
 
         visibility_field.to(device)
-        if self.model.config.fit_visibility_field:
+
+        if self.config.model.fit_visibility_field:
             visibility_field.train()
         else:
             visibility_field.eval()
+
         return visibility_field
 
     def generate_ddf_samples(self):

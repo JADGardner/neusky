@@ -166,14 +166,14 @@ RENINeuS = MethodSpecification(
                     mapping_features=256,
                     num_attention_heads=8,
                     num_attention_layers=6,
-                    predict_probability_of_hit=True,
+                    predict_probability_of_hit=False,
                 ),
                 loss_inclusions={
                     "depth_l1_loss": True,
                     "depth_l2_loss": False,
                     "sdf_l1_loss": False,
                     "sdf_l2_loss": True,
-                    "prob_hit_loss": True,
+                    "prob_hit_loss": False,
                     "normal_loss": False,
                     "multi_view_loss": True,
                     "sky_ray_loss": True,
@@ -194,6 +194,8 @@ RENINeuS = MethodSpecification(
                 scene_center_weight_exp=3.0,
                 scene_center_weight_include_z=False,  # only xy
                 mask_to_circumference=False,
+                inverse_depth_weight=False,
+                log_depth=False,
             ),
             visibility_train_sampler=VMFDDFSamplerConfig(
                 num_samples_on_sphere=8,
