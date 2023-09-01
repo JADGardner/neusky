@@ -951,7 +951,18 @@ class RENINeuSFactoModel(NeuSFactoModel):
             height = self.equirectangular_sampler.height
             width = self.equirectangular_sampler.width
             ldr_envmap = ldr_envmap.reshape(height, width, 3)
-            images_dict["ldr_envmap"] = ldr_envmap
+
+            hdr_mean = torch.mean(hdr_envmap, dim=-1)
+            hdr_mean = hdr_mean.reshape(height, width, 1)
+            hdr_mean_log_heatmap = colormaps.apply_depth_colormap(
+                hdr_mean,
+                near_plane=hdr_mean.min(),
+                far_plane=hdr_mean.max(),
+            )
+
+            combined_reni_envmap = torch.cat([ldr_envmap, hdr_mean_log_heatmap], dim=1)
+
+            images_dict["reni_envmap"] = combined_reni_envmap
 
         return metrics_dict, images_dict
 
