@@ -13,7 +13,7 @@ dependencies=[
     "mmengine",
     "mmsegmentation",
     "mmdet",
-    "tiny-cuda-nn@git+https://github.com/NVlabs/tiny-cuda-nn/#subdirectory=bindings/torch",
+    "tinycudann@git+https://github.com/NVlabs/tiny-cuda-nn/#subdirectory=bindings/torch",
 ]
 
 [tool.setuptools.packages.find]
