@@ -73,6 +73,7 @@ from reni_neus.model_components.ddf_sampler import VMFDDFSamplerConfig
 from reni_neus.data.reni_neus_pixel_sampler import RENINeuSPixelSamplerConfig
 from reni_neus.data.dataparsers.pnerf_dataparser import PNeRFDataParserConfig
 from reni_neus.data.datasets.pnerf_dataset import PNeRFDataset
+from reni_neus.models.pnerf_model import PNeRFModelConfig
 
 # PNeRF = MethodSpecification(
 #     config=TrainerConfig(
@@ -167,7 +168,7 @@ from reni_neus.data.datasets.pnerf_dataset import PNeRFDataset
 PNeRF = MethodSpecification(
     config=TrainerConfig(
         method_name="pnerf",
-        steps_per_eval_image=5000,
+        steps_per_eval_image=3000,
         steps_per_eval_batch=5000,
         steps_per_save=2000,
         steps_per_eval_all_images=1000000,  # set to a very large model so we don't eval with all images
@@ -186,7 +187,6 @@ PNeRF = MethodSpecification(
                 # dataparser=SDFStudioDataParserConfig(
                 #     data=Path("/workspace/data/sdfstudio-demo-data/dtu-scan65"),
                 #     skip_every_for_val_split=10,
-                #     include_foreground_mask=True,
                 # ),
                 train_num_rays_per_batch=2048,
                 eval_num_rays_per_batch=2048,
@@ -194,21 +194,21 @@ PNeRF = MethodSpecification(
                 #     mode="SO3xR3", optimizer=AdamOptimizerConfig(lr=6e-4, eps=1e-8, weight_decay=1e-2)
                 # ),
             ),
-            model=NeuSFactoModelConfig(
+            model=PNeRFModelConfig(
                 # proposal network allows for significantly smaller sdf/color network
                 sdf_field=SDFFieldConfig(
                     use_grid_feature=True,
                     num_layers=2,
                     num_layers_color=2,
                     hidden_dim=256,
-                    bias=0.1,
-                    beta_init=0.1,
+                    bias=0.3,
+                    beta_init=0.5,
                     use_appearance_embedding=False,
                     inside_outside=False,
                 ),
                 background_model="none",
                 eval_num_rays_per_chunk=2048,
-                fg_mask_loss_mult=1.0,
+                fg_mask_loss_mult=10.0,
             ),
         ),
         optimizers={
