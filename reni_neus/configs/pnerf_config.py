@@ -178,9 +178,9 @@ PNeRF = MethodSpecification(
             datamanager=VanillaDataManagerConfig(
                 _target=VanillaDataManager[PNeRFDataset],
                 dataparser=PNeRFDataParserConfig(
-                    data=Path("/workspace/data/pnerf_data/shakespeare"),
-                    images_path=Path("/workspace/data/pnerf_data/shakespeare/images/"),
-                    masks_path=Path("/workspace/data/pnerf_data/shakespeare/masks/"),
+                    data=Path("data/pnerf_data/shakespeare"),
+                    images_path=Path("data/pnerf_data/shakespeare/images/"),
+                    masks_path=Path("data/pnerf_data/shakespeare/masks/"),
                     center_method="focus",
                     downscale_factor=1,
                 ),

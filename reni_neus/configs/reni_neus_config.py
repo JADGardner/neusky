@@ -50,6 +50,7 @@ RENINeuS = MethodSpecification(
                     crop_to_equal_size=True,
                     pad_to_equal_size=False,
                     scene_scale=1.0,  # AABB
+                    mask_vegetation=False,
                 ),
                 train_num_images_to_sample_from=-1,
                 train_num_times_to_repeat_images=-1,  # # Iterations before resample a new subset
@@ -113,7 +114,7 @@ RENINeuS = MethodSpecification(
                         "enabled": True,
                         "grid_resolution": 10,
                     },
-                    "ground_plane_loss": True,
+                    "ground_plane_loss": False,
                 },
                 loss_coefficients={
                     "rgb_l1_loss": 1.0,

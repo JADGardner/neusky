@@ -182,6 +182,8 @@ class NeRFOSRCityScapesDataParserConfig(NeRFOSRDataParserConfig):
     """Run segmentation inference on images if none are provided"""
     segmentation_model: str = "ddrnet_23_in1k-pre_2xb6-120k_cityscapes-1024x1024"
     """Segmentation model to use for inference"""
+    mask_vegetation: bool = False
+    """Mask out vegetation in transient masks"""
 
 
 @dataclass
@@ -328,6 +330,7 @@ class NeRFOSRCityScapes(DataParser):
             "crop_to_equal_size": self.config.crop_to_equal_size,
             "pad_to_equal_size": self.config.pad_to_equal_size,
             "width_height": self.width_height,
+            "mask_vegetation": self.config.mask_vegetation,
         }
 
         dataparser_outputs = DataparserOutputs(

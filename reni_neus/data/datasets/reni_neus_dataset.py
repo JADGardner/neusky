@@ -154,16 +154,24 @@ class RENINeuSDataset(InputDataset):
         return metadata
 
     def get_mask(self, idx):
+        transient_mask_classes = ["person", "rider", "car", "truck", "bus", "train", "motorcycle", "bicycle"]
+        fg_mask_classes = ["road", "sidewalk", "building", "wall", "fence", "pole", "traffic light", "traffic sign", "terrain"]
+
+        if self.metadata["mask_vegetation"]:
+            transient_mask_classes.append("vegetation")
+        else:
+            fg_mask_classes.append("vegetation")
+            
         mask = self.get_mask_from_semantics(
             idx=idx,
             semantics=self.semantics,
-            mask_classes=["person", "rider", "car", "truck", "bus", "train", "motorcycle", "bicycle", "vegetation"],
+            mask_classes=transient_mask_classes,
         )
 
         mask = (~mask).unsqueeze(-1).float()  # 1 is static, 0 is transient
 
         # get_foreground_mask
-        fg_mask = self.get_mask_from_semantics(idx=idx, semantics=self.semantics, mask_classes=["road", "sidewalk", "building", "wall", "fence", "pole", "traffic light", "traffic sign", "terrain"])
+        fg_mask = self.get_mask_from_semantics(idx=idx, semantics=self.semantics, mask_classes=fg_mask_classes)
         fg_mask = fg_mask.unsqueeze(-1).float()  # 1 is foreground + statics, 0 is background + transients
         
         # get_ground_mask
