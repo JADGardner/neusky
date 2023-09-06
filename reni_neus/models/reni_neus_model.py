@@ -1134,16 +1134,13 @@ class RENINeuSFactoModel(NeuSFactoModel):
     def fit_latent_codes_for_eval(self, datamanager: RENINeuSDataManager, step: int):
         """Fit evaluation latent codes to session envmaps so that illumination is correct."""
 
-        # Make sure we are using eval RENI
+        # Make sure we are using eval RENI inside self.forward()
         self.fitting_eval_latents = True
 
         # get the correct illumination field
         illumination_field = self.get_illumination_field()
 
-        # Reset latents to zeros for fitting
-        illumination_field.reset_eval_latents()
-
-        param_group = {"eval_latents": [illumination_field.eval_mu]}
+        param_group = {"eval_latents": list(illumination_field.parameters())}
         optimizer = Optimizers(self.config.eval_latent_optimizer, param_group)
         steps = optimizer.config["eval_latents"]["scheduler"].max_steps
 
@@ -1157,24 +1154,31 @@ class RENINeuSFactoModel(NeuSFactoModel):
         ) as progress:
             task = progress.add_task("[green]Optimising eval latents... ", total=steps, loss="", lr="")
 
-            for step in range(steps):
-                ray_bundle, batch = datamanager.get_eval_image_half_bundle(
-                    sample_region=self.config.eval_latent_sample_region
-                )
-                model_outputs = self.forward(ray_bundle=ray_bundle, step=step)
-                loss_dict = self.get_loss_dict(model_outputs, batch, ray_bundle)
-                loss = functools.reduce(torch.add, loss_dict.values())
-                optimizer.zero_grad_all()
-                loss.backward()
-                optimizer.optimizer_step("eval_latents")
-                optimizer.scheduler_step("eval_latents")
+            # this is likely already set by config, but just in case
+            # ensures only latents (and scale if used) are optimised
+            with illumination_field.hold_decoder_fixed():
+                # Reset latents to zeros for fitting
+                illumination_field.reset_eval_latents()
 
-                progress.update(
-                    task,
-                    advance=1,
-                    loss=f"{loss.item():.4f}",
-                    lr=f"{optimizer.schedulers['eval_latents'].get_last_lr()[0]:.8f}",
-                )
+                for step in range(steps):
+                    ray_bundle, batch = datamanager.get_eval_image_half_bundle(
+                        sample_region=self.config.eval_latent_sample_region
+                    )
+                    model_outputs = self.forward(ray_bundle=ray_bundle, step=step)
+                    loss_dict = self.get_loss_dict(model_outputs, batch)
+                    loss = functools.reduce(torch.add, loss_dict.values())
+                    optimizer.zero_grad_all()
+                    loss.backward()
+                    optimizer.optimizer_step("eval_latents")
+                    optimizer.scheduler_step("eval_latents")
+
+                    progress.update(
+                        task,
+                        advance=1,
+                        loss=f"{loss.item():.4f}",
+                        lr=f"{optimizer.schedulers['eval_latents'].get_last_lr()[0]:.8f}",
+                    )
+
         # No longer using eval RENI
         self.fitting_eval_latents = False
 

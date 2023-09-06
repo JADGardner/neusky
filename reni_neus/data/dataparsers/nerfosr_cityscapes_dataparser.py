@@ -183,7 +183,7 @@ class NeRFOSRCityScapesDataParserConfig(NeRFOSRDataParserConfig):
     segmentation_model: str = "ddrnet_23_in1k-pre_2xb6-120k_cityscapes-1024x1024"
     """Segmentation model to use for inference"""
     mask_vegetation: bool = False
-    """Mask out vegetation in transient masks"""
+    """Include vegetation in transient masks"""
 
 
 @dataclass
