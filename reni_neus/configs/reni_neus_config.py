@@ -114,26 +114,35 @@ RENINeuS = MethodSpecification(
                         "enabled": True,
                         "grid_resolution": 10,
                     },
-                    "ground_plane_loss": False,
+                    "ground_plane_loss": True,
+                    "visibility_sigmoid_loss": {
+                        "visibility_threshold_method": "learnable", # "learnable", "fixed", "exponential_decay"
+                        "optimise_sigmoid_bias": True,
+                        "optimise_sigmoid_scale": True,
+                        "target_min_bias": 0.1,
+                        "target_max_scale": 25,
+                        "steps_until_min_bias": 50000, # if sigmoid_bias_method is exponential_decay
+                    }
                 },
                 loss_coefficients={
                     "rgb_l1_loss": 1.0,
                     "rgb_l2_loss": 0.0,
                     "cosine_colour_loss": 1.0,
                     "eikonal loss": 0.1,
-                    "fg_mask_loss": 0.01,
+                    "fg_mask_loss": 1.0,
                     "normal_loss": 1.0,
                     "depth_loss": 1.0,
                     "interlevel_loss": 1.0,
                     "sky_pixel_loss": 1.0,
                     "hashgrid_density_loss": 1e-4,
                     "ground_plane_loss": 0.1,
-                    "visibility_threshold_loss": 0.01,  # if learnable
+                    "visibility_sigmoid_loss": 0.01,  # if learnable
                 },
                 eval_latent_optimizer={
                     "eval_latents": {
-                        "optimizer": AdamOptimizerConfig(lr=1e-1, eps=1e-15),
-                        "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-7, max_steps=250),
+                        "optimizer": AdamOptimizerConfig(lr=1e-2, eps=1e-15),
+                        # "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-7, max_steps=250),
+                        "scheduler": CosineDecaySchedulerConfig(warm_up_end=50, learning_rate_alpha=0.05, max_steps=250),
                     },
                 },
                 eval_latent_sample_region="full_image",
@@ -141,12 +150,9 @@ RENINeuS = MethodSpecification(
                 illumination_field_ckpt_step=50000,
                 fix_test_illumination_directions=True,
                 eval_num_rays_per_chunk=256,
-                use_visibility=True,
+                use_visibility=True, 
                 fit_visibility_field=True,  # if true, train visibility field, else visibility is static
-                sdf_to_visibility_stop_gradients="depth",  # "depth", "sdf", "both", "none" # if depth then visibility can affect sdf
-                visibility_threshold="learnable",  # "learnable", float, tuple(start, end) ... tuple will exponentially decay from start to end
-                visibility_sigmoid_scale=100.0,
-                steps_till_min_visibility_threshold=50000,  # if visibility_threshold is tuple
+                sdf_to_visibility_stop_gradients="depth",  # "depth", "sdf", "both", "none" # if none then visibility can affect sdf
                 only_upperhemisphere_visibility=True,
                 scene_contraction_order="L2",  # L2, Linf
                 collider_shape="sphere",
@@ -224,7 +230,7 @@ RENINeuS = MethodSpecification(
                 "optimizer": AdamOptimizerConfig(lr=1e-2, eps=1e-15),
                 "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-5, max_steps=100001),
             },
-            "visibility_threshold": {
+            "visibility_sigmoid": {
                 "optimizer": AdamOptimizerConfig(lr=1e-3, eps=1e-15),
                 "scheduler": ExponentialDecaySchedulerConfig(warmup_steps=4000, lr_final=1e-4, max_steps=100001),
             },

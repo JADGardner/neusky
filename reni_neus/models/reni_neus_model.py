@@ -132,6 +132,14 @@ class RENINeuSFactoModelConfig(NeuSFactoModelConfig):
                 "grid_resolution": 256,
             },
             "ground_plane_loss": True,
+            "visibility_sigmoid_loss": {
+                "visibility_threshold_method": "learnable", # "learnable", "fixed", "exponential_decay"
+                "optimise_sigmoid_bias": True, # if visibility_threshold_method is learnable (this is AKA visibility threshold)
+                "optimise_sigmoid_scale": True, # if visibility_threshold_method is learnable
+                "target_min_bias": 0.1, # will be optimised towards if visibility_threshold_method is learnable, also used in fixed and exponential_decay
+                "target_max_scale": 100,
+                "steps_until_min_bias": 50000, # if visibility_threshold_method is exponential_decay
+            }
         }
     )
     """Which losses to include in the training"""
@@ -195,16 +203,22 @@ class RENINeuSFactoModel(NeuSFactoModel):
         if self.visibility_field is not None:
             self.ddf_radius = self.visibility_field.ddf_radius
 
-            self.visibility_threshold_end = None
-            if self.config.visibility_threshold == "learnable":
-                self.visibility_threshold_loss = torch.nn.MSELoss()
-                self.visibility_threshold = Parameter(torch.tensor(self.visibility_field.ddf_radius * 2.0))
-            elif isinstance(self.config.visibility_threshold, tuple):
+            self.visibility_threshold_method = self.config.loss_inclusions['visibility_sigmoid_loss']['visibility_threshold_method']
+            self.sigmoid_scale = torch.tensor(self.config.loss_inclusions['visibility_sigmoid_loss']['target_max_scale'])
+            if self.visibility_threshold_method == "learnable":
+                assert self.config.loss_inclusions['visibility_sigmoid_loss']['optimise_sigmoid_bias'] or self.config.loss_inclusions['visibility_sigmoid_loss']['optimise_sigmoid_scale'], "Must optimise sigmoid bias or scale"
+                self.visibility_sigmoid_loss = torch.nn.MSELoss()
+                # initialise sigmoid bias (visibility threshold) and scale
+                if self.config.loss_inclusions['visibility_sigmoid_loss']['optimise_sigmoid_bias']:
+                    self.visibility_threshold = Parameter(torch.tensor(self.visibility_field.ddf_radius * 2.0))
+                if self.config.loss_inclusions['visibility_sigmoid_loss']['optimise_sigmoid_scale']:
+                    self.sigmoid_scale = Parameter(torch.tensor(1.0))
+            if self.visibility_threshold_method == "exponential_decay":
                 # this is start and end and we decrease exponentially
-                self.visibility_threshold_start = torch.tensor(self.config.visibility_threshold[0])
-                self.visibility_threshold_end = torch.tensor(self.config.visibility_threshold[1])
-            elif isinstance(self.config.visibility_threshold, float):
-                self.visibility_threshold = torch.tensor(self.config.visibility_threshold)
+                self.visibility_threshold_start = torch.tensor(self.visibility_field.ddf_radius * 2.0)
+                self.visibility_threshold_end = torch.tensor(self.config.loss_inclusions['visibility_sigmoid_loss']['target_min_bias'])
+            if self.visibility_threshold_method == "fixed":
+                self.visibility_threshold = torch.tensor(self.config.loss_inclusions['visibility_sigmoid_loss']['target_min_bias'])
 
     def populate_modules(self):
         """Instantiate modules and fields, including proposal networks."""
@@ -291,8 +305,13 @@ class RENINeuSFactoModel(NeuSFactoModel):
         param_groups["fields"] = list(self.field.parameters())
         param_groups["proposal_networks"] = list(self.proposal_networks.parameters())
         param_groups["illumination_field"] = list(self.illumination_field_train.parameters())
-        if self.config.visibility_threshold == "learnable":
-            param_groups["visibility_threshold"] = [self.visibility_threshold]
+        if self.config.loss_inclusions['visibility_sigmoid_loss']['visibility_threshold_method'] == "learnable":
+            visibility_sigmoid_params = []
+            if self.config.loss_inclusions['visibility_sigmoid_loss']['optimise_sigmoid_bias']:
+                visibility_sigmoid_params.append(self.visibility_threshold)
+            if self.config.loss_inclusions['visibility_sigmoid_loss']['optimise_sigmoid_scale']:
+                visibility_sigmoid_params.append(self.sigmoid_scale)
+            param_groups["visibility_sigmoid"] = visibility_sigmoid_params
         return param_groups
 
     def get_illumination_field(self):
@@ -472,7 +491,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
                 p2p_dist_vis = p2p_dist
 
             # if we are decaying visibility threshold then compute it here
-            if self.visibility_threshold_end is not None:
+            if self.visibility_threshold_method == 'exponential_decay':
                 visibility_threshold = self.decay_threshold(step)
             else:
                 # otherwise we are using a fixed or learnable threshold
@@ -483,6 +502,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
                 depth=p2p_dist_vis,  # TODO Need to understand why depth and not p2p_dist
                 illumination_directions=illumination_directions,
                 threshold_distance=visibility_threshold,
+                sigmoid_scale=self.sigmoid_scale,
             )
 
             samples_and_field_outputs["visibility_dict"] = visibility_dict
@@ -511,6 +531,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
                     depth=p2p_dist_vis,
                     illumination_directions=shadow_map_direction,
                     threshold_distance=self.shadow_map_threshold_static,
+                    sigmoid_scale=self.shadow_map_sigmoid_scale_static,
                     compute_shadow_map=True,
                 )
 
@@ -827,10 +848,21 @@ class RENINeuSFactoModel(NeuSFactoModel):
                 ground_mask = ground_mask.unsqueeze(1).expand_as(normal_pred)
                 loss_dict["ground_plane_loss"] = monosdf_normal_loss(normal_pred * ground_mask, normal_gt * ground_mask)
 
-            if self.config.visibility_threshold == "learnable":
-                loss_dict["visibility_threshold_loss"] = self.visibility_threshold_loss(
-                    self.visibility_threshold, torch.tensor(0.001).type_as(self.visibility_threshold)
-                )
+            if self.visibility_threshold_method == "learnable":
+                vis_bias_loss = torch.tensor(0.0).type_as(self.visibility_threshold)
+                vis_scale_loss = torch.tensor(0.0).type_as(self.sigmoid_scale)
+                if self.config.loss_inclusions['visibility_sigmoid_loss']['optimise_sigmoid_bias']:
+                    vis_bias_loss = self.visibility_sigmoid_loss(
+                        self.visibility_threshold, torch.tensor(self.config.loss_inclusions['visibility_sigmoid_loss']['target_min_bias']).type_as(self.visibility_threshold)
+                    )
+                if self.config.loss_inclusions['visibility_sigmoid_loss']['optimise_sigmoid_scale']:
+                    # this needs scaling to similar range as vis_bias_loss to avoid one dominating
+                    # normalise by divisding by target_max_scale and then just fit to 1
+                    current_scale = self.sigmoid_scale / torch.tensor(self.config.loss_inclusions['visibility_sigmoid_loss']['target_max_scale']).type_as(self.sigmoid_scale)
+                    vis_scale_loss = self.visibility_sigmoid_loss(
+                        current_scale, torch.tensor(1.0).type_as(self.sigmoid_scale)
+                    )
+                loss_dict["visibility_sigmoid_loss"] = vis_bias_loss + vis_scale_loss
 
         loss_dict = misc.scale_dict(loss_dict, self.config.loss_coefficients)
         return loss_dict
@@ -1025,6 +1057,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
         self.render_normal_static_flag = self.render_normal_flag
         self.render_albedo_static_flag = self.render_albedo_flag
         self.render_shadow_map_static_flag = self.render_shadow_map_flag
+        self.shadow_map_sigmoid_scale_static = self.shadow_map_sigmoid_scale.value
         self.shadow_map_threshold_static = self.shadow_map_threshold.value
         self.shadow_map_azimuth_static = self.shadow_map_azimuth.value
         self.shadow_map_elevation_static = self.shadow_map_elevation.value
@@ -1218,6 +1251,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
         depth: torch.Tensor,
         illumination_directions: torch.Tensor,
         threshold_distance: float,
+        sigmoid_scale: float,
         compute_shadow_map: bool = False,
     ):
         """Compute visibility"""
@@ -1324,8 +1358,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
         # we want to use the sigmoid of the difference as the visibility value
         # and we want to scale so its close to a step function and shift by 'threshold_distance'
         # so be biases towards being visible.
-        scale = self.config.visibility_sigmoid_scale
-        occlusion = torch.sigmoid(scale * (difference - threshold_distance))
+        occlusion = torch.sigmoid(sigmoid_scale * (difference - threshold_distance))
         visibility = 1.0 - occlusion
 
         if self.config.only_upperhemisphere_visibility and not compute_shadow_map:
@@ -1388,6 +1421,9 @@ class RENINeuSFactoModel(NeuSFactoModel):
         self.render_shadow_map_static_flag = False
         self.shadow_map_threshold = ViewerSlider(
             name="Shadowmap Threshold", default_value=1.0, min_value=0.0, max_value=2.0
+        )
+        self.shadow_map_sigmoid_scale = ViewerSlider(
+            name="Shadowmap Sigmoid Scale", default_value=1.0, min_value=1.0, max_value=500.0
         )
         self.shadow_map_azimuth = ViewerSlider(
             name="Shadow Map Azimuth", default_value=0.0, min_value=-180.0, max_value=180.0
