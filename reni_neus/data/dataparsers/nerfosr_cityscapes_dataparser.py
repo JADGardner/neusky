@@ -23,6 +23,7 @@ import glob
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
+from collections import defaultdict
 from typing import List, Tuple, Type
 from torchvision.transforms import InterpolationMode, Resize, ToTensor
 from PIL import Image
@@ -91,21 +92,23 @@ CITYSCAPE_CLASSES = {
 }
 
 
-def _find_files(directory: str, exts: List[str]):
-    """Find all files in a directory that have a certain file extension.
+def _find_files(directory: str, exts: List[str], recursive: bool = False) -> List[str]:
+    """Find all files in a directory (and its subdirectories based on the recursive flag) that have a certain file extension.
 
     Args:
         directory : The directory to search for files.
         exts :  A list of file extensions to search for. Each file extension should be in the form '*.ext'.
+        recursive : Whether to search in subdirectories as well. Defaults to False.
 
     Returns:
         A list of file paths for all the files that were found. The list is sorted alphabetically.
     """
     if os.path.isdir(directory):
-        # types should be ['*.png', '*.jpg', '*.JPG', '*.PNG']
         files_grabbed = []
         for ext in exts:
-            files_grabbed.extend(glob.glob(os.path.join(directory, ext)))
+            pattern = os.path.join(directory, "**", ext) if recursive else os.path.join(directory, ext)
+            files_grabbed.extend(glob.glob(pattern, recursive=recursive))
+
         if len(files_grabbed) > 0:
             files_grabbed = sorted(files_grabbed)
         return files_grabbed
@@ -184,6 +187,8 @@ class NeRFOSRCityScapesDataParserConfig(NeRFOSRDataParserConfig):
     """Segmentation model to use for inference"""
     mask_vegetation: bool = False
     """Include vegetation in transient masks"""
+    session_eval_indices: List[int] = field(default_factory=lambda: [0, 0, 0, 0, 0])
+    """Indices of images within sessions (idx are relative to session) to use for evaluation"""
 
 
 @dataclass
@@ -291,6 +296,30 @@ class NeRFOSRCityScapes(DataParser):
         # --- images ---
         image_filenames = _find_files(f"{split_dir}/rgb", exts=["*.png", "*.jpg", "*.JPG", "*.PNG"])
 
+        # --- session IDs ---
+        session_to_indices = defaultdict(list)
+
+        # names of sessions are the folders within scene_dir/ENV_MAP
+        sessions = [os.path.basename(x) for x in glob.glob(f"{scene_dir}/ENV_MAP_CC/*")]
+
+        # --- environment maps ---
+        envmap_filenames = _find_files(
+            f"{scene_dir}/ENV_MAP_CC", exts=["*.png", "*.jpg", "*.JPG", "*.PNG"], recursive=True
+        )
+
+        for idx, filename in enumerate(image_filenames):
+            # if filename contains a session name, use that as the session ID
+            # otherwise, place it in an 'other' session
+            for session in sessions:
+                if session in filename:
+                    session_to_indices[session].append(int(idx))
+
+        if split in ["validation", "test"]:
+            session_to_indices = dict(session_to_indices)
+            assert len(self.config.session_eval_indices) == len(
+                session_to_indices
+            ), "number of eval idx must match number of unique sessions"
+
         # --- masks ---
         mask_filenames = None
         segmentation_filenames = None
@@ -323,6 +352,9 @@ class NeRFOSRCityScapes(DataParser):
 
         metadata = {
             "semantics": semantics,
+            "session_to_indices": session_to_indices,
+            "session_eval_indices": self.config.session_eval_indices,
+            "envmap_filenames": envmap_filenames,
             "depth_filenames": None,
             "normal_filenames": None,
             "include_mono_prior": False,

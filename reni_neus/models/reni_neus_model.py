@@ -133,13 +133,13 @@ class RENINeuSFactoModelConfig(NeuSFactoModelConfig):
             },
             "ground_plane_loss": True,
             "visibility_sigmoid_loss": {
-                "visibility_threshold_method": "learnable", # "learnable", "fixed", "exponential_decay"
-                "optimise_sigmoid_bias": True, # if visibility_threshold_method is learnable (this is AKA visibility threshold)
-                "optimise_sigmoid_scale": True, # if visibility_threshold_method is learnable
-                "target_min_bias": 0.1, # will be optimised towards if visibility_threshold_method is learnable, also used in fixed and exponential_decay
+                "visibility_threshold_method": "learnable",  # "learnable", "fixed", "exponential_decay"
+                "optimise_sigmoid_bias": True,  # if visibility_threshold_method is learnable (this is AKA visibility threshold)
+                "optimise_sigmoid_scale": True,  # if visibility_threshold_method is learnable
+                "target_min_bias": 0.1,  # will be optimised towards if visibility_threshold_method is learnable, also used in fixed and exponential_decay
                 "target_max_scale": 100,
-                "steps_until_min_bias": 50000, # if visibility_threshold_method is exponential_decay
-            }
+                "steps_until_min_bias": 50000,  # if visibility_threshold_method is exponential_decay
+            },
         }
     )
     """Which losses to include in the training"""
@@ -153,7 +153,8 @@ class RENINeuSFactoModelConfig(NeuSFactoModelConfig):
     )
     """Optimizer and scheduler for latent code optimisation"""
     eval_latent_sample_region: Literal["left_image_half", "right_image_half", "full_image"] = "full_image"
-    """Sample region of images for eval latent optimisation"""
+    """Sample region of images for eval latent optimisation if method is per image"""
+    eval_latent_optimise_method: Literal["per_image", "nerf_osr_holdout", "nerf_osr_envmap"] = "per_image"
 
 
 class RENINeuSFactoModel(NeuSFactoModel):
@@ -203,22 +204,33 @@ class RENINeuSFactoModel(NeuSFactoModel):
         if self.visibility_field is not None:
             self.ddf_radius = self.visibility_field.ddf_radius
 
-            self.visibility_threshold_method = self.config.loss_inclusions['visibility_sigmoid_loss']['visibility_threshold_method']
-            self.sigmoid_scale = torch.tensor(self.config.loss_inclusions['visibility_sigmoid_loss']['target_max_scale'])
+            self.visibility_threshold_method = self.config.loss_inclusions["visibility_sigmoid_loss"][
+                "visibility_threshold_method"
+            ]
+            self.sigmoid_scale = torch.tensor(
+                self.config.loss_inclusions["visibility_sigmoid_loss"]["target_max_scale"]
+            )
             if self.visibility_threshold_method == "learnable":
-                assert self.config.loss_inclusions['visibility_sigmoid_loss']['optimise_sigmoid_bias'] or self.config.loss_inclusions['visibility_sigmoid_loss']['optimise_sigmoid_scale'], "Must optimise sigmoid bias or scale"
+                assert (
+                    self.config.loss_inclusions["visibility_sigmoid_loss"]["optimise_sigmoid_bias"]
+                    or self.config.loss_inclusions["visibility_sigmoid_loss"]["optimise_sigmoid_scale"]
+                ), "Must optimise sigmoid bias or scale"
                 self.visibility_sigmoid_loss = torch.nn.MSELoss()
                 # initialise sigmoid bias (visibility threshold) and scale
-                if self.config.loss_inclusions['visibility_sigmoid_loss']['optimise_sigmoid_bias']:
+                if self.config.loss_inclusions["visibility_sigmoid_loss"]["optimise_sigmoid_bias"]:
                     self.visibility_threshold = Parameter(torch.tensor(self.visibility_field.ddf_radius * 2.0))
-                if self.config.loss_inclusions['visibility_sigmoid_loss']['optimise_sigmoid_scale']:
+                if self.config.loss_inclusions["visibility_sigmoid_loss"]["optimise_sigmoid_scale"]:
                     self.sigmoid_scale = Parameter(torch.tensor(1.0))
             if self.visibility_threshold_method == "exponential_decay":
                 # this is start and end and we decrease exponentially
                 self.visibility_threshold_start = torch.tensor(self.visibility_field.ddf_radius * 2.0)
-                self.visibility_threshold_end = torch.tensor(self.config.loss_inclusions['visibility_sigmoid_loss']['target_min_bias'])
+                self.visibility_threshold_end = torch.tensor(
+                    self.config.loss_inclusions["visibility_sigmoid_loss"]["target_min_bias"]
+                )
             if self.visibility_threshold_method == "fixed":
-                self.visibility_threshold = torch.tensor(self.config.loss_inclusions['visibility_sigmoid_loss']['target_min_bias'])
+                self.visibility_threshold = torch.tensor(
+                    self.config.loss_inclusions["visibility_sigmoid_loss"]["target_min_bias"]
+                )
 
     def populate_modules(self):
         """Instantiate modules and fields, including proposal networks."""
@@ -305,11 +317,11 @@ class RENINeuSFactoModel(NeuSFactoModel):
         param_groups["fields"] = list(self.field.parameters())
         param_groups["proposal_networks"] = list(self.proposal_networks.parameters())
         param_groups["illumination_field"] = list(self.illumination_field_train.parameters())
-        if self.config.loss_inclusions['visibility_sigmoid_loss']['visibility_threshold_method'] == "learnable":
+        if self.config.loss_inclusions["visibility_sigmoid_loss"]["visibility_threshold_method"] == "learnable":
             visibility_sigmoid_params = []
-            if self.config.loss_inclusions['visibility_sigmoid_loss']['optimise_sigmoid_bias']:
+            if self.config.loss_inclusions["visibility_sigmoid_loss"]["optimise_sigmoid_bias"]:
                 visibility_sigmoid_params.append(self.visibility_threshold)
-            if self.config.loss_inclusions['visibility_sigmoid_loss']['optimise_sigmoid_scale']:
+            if self.config.loss_inclusions["visibility_sigmoid_loss"]["optimise_sigmoid_scale"]:
                 visibility_sigmoid_params.append(self.sigmoid_scale)
             param_groups["visibility_sigmoid"] = visibility_sigmoid_params
         return param_groups
@@ -491,7 +503,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
                 p2p_dist_vis = p2p_dist
 
             # if we are decaying visibility threshold then compute it here
-            if self.visibility_threshold_method == 'exponential_decay':
+            if self.visibility_threshold_method == "exponential_decay":
                 visibility_threshold = self.decay_threshold(step)
             else:
                 # otherwise we are using a fixed or learnable threshold
@@ -851,14 +863,19 @@ class RENINeuSFactoModel(NeuSFactoModel):
             if self.visibility_threshold_method == "learnable":
                 vis_bias_loss = torch.tensor(0.0).type_as(self.visibility_threshold)
                 vis_scale_loss = torch.tensor(0.0).type_as(self.sigmoid_scale)
-                if self.config.loss_inclusions['visibility_sigmoid_loss']['optimise_sigmoid_bias']:
+                if self.config.loss_inclusions["visibility_sigmoid_loss"]["optimise_sigmoid_bias"]:
                     vis_bias_loss = self.visibility_sigmoid_loss(
-                        self.visibility_threshold, torch.tensor(self.config.loss_inclusions['visibility_sigmoid_loss']['target_min_bias']).type_as(self.visibility_threshold)
+                        self.visibility_threshold,
+                        torch.tensor(self.config.loss_inclusions["visibility_sigmoid_loss"]["target_min_bias"]).type_as(
+                            self.visibility_threshold
+                        ),
                     )
-                if self.config.loss_inclusions['visibility_sigmoid_loss']['optimise_sigmoid_scale']:
+                if self.config.loss_inclusions["visibility_sigmoid_loss"]["optimise_sigmoid_scale"]:
                     # this needs scaling to similar range as vis_bias_loss to avoid one dominating
                     # normalise by divisding by target_max_scale and then just fit to 1
-                    current_scale = self.sigmoid_scale / torch.tensor(self.config.loss_inclusions['visibility_sigmoid_loss']['target_max_scale']).type_as(self.sigmoid_scale)
+                    current_scale = self.sigmoid_scale / torch.tensor(
+                        self.config.loss_inclusions["visibility_sigmoid_loss"]["target_max_scale"]
+                    ).type_as(self.sigmoid_scale)
                     vis_scale_loss = self.visibility_sigmoid_loss(
                         current_scale, torch.tensor(1.0).type_as(self.sigmoid_scale)
                     )
@@ -939,6 +956,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
         }
 
         # Switch images from [H, W, C] to [1, C, H, W] for metrics computations
+        # TODO mask only building pixels
         image = torch.moveaxis(image, -1, 0)[None, ...]
         rgb = torch.moveaxis(rgb, -1, 0)[None, ...]
 

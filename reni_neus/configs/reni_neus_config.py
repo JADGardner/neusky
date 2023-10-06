@@ -45,7 +45,7 @@ RENINeuS = MethodSpecification(
         pipeline=RENINeuSPipelineConfig(
             datamanager=RENINeuSDataManagerConfig(
                 dataparser=NeRFOSRCityScapesDataParserConfig(
-                    scene="st",
+                    scene="lk2",
                     auto_scale_poses=True,
                     crop_to_equal_size=True,
                     pad_to_equal_size=False,
@@ -57,7 +57,7 @@ RENINeuS = MethodSpecification(
                 pixel_sampler=RENINeuSPixelSamplerConfig(),
                 images_on_gpu=True,
                 masks_on_gpu=True,
-                train_num_rays_per_batch=256,
+                train_num_rays_per_batch=64,
                 eval_num_rays_per_batch=256,
                 camera_optimizer=CameraOptimizerConfig(
                     mode="off", optimizer=AdamOptimizerConfig(lr=6e-4, eps=1e-8, weight_decay=1e-2)
@@ -96,7 +96,7 @@ RENINeuS = MethodSpecification(
                     trainable_scale=True,
                 ),
                 illumination_sampler=IcosahedronSamplerConfig(
-                    num_directions=512,
+                    num_directions=64,
                     apply_random_rotation=True,
                     remove_lower_hemisphere=False,
                 ),
@@ -116,13 +116,13 @@ RENINeuS = MethodSpecification(
                     },
                     "ground_plane_loss": True,
                     "visibility_sigmoid_loss": {
-                        "visibility_threshold_method": "learnable", # "learnable", "fixed", "exponential_decay"
+                        "visibility_threshold_method": "learnable",  # "learnable", "fixed", "exponential_decay"
                         "optimise_sigmoid_bias": True,
-                        "optimise_sigmoid_scale": True,
+                        "optimise_sigmoid_scale": False,
                         "target_min_bias": 0.1,
                         "target_max_scale": 25,
-                        "steps_until_min_bias": 50000, # if sigmoid_bias_method is exponential_decay
-                    }
+                        "steps_until_min_bias": 50000,  # if sigmoid_bias_method is exponential_decay
+                    },
                 },
                 loss_coefficients={
                     "rgb_l1_loss": 1.0,
@@ -142,17 +142,20 @@ RENINeuS = MethodSpecification(
                     "eval_latents": {
                         "optimizer": AdamOptimizerConfig(lr=1e-2, eps=1e-15),
                         # "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-7, max_steps=250),
-                        "scheduler": CosineDecaySchedulerConfig(warm_up_end=50, learning_rate_alpha=0.05, max_steps=250),
+                        "scheduler": CosineDecaySchedulerConfig(
+                            warm_up_end=50, learning_rate_alpha=0.05, max_steps=250
+                        ),
                     },
                 },
+                eval_latent_optimise_method="per_image",  # per_image, nerf_osr
                 eval_latent_sample_region="full_image",
                 illumination_field_ckpt_path=Path("outputs/reni/reni/2023-08-23_075123/"),
                 illumination_field_ckpt_step=50000,
                 fix_test_illumination_directions=True,
                 eval_num_rays_per_chunk=256,
-                use_visibility=True, 
+                use_visibility=True,
                 fit_visibility_field=True,  # if true, train visibility field, else visibility is static
-                sdf_to_visibility_stop_gradients="depth",  # "depth", "sdf", "both", "none" # if none then visibility can affect sdf
+                sdf_to_visibility_stop_gradients="depth",  # "depth", "sdf", "both", "none" # if both then visibility losses can't update sdf
                 only_upperhemisphere_visibility=True,
                 scene_contraction_order="L2",  # L2, Linf
                 collider_shape="sphere",

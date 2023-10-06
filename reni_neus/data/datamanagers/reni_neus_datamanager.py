@@ -37,9 +37,16 @@ from nerfstudio.data.datamanagers.base_datamanager import (
     VanillaDataManagerConfig,
     variable_res_collate,
 )
+from nerfstudio.data.utils.dataloaders import (
+    CacheDataloader,
+    FixedIndicesEvalDataloader,
+    RandIndicesEvalDataloader,
+)
+from nerfstudio.model_components.ray_generators import RayGenerator
 
 from reni_neus.data.reni_neus_pixel_sampler import RENINeuSPixelSampler
 from reni_neus.data.datasets.reni_neus_dataset import RENINeuSDataset
+from reni_neus.data.utils.dataloaders import SelectedIndicesCacheDataloader
 
 CONSOLE = Console(width=120)
 
@@ -132,6 +139,73 @@ class RENINeuSDataManager(VanillaDataManager):  # pylint: disable=abstract-metho
             scale_factor=self.config.camera_res_scale_factor,
         )
 
+    def setup_eval(self):
+        """Sets up the data loader for evaluation"""
+        assert self.eval_dataset is not None
+        CONSOLE.print("Setting up evaluation dataset...")
+        self.eval_image_dataloader = CacheDataloader(
+            self.eval_dataset,
+            num_images_to_sample_from=self.config.eval_num_images_to_sample_from,
+            num_times_to_repeat_images=self.config.eval_num_times_to_repeat_images,
+            device=self.device,
+            num_workers=self.world_size * 4,
+            pin_memory=True,
+            collate_fn=self.config.collate_fn,
+            exclude_batch_keys_from_device=self.exclude_batch_keys_from_device,
+        )
+        self.iter_eval_image_dataloader = iter(self.eval_image_dataloader)
+        self.eval_pixel_sampler = self._get_pixel_sampler(self.eval_dataset, self.config.eval_num_rays_per_batch)
+        self.eval_camera_optimizer = self.config.camera_optimizer.setup(
+            num_cameras=self.eval_dataset.cameras.size, device=self.device
+        )
+        self.eval_ray_generator = RayGenerator(
+            self.eval_dataset.cameras.to(self.device),
+            self.eval_camera_optimizer,
+        )
+        # for loading full images
+        self.fixed_indices_eval_dataloader = FixedIndicesEvalDataloader(
+            input_dataset=self.eval_dataset,
+            device=self.device,
+            num_workers=self.world_size * 4,
+        )
+        self.eval_dataloader = RandIndicesEvalDataloader(
+            input_dataset=self.eval_dataset,
+            device=self.device,
+            num_workers=self.world_size * 4,
+        )
+        ### This is for NeRF-OSR relighting benchmark ###
+        session_image_idxs = self.eval_dataset.metadata["session_eval_indices"]
+        # currently session_image_idxs is the image idxs relative to session
+        # but we want it to be relative to the whole dataset
+        image_idxs_holdout = []
+        for session_relative_idx, session in zip(session_image_idxs, self.eval_dataset.metadata["session_to_indices"]):
+            image_idxs_holdout.append(int(session[session_relative_idx]))
+
+        self.eval_session_holdout_dataloader = SelectedIndicesCacheDataloader(
+            self.eval_dataset,
+            num_images_to_sample_from=self.config.eval_num_images_to_sample_from,
+            num_times_to_repeat_images=self.config.eval_num_times_to_repeat_images,
+            device=self.device,
+            num_workers=self.world_size * 4,
+            pin_memory=True,
+            collate_fn=self.config.collate_fn,
+            exclude_batch_keys_from_device=self.exclude_batch_keys_from_device,
+            selected_indices=image_idxs_holdout,
+        )
+        image_idxs_eval = range(len(self.eval_dataset))
+        image_idxs_eval = [idx for idx in image_idxs_eval if idx not in image_idxs_holdout]
+        self.eval_session_compare_dataloader = SelectedIndicesCacheDataloader(
+            self.eval_dataset,
+            num_images_to_sample_from=self.config.eval_num_images_to_sample_from,
+            num_times_to_repeat_images=self.config.eval_num_times_to_repeat_images,
+            device=self.device,
+            num_workers=self.world_size * 4,
+            pin_memory=True,
+            collate_fn=self.config.collate_fn,
+            exclude_batch_keys_from_device=self.exclude_batch_keys_from_device,
+            selected_indices=image_idxs_eval,
+        )
+
     def next_eval_image(self, step: int) -> Tuple[int, RayBundle, Dict]:
         for camera_ray_bundle, batch in self.eval_dataloader:
             assert camera_ray_bundle.camera_indices is not None
@@ -162,3 +236,19 @@ class RENINeuSDataManager(VanillaDataManager):  # pylint: disable=abstract-metho
         ray_indices = batch["indices"].cpu()
         ray_bundle = self.eval_ray_generator(ray_indices)
         return ray_bundle, batch
+
+    def get_nerfosr_holdout_lighting_optimisation_bundle(self) -> Tuple[RayBundle, Dict]:
+        """Returns a ray bundle of rays from only the selected IDX from each test session.
+        The test datasets contain multiple capture sessions at different dates. We get a
+        single image from each session as specified by the session_idxs list."""
+        _, image_batch = next(self.iter_eval_session_holdout_dataloader)
+        assert self.eval_pixel_sampler is not None
+        assert isinstance(image_batch, dict)
+        batch = self.eval_pixel_sampler(image_batch)
+        ray_indices = batch["indices"].cpu()
+        ray_bundle = self.eval_ray_generator(ray_indices)
+        return ray_bundle, batch
+
+    def get_nerfosr_envmap_lighting_optimisation_bundle(self):
+        """return the envmap for the session"""
+        pass
