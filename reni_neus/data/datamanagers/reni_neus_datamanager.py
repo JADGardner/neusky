@@ -111,6 +111,7 @@ class RENINeuSDataManager(VanillaDataManager):  # pylint: disable=abstract-metho
             self.exclude_batch_keys_from_device.remove("mask")
         if self.config.images_on_gpu is True:
             self.exclude_batch_keys_from_device.remove("image")
+        self.eval_latent_optimise_method = kwargs.get("eval_latent_optimise_method", None)
 
         if self.train_dataparser_outputs is not None:
             cameras = self.train_dataparser_outputs.cameras
@@ -162,17 +163,7 @@ class RENINeuSDataManager(VanillaDataManager):  # pylint: disable=abstract-metho
             self.eval_dataset.cameras.to(self.device),
             self.eval_camera_optimizer,
         )
-        # for loading full images
-        self.fixed_indices_eval_dataloader = FixedIndicesEvalDataloader(
-            input_dataset=self.eval_dataset,
-            device=self.device,
-            num_workers=self.world_size * 4,
-        )
-        self.eval_dataloader = RandIndicesEvalDataloader(
-            input_dataset=self.eval_dataset,
-            device=self.device,
-            num_workers=self.world_size * 4,
-        )
+
         ### This is for NeRF-OSR relighting benchmark ###
         session_image_idxs = self.eval_dataset.metadata["session_holdout_indices"]
         session_to_indices = self.eval_dataset.metadata["session_to_indices"]
@@ -209,12 +200,40 @@ class RENINeuSDataManager(VanillaDataManager):  # pylint: disable=abstract-metho
         )
         self.iter_eval_session_compare_dataloader = iter(self.eval_session_compare_dataloader)
 
+        # full images
+        if self.eval_latent_optimise_method == "per_image":
+            self.eval_dataloader = RandIndicesEvalDataloader(
+                input_dataset=self.eval_dataset,
+                device=self.device,
+                num_workers=self.world_size * 4,
+            )
+        else:
+            self.eval_dataloader = FixedIndicesEvalDataloader(
+                input_dataset=self.eval_dataset,
+                image_indices=tuple(image_idxs_eval),
+                device=self.device,
+                num_workers=self.world_size * 4,
+            )
+            self.iter_eval_dataloader = iter(self.eval_dataloader)
+
     def next_eval_image(self, step: int) -> Tuple[int, RayBundle, Dict]:
-        for camera_ray_bundle, batch in self.eval_dataloader:
+        if not self.eval_latent_optimise_method == "per_image":
+            camera_ray_bundle, batch = next(self.iter_eval_dataloader)
             assert camera_ray_bundle.camera_indices is not None
             image_idx = int(camera_ray_bundle.camera_indices[0, 0, 0])
+            # we need to use the indices_to_session mapping to get the session idx
+            image_idx = self.indices_to_session[image_idx]
+            batch["image_idx"] = image_idx
+            # we also need to update camera_ray_bundle.camera_indices which is shape [H, W, 1]
+            # to also just be same shape but all image_idx
+            camera_ray_bundle.camera_indices = torch.ones_like(camera_ray_bundle.camera_indices) * image_idx
             return image_idx, camera_ray_bundle, batch
-        raise ValueError("No more eval images")
+        else:
+            for camera_ray_bundle, batch in self.eval_dataloader:
+                assert camera_ray_bundle.camera_indices is not None
+                image_idx = int(camera_ray_bundle.camera_indices[0, 0, 0])
+                return image_idx, camera_ray_bundle, batch
+            raise ValueError("No more eval images")
 
     def get_sky_ray_bundle(self, number_of_rays: int) -> Tuple[RayBundle, Dict]:
         """Returns a sky ray bundle for the given step."""

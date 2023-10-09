@@ -187,10 +187,10 @@ class RENINeuSFactoModel(NeuSFactoModel):
         self.num_test_data = num_test_data
         self.test_mode = test_mode
         self.fitting_eval_latents = False
+        self.train_metadata = kwargs.get("train_metadata", None)
+        self.eval_metadata = kwargs.get("eval_metadata", None)
         super().__init__(config, scene_box, num_train_data, **kwargs)
         self.visibility_field = visibility_field
-        self.train_metadata = kwargs.get("train_metadata", None)
-        self.val_metadata = kwargs.get("val_metadata", None)
 
         if self.config.scene_contraction_order == "Linf":
             self.scene_contraction = SceneContraction(order=float("inf"))

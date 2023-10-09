@@ -121,7 +121,11 @@ class RENINeuSPipeline(VanillaPipeline):
         self.config = config
         self.test_mode = test_mode
         self.datamanager: RENINeuSDataManager = config.datamanager.setup(
-            device=device, test_mode=test_mode, world_size=world_size, local_rank=local_rank
+            device=device,
+            test_mode=test_mode,
+            world_size=world_size,
+            local_rank=local_rank,
+            eval_latent_optimise_method=config.model.eval_latent_optimise_method,
         )
         self.datamanager.to(device)
         assert self.datamanager.train_dataset is not None, "Missing input dataset"

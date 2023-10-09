@@ -55,8 +55,8 @@ RENINeuS = MethodSpecification(
                 train_num_images_to_sample_from=-1,
                 train_num_times_to_repeat_images=-1,  # # Iterations before resample a new subset
                 pixel_sampler=RENINeuSPixelSamplerConfig(),
-                images_on_gpu=True,
-                masks_on_gpu=True,
+                images_on_gpu=False,
+                masks_on_gpu=False,
                 train_num_rays_per_batch=64,
                 eval_num_rays_per_batch=256,
                 camera_optimizer=CameraOptimizerConfig(
@@ -147,7 +147,7 @@ RENINeuS = MethodSpecification(
                         ),
                     },
                 },
-                eval_latent_optimise_method="per_image",  # per_image, nerf_osr
+                eval_latent_optimise_method="nerf_osr_holdout",  # per_image, nerf_osr_holdout, nerf_osr_envmap
                 eval_latent_sample_region="full_image",
                 illumination_field_ckpt_path=Path("outputs/reni/reni/2023-08-23_075123/"),
                 illumination_field_ckpt_step=50000,
