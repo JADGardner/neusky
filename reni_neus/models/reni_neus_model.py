@@ -155,6 +155,9 @@ class RENINeuSFactoModelConfig(NeuSFactoModelConfig):
     eval_latent_sample_region: Literal["left_image_half", "right_image_half", "full_image"] = "full_image"
     """Sample region of images for eval latent optimisation if method is per image"""
     eval_latent_optimise_method: Literal["per_image", "nerf_osr_holdout", "nerf_osr_envmap"] = "per_image"
+    """Method for optimising eval latents"""
+    mask_to_building_in_metrics: bool = False
+    """Apply building mask so only building contributes to metrics as per NeRF-OSR eval"""
 
 
 class RENINeuSFactoModel(NeuSFactoModel):
@@ -242,14 +245,27 @@ class RENINeuSFactoModel(NeuSFactoModel):
         # TODO Get from checkpoint
         normalisations = {"min_max": None, "log_domain": True}
 
+        # TODO refactor so that you use a single decoder not three copies
         self.illumination_field_train = self.config.illumination_field.setup(
             num_train_data=None, num_eval_data=self.num_train_data, normalisations=normalisations
         )
+
+        # TODO refactor as only possible to have val xor test not use both
+        if self.config.eval_latent_optimise_method == "per_image":
+            num_eval_latents = self.num_val_data
+            num_test_latents = self.num_test_data
+        elif (
+            self.config.eval_latent_optimise_method == "nerf_osr_holdout"
+            or self.config.eval_latent_optimise_method == "nerf_osr_envmap"
+        ):
+            num_eval_latents = self.eval_metadata["num_sessions"]
+            num_test_latents = self.eval_metadata["num_sessions"]
+
         self.illumination_field_val = self.config.illumination_field.setup(
-            num_train_data=None, num_eval_data=self.num_val_data, normalisations=normalisations
+            num_train_data=None, num_eval_data=num_eval_latents, normalisations=normalisations
         )
         self.illumination_field_test = self.config.illumination_field.setup(
-            num_train_data=None, num_eval_data=self.num_test_data, normalisations=normalisations
+            num_train_data=None, num_eval_data=num_test_latents, normalisations=normalisations
         )
 
         # if self.illumination_field_train is of type RENIFieldConfig
@@ -1212,9 +1228,17 @@ class RENINeuSFactoModel(NeuSFactoModel):
                 illumination_field.reset_eval_latents()
 
                 for step in range(steps):
-                    ray_bundle, batch = datamanager.get_eval_image_half_bundle(
-                        sample_region=self.config.eval_latent_sample_region
-                    )
+                    if self.config.eval_latent_optimise_method == "per_image":
+                        ray_bundle, batch = datamanager.get_eval_image_half_bundle(
+                            sample_region=self.config.eval_latent_sample_region
+                        )
+                    elif self.config.eval_latent_optimise_method == "nerf_osr_holdout":
+                        ray_bundle, batch = datamanager.get_nerfosr_lighting_eval_bundle("optimise")
+                    elif self.config.eval_latent_optimise_method == "nerf_osr_envmap":
+                        raise NotImplementedError
+                    else:
+                        raise NotImplementedError
+
                     model_outputs = self.forward(ray_bundle=ray_bundle, step=step)
                     loss_dict = self.get_loss_dict(model_outputs, batch)
                     loss = functools.reduce(torch.add, loss_dict.values())

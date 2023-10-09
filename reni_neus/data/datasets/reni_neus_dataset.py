@@ -15,7 +15,7 @@
 """
 SDFStudio dataset.
 """
-
+from copy import deepcopy
 from pathlib import Path
 from typing import Dict, List
 
@@ -109,6 +109,8 @@ class RENINeuSDataset(InputDataset):
             self.max_height = self.metadata["width_height"][1]
 
         self.metadata["c2w"] = dataparser_outputs.cameras.camera_to_worlds
+        self.envmap_cameras = deepcopy(self.metadata["envmap_cameras"])
+        self.metadata["num_sessions"] = len(dataparser_outputs.metadata["session_to_indices"])
 
     def get_numpy_image(self, image_idx: int) -> npt.NDArray[np.uint8]:
         """Returns the image of shape (H, W, 3 or 4).
@@ -235,3 +237,9 @@ class RENINeuSDataset(InputDataset):
             combined_mask += class_mask
         combined_mask = combined_mask.bool()
         return combined_mask
+
+    def get_envmap(self, idx):
+        """Returns the environment map of shape (3, H, W)."""
+        envmap_filename = self._dataparser_outputs.envmap_filenames[idx]
+        envmap = torch.from_numpy(np.array(Image.open(envmap_filename), dtype="float32") / 255.0).permute(2, 0, 1)
+        return envmap

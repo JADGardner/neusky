@@ -133,7 +133,7 @@ class RENINeuSPipeline(VanillaPipeline):
         self.max_eval_num = self.datamanager.num_val if test_mode == "val" else self.datamanager.num_test
 
         # register buffers
-        # this is for access when training DDF seperately
+        # this is so they are available if training DDF seperately
         self.register_buffer("num_train_data", torch.tensor(len(self.datamanager.train_dataset)))
         self.register_buffer("num_test_data", torch.tensor(self.datamanager.num_test))
         self.register_buffer("num_val_data", torch.tensor(self.datamanager.num_val))

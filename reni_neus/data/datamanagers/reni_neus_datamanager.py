@@ -174,13 +174,14 @@ class RENINeuSDataManager(VanillaDataManager):  # pylint: disable=abstract-metho
             num_workers=self.world_size * 4,
         )
         ### This is for NeRF-OSR relighting benchmark ###
-        session_image_idxs = self.eval_dataset.metadata["session_eval_indices"]
+        session_image_idxs = self.eval_dataset.metadata["session_holdout_indices"]
+        session_to_indices = self.eval_dataset.metadata["session_to_indices"]
+        self.indices_to_session = self.eval_dataset.metadata["indices_to_session"]
         # currently session_image_idxs is the image idxs relative to session
         # but we want it to be relative to the whole dataset
-        image_idxs_holdout = []
-        for session_relative_idx, session in zip(session_image_idxs, self.eval_dataset.metadata["session_to_indices"]):
-            image_idxs_holdout.append(int(session[session_relative_idx]))
-
+        image_idxs_holdout = [
+            session_to_indices[key][index] for key, index in zip(session_to_indices.keys(), session_image_idxs)
+        ]
         self.eval_session_holdout_dataloader = SelectedIndicesCacheDataloader(
             self.eval_dataset,
             num_images_to_sample_from=self.config.eval_num_images_to_sample_from,
@@ -192,6 +193,7 @@ class RENINeuSDataManager(VanillaDataManager):  # pylint: disable=abstract-metho
             exclude_batch_keys_from_device=self.exclude_batch_keys_from_device,
             selected_indices=image_idxs_holdout,
         )
+        self.iter_eval_session_holdout_dataloader = iter(self.eval_session_holdout_dataloader)
         image_idxs_eval = range(len(self.eval_dataset))
         image_idxs_eval = [idx for idx in image_idxs_eval if idx not in image_idxs_holdout]
         self.eval_session_compare_dataloader = SelectedIndicesCacheDataloader(
@@ -205,6 +207,7 @@ class RENINeuSDataManager(VanillaDataManager):  # pylint: disable=abstract-metho
             exclude_batch_keys_from_device=self.exclude_batch_keys_from_device,
             selected_indices=image_idxs_eval,
         )
+        self.iter_eval_session_compare_dataloader = iter(self.eval_session_compare_dataloader)
 
     def next_eval_image(self, step: int) -> Tuple[int, RayBundle, Dict]:
         for camera_ray_bundle, batch in self.eval_dataloader:
@@ -237,18 +240,26 @@ class RENINeuSDataManager(VanillaDataManager):  # pylint: disable=abstract-metho
         ray_bundle = self.eval_ray_generator(ray_indices)
         return ray_bundle, batch
 
-    def get_nerfosr_holdout_lighting_optimisation_bundle(self) -> Tuple[RayBundle, Dict]:
+    def get_nerfosr_lighting_eval_bundle(self, stage: Literal["optimise", "compare"]) -> Tuple[RayBundle, Dict]:
         """Returns a ray bundle of rays from only the selected IDX from each test session.
         The test datasets contain multiple capture sessions at different dates. We get a
         single image from each session as specified by the session_idxs list."""
-        _, image_batch = next(self.iter_eval_session_holdout_dataloader)
-        assert self.eval_pixel_sampler is not None
+        assert stage in ["optimise", "compare"]
+        if stage == "optimise":
+            image_batch = next(self.iter_eval_session_holdout_dataloader)
+        else:
+            image_batch = next(self.iter_eval_session_compare_dataloader)
+        assert self.train_pixel_sampler is not None
         assert isinstance(image_batch, dict)
-        batch = self.eval_pixel_sampler(image_batch)
-        ray_indices = batch["indices"].cpu()
-        ray_bundle = self.eval_ray_generator(ray_indices)
+        batch = self.train_pixel_sampler.sample(image_batch)
+        ray_indices = batch["indices"]
+        ray_bundle = self.train_ray_generator(ray_indices)
+        # we need to update the image indices to be the session indices so as to use the same RENI illumination for all images from a session
+        batch["indices"][:, 0] = torch.tensor(
+            [self.indices_to_session[i.item()] for i in batch["indices"][:, 0]]
+        ).type_as(batch["indices"][:, 0])
         return ray_bundle, batch
 
     def get_nerfosr_envmap_lighting_optimisation_bundle(self):
         """return the envmap for the session"""
-        pass
+        raise NotImplementedError
