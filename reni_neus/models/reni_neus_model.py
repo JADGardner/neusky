@@ -385,6 +385,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
         return self.get_outputs(ray_bundle, batch=batch, rotation=rotation, step=step)
 
     def sample_illumination(self, ray_samples: RaySamples, rotation: Union[torch.Tensor, None] = None):
+        """Sample from the illumination field for both rendering rays and rays from the camera that hit distant illumination"""
         camera_indices = ray_samples.camera_indices.squeeze()  # [num_rays, samples_per_ray]
 
         illumination_field = self.get_illumination_field()

@@ -189,6 +189,10 @@ class NeRFOSRCityScapesDataParserConfig(NeRFOSRDataParserConfig):
     """Include vegetation in transient masks"""
     session_holdout_indices: List[int] = field(default_factory=lambda: [0, 0, 0, 0, 0])
     """Indices of images within sessions (idx are relative to session) to use for evaluation"""
+    session_env_map_scaling: float = 1.0
+    """Scaling factor for session environment maps as per NeRF-OSR relighting benchmark"""
+    session_env_map_scaling_threshold: float = 0.0
+    """Threshold for pixels scaled by session_env_map_scaling as per NeRF-OSR relighting benchmark"""
 
 
 @dataclass
