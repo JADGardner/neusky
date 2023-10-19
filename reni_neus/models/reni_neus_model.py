@@ -1199,7 +1199,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
 
         return outputs
 
-    def fit_latent_codes_for_eval(self, datamanager: RENINeuSDataManager, step: int):
+    def fit_latent_codes_for_eval(self, datamanager: RENINeuSDataManager, global_step: int):
         """Fit evaluation latent codes to session envmaps so that illumination is correct."""
 
         # Make sure we are using eval RENI inside self.forward()
@@ -1228,7 +1228,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
                 # Reset latents to zeros for fitting
                 illumination_field.reset_eval_latents()
 
-                for step in range(steps):
+                for _ in range(steps):
                     if self.config.eval_latent_optimise_method == "per_image":
                         ray_bundle, batch = datamanager.get_eval_image_half_bundle(
                             sample_region=self.config.eval_latent_sample_region
@@ -1240,7 +1240,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
                     else:
                         raise NotImplementedError
 
-                    model_outputs = self.forward(ray_bundle=ray_bundle, step=step)
+                    model_outputs = self.forward(ray_bundle=ray_bundle, step=global_step)
                     loss_dict = self.get_loss_dict(model_outputs, batch)
                     loss = functools.reduce(torch.add, loss_dict.values())
                     optimizer.zero_grad_all()

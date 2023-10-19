@@ -20,7 +20,7 @@ Based on SDFStudio https://github.com/autonomousvision/sdfstudio/
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple, Type
+from typing import Any, Dict, List, Tuple, Type
 
 import numpy as np
 import torch
@@ -42,12 +42,7 @@ from nerfstudio.model_components.ray_samplers import (
 )
 from nerfstudio.models.neus import NeuSModel, NeuSModelConfig
 from nerfstudio.utils import colormaps
-from nerfstudio.model_components.renderers import (
-    AccumulationRenderer,
-    DepthRenderer,
-    RGBRenderer,
-    SemanticRenderer,
-)
+from nerfstudio.model_components.renderers import RGBRenderer
 
 
 @dataclass
@@ -217,11 +212,6 @@ class PNeRFModel(NeuSModel):
         loss_dict = {}
         image = batch["image"].to(self.device)
         pred_image = outputs["rgb"]
-        # pred_image, image = self.renderer_rgb.blend_background_for_loss_computation(
-        #     pred_image=outputs["rgb"],
-        #     pred_accumulation=outputs["accumulation"],
-        #     gt_image=image,
-        # )
 
         if "fg_mask" in batch:
             image = image * batch["fg_mask"].to(self.device)

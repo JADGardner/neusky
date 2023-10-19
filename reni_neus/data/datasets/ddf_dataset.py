@@ -13,37 +13,29 @@
 # limitations under the License.
 
 """
-DDF dataset from trained RENI-NeuS.
+PNerF dataset.
 """
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict, List, Union, Literal, Tuple
+from typing import Dict, Union, Literal
 from collections import defaultdict
-import numpy as np
-import numpy.typing as npt
 import torch
-from PIL import Image
 import yaml
 from pathlib import Path
 import os
-import sys
 import random
 from rich.progress import BarColumn, Console, Progress, TextColumn, TimeRemainingColumn
 
-from torch import Tensor
 from torch.utils.data import Dataset
-import torch.nn.functional as F
 
-from nerfstudio.cameras.rays import RayBundle, RaySamples, Frustums
+from nerfstudio.cameras.rays import RayBundle
 from nerfstudio.cameras.cameras import Cameras, CameraType
-from nerfstudio.data.dataparsers.base_dataparser import DataparserOutputs, Semantics
-from nerfstudio.data.datasets.base_dataset import InputDataset
-from nerfstudio.data.utils.data_utils import get_semantics_and_mask_tensors_from_path
+from nerfstudio.data.dataparsers.base_dataparser import DataparserOutputs
 from nerfstudio.data.scene_box import SceneBox
 from nerfstudio.data.datamanagers.base_datamanager import VanillaDataManager
 
-from reni_neus.utils.utils import random_points_on_unit_sphere, random_inward_facing_directions, look_at_target
+from reni_neus.utils.utils import look_at_target
 from reni_neus.models.reni_neus_model import RENINeuSFactoModel
 from reni_neus.model_components.ddf_sampler import DDFSampler
 from reni_neus.model_components.illumination_samplers import IcosahedronSamplerConfig

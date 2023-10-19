@@ -195,7 +195,7 @@ class RENINeuSPipeline(VanillaPipeline):
     def _optimise_evaluation_latents(self, step):
         self.model.fit_latent_codes_for_eval(
             datamanager=self.datamanager,
-            step=step,
+            global_step=step,
         )
 
     def get_param_groups(self) -> Dict[str, List[Parameter]]:
