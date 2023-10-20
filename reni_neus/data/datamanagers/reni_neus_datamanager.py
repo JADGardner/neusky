@@ -156,13 +156,7 @@ class RENINeuSDataManager(VanillaDataManager):  # pylint: disable=abstract-metho
         )
         self.iter_eval_image_dataloader = iter(self.eval_image_dataloader)
         self.eval_pixel_sampler = self._get_pixel_sampler(self.eval_dataset, self.config.eval_num_rays_per_batch)
-        self.eval_camera_optimizer = self.config.camera_optimizer.setup(
-            num_cameras=self.eval_dataset.cameras.size, device=self.device
-        )
-        self.eval_ray_generator = RayGenerator(
-            self.eval_dataset.cameras.to(self.device),
-            self.eval_camera_optimizer,
-        )
+        self.eval_ray_generator = RayGenerator(self.eval_dataset.cameras.to(self.device))
 
         ### This is for NeRF-OSR relighting benchmark ###
         session_image_idxs = self.eval_dataset.metadata["session_holdout_indices"]

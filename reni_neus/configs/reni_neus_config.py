@@ -9,7 +9,6 @@ from reni.illumination_fields.reni_illumination_field import RENIFieldConfig
 
 from nerfstudio.pipelines.base_pipeline import VanillaPipelineConfig
 from nerfstudio.models.nerfacto import NerfactoModelConfig
-from nerfstudio.cameras.camera_optimizers import CameraOptimizerConfig
 from nerfstudio.configs.base_config import ViewerConfig
 from nerfstudio.engine.trainer import TrainerConfig
 from nerfstudio.plugins.types import MethodSpecification
@@ -34,7 +33,7 @@ RENINeuS = MethodSpecification(
     config=TrainerConfig(
         method_name="reni-neus",
         experiment_name="reni-neus",
-        steps_per_eval_image=5000,
+        steps_per_eval_image=100,
         steps_per_eval_batch=100000,
         steps_per_save=5000,
         steps_per_eval_all_images=100000,  # set to a very large model so we don't eval with all images
@@ -59,9 +58,6 @@ RENINeuS = MethodSpecification(
                 masks_on_gpu=False,
                 train_num_rays_per_batch=64,
                 eval_num_rays_per_batch=256,
-                camera_optimizer=CameraOptimizerConfig(
-                    mode="off", optimizer=AdamOptimizerConfig(lr=6e-4, eps=1e-8, weight_decay=1e-2)
-                ),
             ),
             model=RENINeuSFactoModelConfig(
                 sdf_field=SDFAlbedoFieldConfig(
@@ -149,7 +145,7 @@ RENINeuS = MethodSpecification(
                 },
                 eval_latent_optimise_method="nerf_osr_holdout",  # per_image, nerf_osr_holdout, nerf_osr_envmap
                 eval_latent_sample_region="full_image",
-                illumination_field_ckpt_path=Path("outputs/reni/reni/2023-08-23_075123/"),
+                illumination_field_ckpt_path=Path("outputs/reni/reni_plus_plus_models/latent_dim_100/"),
                 illumination_field_ckpt_step=50000,
                 fix_test_illumination_directions=True,
                 eval_num_rays_per_chunk=256,
@@ -263,9 +259,6 @@ NeRFactoNeRFOSR = MethodSpecification(
                 ),
                 train_num_rays_per_batch=2048,
                 eval_num_rays_per_batch=2048,
-                camera_optimizer=CameraOptimizerConfig(
-                    mode="SO3xR3", optimizer=RAdamOptimizerConfig(lr=6e-4, eps=1e-8, weight_decay=1e-3)
-                ),
             ),
             model=NerfactoModelConfig(
                 eval_num_rays_per_chunk=1 << 15,
