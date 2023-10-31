@@ -159,9 +159,9 @@ class RENINeuSDataManager(VanillaDataManager):  # pylint: disable=abstract-metho
         self.eval_ray_generator = RayGenerator(self.eval_dataset.cameras.to(self.device))
 
         ### This is for NeRF-OSR relighting benchmark ###
-        session_image_idxs = self.eval_dataset.metadata["session_holdout_indices"]
-        session_to_indices = self.eval_dataset.metadata["session_to_indices"]
-        self.indices_to_session = self.eval_dataset.metadata["indices_to_session"]
+        session_image_idxs = self.eval_dataset.metadata["session_holdout_indices"] # idx of holdout relative to session
+        session_to_indices = self.eval_dataset.metadata["session_to_indices"] # maps session idx to image idxs
+        self.indices_to_session = self.eval_dataset.metadata["indices_to_session"] # maps image idxs to session idxs
         # currently session_image_idxs is the image idxs relative to session
         # but we want it to be relative to the whole dataset
         image_idxs_holdout = [
@@ -179,7 +179,7 @@ class RENINeuSDataManager(VanillaDataManager):  # pylint: disable=abstract-metho
             selected_indices=image_idxs_holdout,
         )
         self.iter_eval_session_holdout_dataloader = iter(self.eval_session_holdout_dataloader)
-        image_idxs_eval = range(len(self.eval_dataset))
+        image_idxs_eval = [x for x in range(len(self.eval_dataset))]
         image_idxs_eval = [idx for idx in image_idxs_eval if idx not in image_idxs_holdout]
         self.eval_session_compare_dataloader = SelectedIndicesCacheDataloader(
             self.eval_dataset,
@@ -216,6 +216,7 @@ class RENINeuSDataManager(VanillaDataManager):  # pylint: disable=abstract-metho
             assert camera_ray_bundle.camera_indices is not None
             image_idx = int(camera_ray_bundle.camera_indices[0, 0, 0])
             # we need to use the indices_to_session mapping to get the session idx
+            # as all images from a sessioin have the same latent code
             image_idx = self.indices_to_session[image_idx]
             batch["image_idx"] = image_idx
             # we also need to update camera_ray_bundle.camera_indices which is shape [H, W, 1]
