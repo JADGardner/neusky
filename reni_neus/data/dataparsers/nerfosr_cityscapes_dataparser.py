@@ -31,7 +31,6 @@ import numpy as np
 import torch
 from rich.progress import BarColumn, Console, Progress, TextColumn, TimeRemainingColumn
 from typing_extensions import Literal
-from mmseg.apis import MMSegInferencer
 
 from nerfstudio.cameras import camera_utils
 from nerfstudio.cameras.cameras import Cameras, CameraType
@@ -367,7 +366,8 @@ class NeRFOSRCityScapes(DataParser):
                         f"Cityscapes segmentation folder {segmentation_folder} does not exist and run inference is False"
                     )
                 else:
-                    self.run_segmentation_inference(image_filenames=image_filenames, output_folder=segmentation_folder)
+                    raise NotImplementedError("Segmentation inference not implemented yet")
+                    # self.run_segmentation_inference(image_filenames=image_filenames, output_folder=segmentation_folder)
 
             segmentation_filenames = _find_files(
                 f"{split_dir}/cityscapes_mask", exts=["*.png", "*.jpg", "*.JPG", "*.PNG"]
@@ -406,38 +406,38 @@ class NeRFOSRCityScapes(DataParser):
         )
         return dataparser_outputs
 
-    def run_segmentation_inference(self, image_filenames, output_folder):
-        # create output folder
-        if not os.path.exists(output_folder):
-            os.makedirs(output_folder)
+    # def run_segmentation_inference(self, image_filenames, output_folder):
+    #     # create output folder
+    #     if not os.path.exists(output_folder):
+    #         os.makedirs(output_folder)
 
-        inferencer = MMSegInferencer(model=self.config.segmentation_model)
-        target_size = (1024, 1024)
+    #     inferencer = MMSegInferencer(model=self.config.segmentation_model)
+    #     target_size = (1024, 1024)
 
-        def load_and_resize_image(img_path, target_size=(1024, 1024)):
-            """Load and resize an image to the given target size."""
-            original_img = Image.open(img_path)
-            original_shape = original_img.size
-            resized_img = original_img.resize(target_size)
-            return np.array(resized_img), original_shape
+    #     def load_and_resize_image(img_path, target_size=(1024, 1024)):
+    #         """Load and resize an image to the given target size."""
+    #         original_img = Image.open(img_path)
+    #         original_shape = original_img.size
+    #         resized_img = original_img.resize(target_size)
+    #         return np.array(resized_img), original_shape
 
-        with Progress(
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-            TimeRemainingColumn(),
-        ) as progress:
-            task = progress.add_task("[green]Running segmentation inference... ", total=len(image_filenames))
-            for image_filename in tqdm(image_filenames):
-                _, resized_img, original_shape = load_and_resize_image(image_filename)
-                out = inferencer(resized_img)
-                predictions = out["predictions"]  # [1024, 1024]
-                predictions = predictions.astype(np.uint8)
-                predictions = Image.fromarray(predictions).resize(original_shape, Image.NEAREST)
-                # image_filename will end in .jpg or .JPG we want to save as .png
-                # and save in the output folder
-                output_filename = os.path.join(
-                    output_folder, os.path.basename(image_filename).replace(".jpg", ".png").replace(".JPG", ".png")
-                )
-                predictions.save(output_filename)
-                progress.update(task, advance=1)
+    #     with Progress(
+    #         TextColumn("[progress.description]{task.description}"),
+    #         BarColumn(),
+    #         TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+    #         TimeRemainingColumn(),
+    #     ) as progress:
+    #         task = progress.add_task("[green]Running segmentation inference... ", total=len(image_filenames))
+    #         for image_filename in tqdm(image_filenames):
+    #             _, resized_img, original_shape = load_and_resize_image(image_filename)
+    #             out = inferencer(resized_img)
+    #             predictions = out["predictions"]  # [1024, 1024]
+    #             predictions = predictions.astype(np.uint8)
+    #             predictions = Image.fromarray(predictions).resize(original_shape, Image.NEAREST)
+    #             # image_filename will end in .jpg or .JPG we want to save as .png
+    #             # and save in the output folder
+    #             output_filename = os.path.join(
+    #                 output_folder, os.path.basename(image_filename).replace(".jpg", ".png").replace(".JPG", ".png")
+    #             )
+    #             predictions.save(output_filename)
+    #             progress.update(task, advance=1)

@@ -8,12 +8,9 @@ dependencies=[
     "wget",
     "nerfstudio>=0.3.3",
     "yacs",
+    "ftfy",
+    "regex",
     "torchtyping",
-    "mmcv",
-    "mmengine",
-    "mmsegmentation",
-    "mmdet",
-    "tinycudann@git+https://github.com/NVlabs/tiny-cuda-nn.git@v1.6#subdirectory=bindings/torch",
 ]
 
 [tool.setuptools.packages.find]

@@ -42,6 +42,7 @@ RENINeuS = MethodSpecification(
         # load_dir=Path("/workspace/outputs/unnamed/reni-neus/2023-08-09_075320/nerfstudio_models"),
         # load_step=50000,
         pipeline=RENINeuSPipelineConfig(
+          test_mode='test',
             datamanager=RENINeuSDataManagerConfig(
                 dataparser=NeRFOSRCityScapesDataParserConfig(
                     scene="lk2",

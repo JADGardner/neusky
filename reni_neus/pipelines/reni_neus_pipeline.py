@@ -88,6 +88,8 @@ class RENINeuSPipelineConfig(VanillaPipelineConfig):
     """Step of the reni_neus checkpoint"""
     eval_using_gt_envmaps: bool = False
     """Whether to use ground truth envmaps for evaluation"""
+    test_mode: Union[Literal["test", "val", "inference"], None] = None
+    """overwrite test mode"""
 
 
 class RENINeuSPipeline(VanillaPipeline):
@@ -119,7 +121,7 @@ class RENINeuSPipeline(VanillaPipeline):
     ):
         super(VanillaPipeline, self).__init__()  # Call grandparent class constructor ignoring parent class
         self.config = config
-        self.test_mode = test_mode
+        self.test_mode = test_mode if self.config.test_mode is None else self.config.test_mode
         self.datamanager: RENINeuSDataManager = config.datamanager.setup(
             device=device,
             test_mode=test_mode,
