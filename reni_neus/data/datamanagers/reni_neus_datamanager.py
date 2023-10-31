@@ -214,10 +214,10 @@ class RENINeuSDataManager(VanillaDataManager):  # pylint: disable=abstract-metho
         if not self.eval_latent_optimise_method == "per_image":
             camera_ray_bundle, batch = next(self.iter_eval_dataloader)
             assert camera_ray_bundle.camera_indices is not None
-            image_idx = int(camera_ray_bundle.camera_indices[0, 0, 0])
+            camera_idx = int(camera_ray_bundle.camera_indices[0, 0, 0])
             # we need to use the indices_to_session mapping to get the session idx
             # as all images from a sessioin have the same latent code
-            image_idx = self.indices_to_session[image_idx]
+            image_idx = self.indices_to_session[camera_idx]
             batch["image_idx"] = image_idx
             # we also need to update camera_ray_bundle.camera_indices which is shape [H, W, 1]
             # to also just be same shape but all image_idx
@@ -272,6 +272,10 @@ class RENINeuSDataManager(VanillaDataManager):  # pylint: disable=abstract-metho
         batch["indices"][:, 0] = torch.tensor(
             [self.indices_to_session[i.item()] for i in batch["indices"][:, 0]]
         ).type_as(batch["indices"][:, 0])
+        # we also need to update the camera_ray_bundle.camera_indices which is shape [N, 1]
+        ray_bundle.camera_indices = torch.tensor(
+            [self.indices_to_session[i.item()] for i in ray_bundle.camera_indices]
+        ).type_as(ray_bundle.camera_indices).unsqueeze(-1)
         return ray_bundle, batch
 
     def get_nerfosr_envmap_lighting_optimisation_bundle(self):
