@@ -406,7 +406,7 @@ class NeRFOSRCityScapes(DataParser):
             # we meed to make sure the holdout images aren't the eval images
             for image_idx in image_idxs_holdout:
                 if image_idx in test_eval_mask_dict.keys():
-                    raise ValueError(f"Image {image_idx} is both a holdout image and an eval image")
+                    raise ValueError(f"Image {image_idx} is both a holdout image and an eval image, update config holdout image indices")
 
             
 
