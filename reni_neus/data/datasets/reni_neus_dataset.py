@@ -90,7 +90,7 @@ class RENINeuSDataset(InputDataset):
 
     exclude_batch_keys_from_device: List[str] = ["image", "mask", "fg_mask", "ground_mask"]
 
-    def __init__(self, dataparser_outputs: DataparserOutputs, scale_factor: float = 1.0):
+    def __init__(self, dataparser_outputs: DataparserOutputs, scale_factor: float = 1.0, split: str = "train"):
         super().__init__(dataparser_outputs, scale_factor)
 
         # can be none if monoprior not included
@@ -111,6 +111,8 @@ class RENINeuSDataset(InputDataset):
         self.metadata["c2w"] = dataparser_outputs.cameras.camera_to_worlds
         self.envmap_cameras = deepcopy(self.metadata["envmap_cameras"])
         self.metadata["num_sessions"] = len(dataparser_outputs.metadata["session_to_indices"])
+        self.test_eval_mask_dict = dataparser_outputs.metadata["test_eval_mask_dict"]
+        self.split = split
 
     def get_numpy_image(self, image_idx: int) -> npt.NDArray[np.uint8]:
         """Returns the image of shape (H, W, 3 or 4).
@@ -156,6 +158,13 @@ class RENINeuSDataset(InputDataset):
         return metadata
 
     def get_mask(self, idx):
+        mask = None
+        if self.split == "test":
+            if idx in self.test_eval_mask_dict.keys():
+                mask_filename = self.test_eval_mask_dict[idx]
+                mask = torch.from_numpy(np.array(Image.open(mask_filename), dtype="uint8")) # Shape (H, W)
+                mask = mask.unsqueeze(-1).float()  # 1 is static, 0 is transient # Shape (H, W, 1)
+
         transient_mask_classes = ["person", "rider", "car", "truck", "bus", "train", "motorcycle", "bicycle"]
         fg_mask_classes = [
             "road",
@@ -174,13 +183,14 @@ class RENINeuSDataset(InputDataset):
         else:
             fg_mask_classes.append("vegetation")
 
-        mask = self.get_mask_from_semantics(
-            idx=idx,
-            semantics=self.semantics,
-            mask_classes=transient_mask_classes,
-        )
+        if mask is None:
+            mask = self.get_mask_from_semantics(
+                idx=idx,
+                semantics=self.semantics,
+                mask_classes=transient_mask_classes,
+            )
 
-        mask = (~mask).unsqueeze(-1).float()  # 1 is static, 0 is transient
+            mask = (~mask).unsqueeze(-1).float()  # 1 is static, 0 is transient
 
         # get_foreground_mask
         fg_mask = self.get_mask_from_semantics(idx=idx, semantics=self.semantics, mask_classes=fg_mask_classes)

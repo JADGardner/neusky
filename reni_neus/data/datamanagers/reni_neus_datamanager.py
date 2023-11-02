@@ -128,6 +128,7 @@ class RENINeuSDataManager(VanillaDataManager):  # pylint: disable=abstract-metho
         return RENINeuSDataset(
             dataparser_outputs=self.train_dataparser_outputs,
             scale_factor=self.config.camera_res_scale_factor,
+            split="train",
         )
 
     def create_eval_dataset(self) -> RENINeuSDataset:
@@ -138,6 +139,7 @@ class RENINeuSDataManager(VanillaDataManager):  # pylint: disable=abstract-metho
         return RENINeuSDataset(
             dataparser_outputs=test_outputs if self.test_mode == "test" else val_outputs,
             scale_factor=self.config.camera_res_scale_factor,
+            split=self.test_split,
         )
 
     def setup_eval(self):
@@ -179,8 +181,9 @@ class RENINeuSDataManager(VanillaDataManager):  # pylint: disable=abstract-metho
             selected_indices=image_idxs_holdout,
         )
         self.iter_eval_session_holdout_dataloader = iter(self.eval_session_holdout_dataloader)
-        image_idxs_eval = [x for x in range(len(self.eval_dataset))]
-        image_idxs_eval = [idx for idx in image_idxs_eval if idx not in image_idxs_holdout]
+        # image_idxs_eval = [x for x in range(len(self.eval_dataset))]
+        # image_idxs_eval = [idx for idx in image_idxs_eval if idx not in image_idxs_holdout]
+        image_idxs_eval = self.eval_dataset.test_eval_mask_dict.keys()
         self.eval_session_compare_dataloader = SelectedIndicesCacheDataloader(
             self.eval_dataset,
             num_images_to_sample_from=self.config.eval_num_images_to_sample_from,

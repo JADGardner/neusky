@@ -219,6 +219,13 @@ class NeRFOSRCityScapes(DataParser):
         scene = self.config.scene
         split = "validation" if split == "val" else split
 
+        if scene == "site1":
+            scene = "lk2"
+        if scene == "site2":
+            scene = "st"
+        if scene == "site3":
+            scene = "lwp"
+
         if scene == "trevi":
             scene_dir = f"{data}/{scene}/final_clean"
             split_dir = f"{data}/{scene}/final_clean/{split}"
@@ -347,7 +354,7 @@ class NeRFOSRCityScapes(DataParser):
             assert len(self.config.session_holdout_indices) == len(
                 session_to_indices
             ), "number of relative eval indicies must match number of unique sessions"
-
+        
         # --- masks ---
         mask_filenames = None
         segmentation_filenames = None
@@ -378,6 +385,30 @@ class NeRFOSRCityScapes(DataParser):
                 classes=classes,
                 colors=colors,
             )
+        
+        test_eval_mask_dict = {}
+        if split == 'test':
+            def get_filename_without_extension(path):
+                return path.split('/')[-1].split('.')[0]
+            test_eval_mask_filenames = _find_files(f"{split_dir}/mask", exts=["*.png", "*.jpg", "*.JPG", "*.PNG"])
+            # Create a dictionary with just the filenames (without extension) from image_filename as keys and their indices as values
+            image_name_to_index = {get_filename_without_extension(image): index for index, image in enumerate(image_filenames)}
+
+            for mask_path in test_eval_mask_filenames:
+                mask_name = get_filename_without_extension(mask_path)
+                if mask_name in image_name_to_index:
+                    test_eval_mask_dict[image_name_to_index[mask_name]] = mask_path
+
+            image_idxs_holdout = [
+                session_to_indices[key][index] for key, index in zip(session_to_indices.keys(), self.config.session_holdout_indices)
+            ]
+
+            # we meed to make sure the holdout images aren't the eval images
+            for image_idx in image_idxs_holdout:
+                if image_idx in test_eval_mask_dict.keys():
+                    raise ValueError(f"Image {image_idx} is both a holdout image and an eval image")
+
+            
 
         metadata = {
             "semantics": semantics,
@@ -394,6 +425,7 @@ class NeRFOSRCityScapes(DataParser):
             "pad_to_equal_size": self.config.pad_to_equal_size,
             "width_height": self.width_height,
             "mask_vegetation": self.config.mask_vegetation,
+            "test_eval_mask_dict": test_eval_mask_dict,
         }
 
         dataparser_outputs = DataparserOutputs(
