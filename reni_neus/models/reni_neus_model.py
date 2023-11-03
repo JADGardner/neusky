@@ -972,8 +972,14 @@ class RENINeuSFactoModel(NeuSFactoModel):
             "normalised_error": normalised_error,
         }
 
+        if self.config.eval_latent_optimise_method in ["nerf_osr_holdout", "nerf_osr_envmap"]:
+            # we need to only compute metrics within the mask
+            mask = batch["mask"][..., 0:1] # this will be the nerfosr test masks provided, baiscally its only using building for metrics
+            mask = mask.to(self.device)
+            rgb = rgb * mask
+            image = image * mask
+
         # Switch images from [H, W, C] to [1, C, H, W] for metrics computations
-        # TODO mask only building pixels
         image = torch.moveaxis(image, -1, 0)[None, ...]
         rgb = torch.moveaxis(rgb, -1, 0)[None, ...]
 
