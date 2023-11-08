@@ -55,8 +55,8 @@ RENINeuS = MethodSpecification(
                 train_num_images_to_sample_from=-1,
                 train_num_times_to_repeat_images=-1,  # # Iterations before resample a new subset
                 pixel_sampler=RENINeuSPixelSamplerConfig(),
-                images_on_gpu=True,
-                masks_on_gpu=True,
+                images_on_gpu=False,
+                masks_on_gpu=False,
                 train_num_rays_per_batch=256,
                 eval_num_rays_per_batch=256,
             ),

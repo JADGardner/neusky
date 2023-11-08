@@ -261,9 +261,6 @@ class RENINeuSFactoModel(NeuSFactoModel):
             num_eval_latents = self.eval_metadata["num_sessions"]
             num_test_latents = self.eval_metadata["num_sessions"]
 
-        self.illumination_field_val = self.config.illumination_field.setup(
-            num_train_data=None, num_eval_data=num_eval_latents, normalisations=normalisations
-        )
         self.illumination_field_test = self.config.illumination_field.setup(
             num_train_data=None, num_eval_data=num_test_latents, normalisations=normalisations
         )
@@ -297,7 +294,6 @@ class RENINeuSFactoModel(NeuSFactoModel):
 
             # load weights of the decoder
             self.illumination_field_train.load_state_dict(illumination_field_dict, strict=False)
-            self.illumination_field_val.load_state_dict(illumination_field_dict, strict=False)
             self.illumination_field_test.load_state_dict(illumination_field_dict, strict=False)
 
         self.illumination_sampler = self.config.illumination_sampler.setup()
@@ -347,9 +343,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
         if self.training and not self.fitting_eval_latents:
             illumination_field = self.illumination_field_train
         else:
-            illumination_field = (
-                self.illumination_field_test if self.test_mode == "test" else self.illumination_field_val
-            )
+            illumination_field = self.illumination_field_test
 
         return illumination_field
 
