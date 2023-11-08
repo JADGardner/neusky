@@ -57,7 +57,7 @@ RENINeuS = MethodSpecification(
                 pixel_sampler=RENINeuSPixelSamplerConfig(),
                 images_on_gpu=False,
                 masks_on_gpu=False,
-                train_num_rays_per_batch=256,
+                train_num_rays_per_batch=64,
                 eval_num_rays_per_batch=256,
             ),
             model=RENINeuSFactoModelConfig(

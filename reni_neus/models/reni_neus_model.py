@@ -68,6 +68,8 @@ from reni_neus.data.datamanagers.reni_neus_datamanager import RENINeuSDataManage
 
 from reni.illumination_fields.base_spherical_field import SphericalFieldConfig
 from reni.illumination_fields.reni_illumination_field import RENIField, RENIFieldConfig
+from reni.illumination_fields.sg_illumination_field import SphericalGaussianFieldConfig
+from reni.illumination_fields.sh_illumination_field import SphericalHarmonicIlluminationFieldConfig
 from reni.model_components.illumination_samplers import IlluminationSamplerConfig, EquirectangularSamplerConfig
 from reni.field_components.field_heads import RENIFieldHeadNames
 from reni.utils.colourspace import linear_to_sRGB
@@ -186,6 +188,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
         self.num_val_data = num_val_data
         self.num_test_data = num_test_data
         self.test_mode = test_mode
+        self.num_eval_data = num_val_data if test_mode == "val" else num_test_data
         self.fitting_eval_latents = False
         self.train_metadata = kwargs.get("train_metadata", None)
         self.eval_metadata = kwargs.get("eval_metadata", None)
@@ -239,35 +242,24 @@ class RENINeuSFactoModel(NeuSFactoModel):
         """Instantiate modules and fields, including proposal networks."""
         super().populate_modules()
 
-        # Three seperate illumination fields for train, val and test, we are using a fixed decoder so
-        # train_data for the illumination field is none and we are optimising the eval latents instead.
-
-        # TODO Get from checkpoint
-        normalisations = {"min_max": None, "log_domain": True}
-
-        # TODO refactor so that you use a single decoder not three copies
-        self.illumination_field_train = self.config.illumination_field.setup(
-            num_train_data=None, num_eval_data=self.num_train_data, normalisations=normalisations
-        )
-
-        # TODO refactor as only possible to have val xor test not use both
-        if self.config.eval_latent_optimise_method == "per_image":
-            num_eval_latents = self.num_val_data
-            num_test_latents = self.num_test_data
-        elif (
-            self.config.eval_latent_optimise_method == "nerf_osr_holdout"
-            or self.config.eval_latent_optimise_method == "nerf_osr_envmap"
-        ):
-            num_eval_latents = self.eval_metadata["num_sessions"]
-            num_test_latents = self.eval_metadata["num_sessions"]
-
-        self.illumination_field_test = self.config.illumination_field.setup(
-            num_train_data=None, num_eval_data=num_test_latents, normalisations=normalisations
-        )
-
         # if self.illumination_field_train is of type RENIFieldConfig
-        if isinstance(self.illumination_field_train, RENIField):
-            # Now you can use this to construct paths:
+        if isinstance(self.config.illumination_field, RENIFieldConfig):
+            self.illumination_field = self.config.illumination_field.setup(
+                num_train_data=None,
+                num_eval_data=None,
+            )
+            # use local latents as illumination field is just for decoder
+            self.train_illumination_latents = Parameter(
+                torch.zeros((self.num_train_data, self.illumination_field.latent_dim, 3))
+            )
+            self.train_scale = Parameter(torch.ones(self.num_train_data))
+
+            self.eval_illumination_latents = Parameter(
+                torch.zeros((self.num_eval_data, self.illumination_field.latent_dim, 3))
+            )
+            self.eval_scale = Parameter(torch.ones(self.num_eval_data))
+
+            # # Now you can use this to construct paths:
             project_root = find_nerfstudio_project_root(Path(__file__))
             relative_path = (
                 self.config.illumination_field_ckpt_path
@@ -293,8 +285,39 @@ class RENINeuSFactoModel(NeuSFactoModel):
                     illumination_field_dict[key[len(match_str) :]] = ckpt["pipeline"][key]
 
             # load weights of the decoder
-            self.illumination_field_train.load_state_dict(illumination_field_dict, strict=False)
-            self.illumination_field_test.load_state_dict(illumination_field_dict, strict=False)
+            self.illumination_field.load_state_dict(illumination_field_dict, strict=False)
+        elif isinstance(self.config.illumination_field, SphericalHarmonicIlluminationFieldConfig):
+            self.illumination_field = self.config.illumination_field.setup(
+                num_train_data=1,
+                num_eval_data=1,
+                normalisations={"min_max": None, "log_domain": True}
+            )
+            # use local latents as illumination field is just for decoder
+            self.train_illumination_latents = Parameter(
+                torch.zeros((self.num_train_data, self.illumination_field.num_sh_coeffs, 3))
+            )
+            self.train_scale = None
+
+            self.eval_illumination_latents = Parameter(
+                torch.zeros((self.num_eval_data, self.illumination_field.num_sh_coeffs, 3))
+            )
+            self.eval_scale = None
+        elif isinstance(self.config.illumination_field, SphericalGaussianFieldConfig):
+            self.illumination_field = self.config.illumination_field.setup(
+                num_train_data=1,
+                num_eval_data=1,
+                normalisations={"min_max": None, "log_domain": True}
+            )
+            # use local latents as illumination field is just for decoder
+            self.train_illumination_latents = Parameter(
+                torch.zeros((self.num_train_data, self.illumination_field.sg_num, 3))
+            )
+            self.train_scale = None
+
+            self.eval_illumination_latents = Parameter(
+                torch.zeros((self.num_eval_data, self.illumination_field.sg_num, 3))
+            )
+            self.eval_scale = None
 
         self.illumination_sampler = self.config.illumination_sampler.setup()
         self.equirectangular_sampler = EquirectangularSamplerConfig(width=128).setup()
@@ -328,7 +351,13 @@ class RENINeuSFactoModel(NeuSFactoModel):
         param_groups = {}
         param_groups["fields"] = list(self.field.parameters())
         param_groups["proposal_networks"] = list(self.proposal_networks.parameters())
-        param_groups["illumination_field"] = list(self.illumination_field_train.parameters())
+
+        # eval latents optimised in eval function
+        if self.train_scale is not None:
+            param_groups["illumination_field"] = [self.train_illumination_latents, self.train_scale]
+        else:
+            param_groups["illumination_field"] = [self.train_illumination_latents]
+
         if self.config.loss_inclusions["visibility_sigmoid_loss"]["visibility_threshold_method"] == "learnable":
             visibility_sigmoid_params = []
             if self.config.loss_inclusions["visibility_sigmoid_loss"]["optimise_sigmoid_bias"]:
@@ -341,11 +370,13 @@ class RENINeuSFactoModel(NeuSFactoModel):
     def get_illumination_field(self):
         """Return the illumination field for the current mode."""
         if self.training and not self.fitting_eval_latents:
-            illumination_field = self.illumination_field_train
+            illumination_latents = self.train_illumination_latents
+            scales = self.train_scale
         else:
-            illumination_field = self.illumination_field_test
+            illumination_latents = self.eval_illumination_latents
+            scales = self.eval_scale
 
-        return illumination_field
+        return illumination_latents, scales
 
     def decay_threshold(self, step):
         """Decay the visibility threshold exponentially"""
@@ -382,7 +413,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
         """Sample from the illumination field for both rendering rays and rays from the camera that hit distant illumination"""
         camera_indices = ray_samples.camera_indices.squeeze()  # [num_rays, samples_per_ray]
 
-        illumination_field = self.get_illumination_field()
+        illumination_latents, scales = self.get_illumination_field()
 
         if not self.training and self.config.fix_test_illumination_directions:
             illumination_ray_samples = self.illumination_sampler(
@@ -413,13 +444,26 @@ class RENINeuSFactoModel(NeuSFactoModel):
         illumination_ray_samples.frustums.directions = directions.reshape(
             -1, 3
         )  # [num_unique_camera_indices * num_illumination_directions, 3]
-        illuination_field_outputs = illumination_field.forward(
-            illumination_ray_samples, rotation=rotation
-        )  # [num_unique_camera_indices * num_illumination_directions, 3]
-        hdr_illumination_colours = illuination_field_outputs[
+
+
+        if isinstance(self.illumination_field, RENIField):
+            illumination_field_outputs = self.illumination_field.forward(
+                ray_samples=illumination_ray_samples,
+                latent_codes=illumination_latents[illumination_ray_samples.camera_indices], # [num_unique_camera_indices * num_illumination_directions, 3]
+                scale=scales[illumination_ray_samples.camera_indices], # [num_unique_camera_indices * num_illumination_directions]
+                rotation=rotation
+            )  # [num_unique_camera_indices * num_illumination_directions, 3]
+        else:
+            illumination_field_outputs = self.illumination_field.forward(
+                ray_samples=illumination_ray_samples,
+                latent_codes=illumination_latents[illumination_ray_samples.camera_indices],
+                rotation=rotation
+            )
+
+        hdr_illumination_colours = illumination_field_outputs[
             RENIFieldHeadNames.RGB
         ]  # [num_unique_camera_indices * num_illumination_directions, 3]
-        hdr_illumination_colours = illumination_field.unnormalise(
+        hdr_illumination_colours = self.illumination_field.unnormalise(
             hdr_illumination_colours
         )  # [num_unique_camera_indices * num_illumination_directions, 3]
         # so now we reshape back to [num_unique_camera_indices, num_illumination_directions, 3]
@@ -442,10 +486,24 @@ class RENINeuSFactoModel(NeuSFactoModel):
             -1, num_illumination_directions, 3
         )  # [num_rays * samples_per_ray, num_illumination_directions, 3]
 
+
         # now we need to get samples from distant illumination field for camera rays
-        illumination_field_outputs = illumination_field.forward(ray_samples[:, 0], rotation=rotation)
+        if isinstance(self.illumination_field, RENIField):
+            illumination_field_outputs = self.illumination_field.forward(
+                ray_samples=ray_samples[:, 0],
+                latent_codes=illumination_latents[ray_samples.camera_indices[:, 0, 0]],
+                scale=scales[ray_samples.camera_indices[:, 0, 0]],
+                rotation=rotation
+            )  # [num_unique_camera_indices * num_illumination_directions, 3]
+        else:
+            illumination_field_outputs = self.illumination_field.forward(
+                ray_samples=ray_samples[:, 0],
+                latent_codes=illumination_latents[ray_samples.camera_indices[:, 0, 0]],
+                rotation=rotation
+            )
+
         hdr_background_colours = illumination_field_outputs[RENIFieldHeadNames.RGB]
-        hdr_background_colours = illumination_field.unnormalise(hdr_background_colours)
+        hdr_background_colours = self.illumination_field.unnormalise(hdr_background_colours)
 
         return hdr_illumination_colours, illumination_directions, hdr_background_colours
 
@@ -993,7 +1051,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
             )
             images_dict[key] = prop_depth_i
 
-        illumination_field = self.get_illumination_field()
+        illumination_latents, scales = self.get_illumination_field()
 
         for i in range(self.config.num_proposal_iterations):
             key = f"prop_depth_{i}"
@@ -1010,7 +1068,10 @@ class RENINeuSFactoModel(NeuSFactoModel):
             ray_samples = self.equirectangular_sampler.generate_direction_samples()
             ray_samples = ray_samples.to(self.device)
             ray_samples.camera_indices = torch.ones_like(ray_samples.camera_indices) * batch["image_idx"]
-            illumination_field_outputs = illumination_field(ray_samples)
+            illumination_field_outputs = self.illumination_field(ray_samples=ray_samples,
+                                                                 latent_codes=illumination_latents[ray_samples.camera_indices],
+                                                                 scale=scales[ray_samples.camera_indices])
+            
             hdr_envmap = illumination_field_outputs[RENIFieldHeadNames.RGB]
             hdr_envmap = illumination_field.unnormalise(hdr_envmap)  # N, 3
             ldr_envmap = linear_to_sRGB(hdr_envmap)  # N, 3
@@ -1205,10 +1266,10 @@ class RENINeuSFactoModel(NeuSFactoModel):
         # Make sure we are using eval RENI inside self.forward()
         self.fitting_eval_latents = True
 
-        # get the correct illumination field
-        illumination_field = self.get_illumination_field()
-
-        param_group = {"eval_latents": list(illumination_field.parameters())}
+        if self.eval_scale is not None:
+            param_group = {"eval_latents": [self.eval_illumination_latents, self.eval_scale]}
+        else:
+            param_group = {"eval_latents": [self.eval_illumination_latents]}
         optimizer = Optimizers(self.config.eval_latent_optimizer, param_group)
         steps = optimizer.config["eval_latents"]["scheduler"].max_steps
 
@@ -1224,9 +1285,11 @@ class RENINeuSFactoModel(NeuSFactoModel):
 
             # this is likely already set by config, but just in case
             # ensures only latents (and scale if used) are optimised
-            with illumination_field.hold_decoder_fixed():
-                # Reset latents to zeros for fitting
-                illumination_field.reset_eval_latents()
+            with self.illumination_field.hold_decoder_fixed():
+                # Reset latents and scales to zeros for fitting
+                self.eval_illumination_latents.data = torch.zeros_like(self.eval_illumination_latents.data)
+                if self.eval_scale is not None:
+                    self.eval_scale.data = torch.ones_like(self.eval_scale.data)
 
                 for _ in range(steps):
                     if self.config.eval_latent_optimise_method == "per_image":
