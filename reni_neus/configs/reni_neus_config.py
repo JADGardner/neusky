@@ -33,7 +33,7 @@ RENINeuS = MethodSpecification(
     config=TrainerConfig(
         method_name="reni-neus",
         experiment_name="reni-neus",
-        steps_per_eval_image=5000,
+        steps_per_eval_image=500,
         steps_per_eval_batch=100002,
         steps_per_save=5000,
         steps_per_eval_all_images=100000,  # set to a very large model so we don't eval with all images
@@ -57,7 +57,7 @@ RENINeuS = MethodSpecification(
                 pixel_sampler=RENINeuSPixelSamplerConfig(),
                 images_on_gpu=False,
                 masks_on_gpu=False,
-                train_num_rays_per_batch=64,
+                train_num_rays_per_batch=256,
                 eval_num_rays_per_batch=256,
             ),
             model=RENINeuSFactoModelConfig(

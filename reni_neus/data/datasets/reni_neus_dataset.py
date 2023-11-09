@@ -163,6 +163,8 @@ class RENINeuSDataset(InputDataset):
             if idx in self.test_eval_mask_dict.keys():
                 mask_filename = self.test_eval_mask_dict[idx]
                 mask = torch.from_numpy(np.array(Image.open(mask_filename), dtype="uint8")) # Shape (H, W)
+                # set between 0 and 1
+                mask = mask.float() / 255.0
                 mask = mask.unsqueeze(-1).float()  # 1 is static, 0 is transient # Shape (H, W, 1)
 
         transient_mask_classes = ["person", "rider", "car", "truck", "bus", "train", "motorcycle", "bicycle"]

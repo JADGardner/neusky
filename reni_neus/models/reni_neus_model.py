@@ -973,7 +973,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
     ) -> Tuple[Dict[str, float], Dict[str, torch.Tensor]]:
         """Compute image metrics and images, including the proposal depth for each iteration."""
         image = batch["image"].to(self.device)
-        image = self.renderer_rgb.blend_background(image)
+        # image = self.renderer_rgb.blend_background(image)
         rgb = outputs["rgb"]
         acc = colormaps.apply_colormap(outputs["accumulation"])
         gt_acc = colormaps.apply_colormap(batch["mask"][..., 1:2])  # fg_mask
@@ -1069,11 +1069,12 @@ class RENINeuSFactoModel(NeuSFactoModel):
             ray_samples = ray_samples.to(self.device)
             ray_samples.camera_indices = torch.ones_like(ray_samples.camera_indices) * batch["image_idx"]
             illumination_field_outputs = self.illumination_field(ray_samples=ray_samples,
-                                                                 latent_codes=illumination_latents[ray_samples.camera_indices],
-                                                                 scale=scales[ray_samples.camera_indices])
+                                                                 latent_codes=illumination_latents[ray_samples.camera_indices[:, 0]],
+                                                                 scale=scales[ray_samples.camera_indices[:, 0]],
+            )
             
             hdr_envmap = illumination_field_outputs[RENIFieldHeadNames.RGB]
-            hdr_envmap = illumination_field.unnormalise(hdr_envmap)  # N, 3
+            hdr_envmap = self.illumination_field.unnormalise(hdr_envmap)  # N, 3
             ldr_envmap = linear_to_sRGB(hdr_envmap)  # N, 3
             # reshape to H, W, 3
             height = self.equirectangular_sampler.height

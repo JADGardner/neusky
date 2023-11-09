@@ -94,7 +94,7 @@ class RGBLambertianRendererWithVisibility(nn.Module):
         )  # [num_rays * samples_per_ray, num_reni_directions]
 
         # clamp dot product values to be between 0 and 1
-        dot_prod = torch.clamp(dot_prod, 0, 1)
+        dot_prod.clamp_(min=0.0, max=1.0)
 
         # count the number of elements in dot product that are greater than 0
         count = torch.sum((dot_prod > 0).float(), dim=1, keepdim=True)
