@@ -33,7 +33,7 @@ RENINeuS = MethodSpecification(
     config=TrainerConfig(
         method_name="reni-neus",
         experiment_name="reni-neus",
-        steps_per_eval_image=500,
+        steps_per_eval_image=5000,
         steps_per_eval_batch=100002,
         steps_per_save=5000,
         steps_per_eval_all_images=100000,  # set to a very large model so we don't eval with all images
@@ -52,7 +52,7 @@ RENINeuS = MethodSpecification(
                     scene_scale=1.0,  # AABB
                     mask_vegetation=False,
                 ),
-                train_num_images_to_sample_from=-1,
+                train_num_images_to_sample_from=10,
                 train_num_times_to_repeat_images=-1,  # # Iterations before resample a new subset
                 pixel_sampler=RENINeuSPixelSamplerConfig(),
                 images_on_gpu=False,

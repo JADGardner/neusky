@@ -21,6 +21,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Type, Union
+from itertools import cycle
 
 import torch
 from rich.progress import Console
@@ -177,7 +178,7 @@ class RENINeuSDataManager(VanillaDataManager):  # pylint: disable=abstract-metho
             num_workers=self.world_size * 4,
             pin_memory=True,
             collate_fn=self.config.collate_fn,
-            exclude_batch_keys_from_device=self.exclude_batch_keys_from_device,
+            # exclude_batch_keys_from_device=self.exclude_batch_keys_from_device,
             selected_indices=image_idxs_holdout,
         )
         self.iter_eval_session_holdout_dataloader = iter(self.eval_session_holdout_dataloader)
@@ -192,7 +193,7 @@ class RENINeuSDataManager(VanillaDataManager):  # pylint: disable=abstract-metho
             num_workers=self.world_size * 4,
             pin_memory=True,
             collate_fn=self.config.collate_fn,
-            exclude_batch_keys_from_device=self.exclude_batch_keys_from_device,
+            # exclude_batch_keys_from_device=self.exclude_batch_keys_from_device,
             selected_indices=image_idxs_eval,
         )
         self.iter_eval_session_compare_dataloader = iter(self.eval_session_compare_dataloader)
@@ -213,8 +214,12 @@ class RENINeuSDataManager(VanillaDataManager):  # pylint: disable=abstract-metho
             )
             self.iter_eval_dataloader = iter(self.eval_dataloader)
 
+
     def next_eval_image(self, step: int) -> Tuple[int, RayBundle, Dict]:
         if not self.eval_latent_optimise_method == "per_image":
+            # nerf osr holdout
+            if self.eval_dataloader.count >= len(self.eval_dataloader.image_indices):
+                self.eval_dataloader.count = 0
             camera_ray_bundle, batch = next(self.iter_eval_dataloader)
             assert camera_ray_bundle.camera_indices is not None
             camera_idx = int(camera_ray_bundle.camera_indices[0, 0, 0])
@@ -276,9 +281,7 @@ class RENINeuSDataManager(VanillaDataManager):  # pylint: disable=abstract-metho
             [self.indices_to_session[i.item()] for i in batch["indices"][:, 0]]
         ).type_as(batch["indices"][:, 0])
         # we also need to update the camera_ray_bundle.camera_indices which is shape [N, 1]
-        ray_bundle.camera_indices = torch.tensor(
-            [self.indices_to_session[i.item()] for i in ray_bundle.camera_indices]
-        ).type_as(ray_bundle.camera_indices).unsqueeze(-1)
+        ray_bundle.camera_indices = batch["indices"][:, 0][:, None]
         return ray_bundle, batch
 
     def get_nerfosr_envmap_lighting_optimisation_bundle(self):
