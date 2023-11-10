@@ -138,10 +138,10 @@ RENINeuS = MethodSpecification(
                 eval_latent_optimizer={
                     "eval_latents": {
                         "optimizer": AdamOptimizerConfig(lr=1e-1, eps=1e-15),
-                        "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-7, max_steps=250),
-                        # "scheduler": CosineDecaySchedulerConfig(
-                        #     warm_up_end=50, learning_rate_alpha=0.05, max_steps=250
-                        # ),
+                        # "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-7, max_steps=250),
+                        "scheduler": CosineDecaySchedulerConfig(
+                            warm_up_end=50, learning_rate_alpha=0.05, max_steps=250
+                        ),
                     },
                 },
                 eval_latent_optimise_method="nerf_osr_holdout",  # per_image, nerf_osr_holdout, nerf_osr_envmap

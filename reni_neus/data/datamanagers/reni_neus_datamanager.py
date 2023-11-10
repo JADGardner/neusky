@@ -96,6 +96,7 @@ class RENINeuSDataManager(VanillaDataManager):  # pylint: disable=abstract-metho
         self.sampler = None
         self.test_mode = test_mode
         self.test_split = "test" if test_mode in ["test", "inference"] else "val"
+        self.eval_latent_optimise_method = kwargs.get("eval_latent_optimise_method", None)
         self.dataparser_config = self.config.dataparser
         if self.config.data is not None:
             self.config.dataparser.data = Path(self.config.data)
@@ -107,12 +108,21 @@ class RENINeuSDataManager(VanillaDataManager):  # pylint: disable=abstract-metho
 
         self.train_dataset = self.create_train_dataset()
         self.eval_dataset = self.create_eval_dataset()
+
+        # TODO This is a mess, can only have test or val at one time anyway so just use one variable
+        # This will need updating in pipeline and model too
+        if self.eval_latent_optimise_method == "per_image":
+            self.num_test = len(test_outputs.image_filenames)
+            self.num_val = len(val_outputs.image_filenames)
+        else:
+            self.num_test = len(self.eval_dataset.metadata["session_to_indices"].keys())
+            self.num_val = len(self.eval_dataset.metadata["session_to_indices"].keys())
+        
         self.exclude_batch_keys_from_device = self.train_dataset.exclude_batch_keys_from_device
         if self.config.masks_on_gpu is True:
             self.exclude_batch_keys_from_device.remove("mask")
         if self.config.images_on_gpu is True:
             self.exclude_batch_keys_from_device.remove("image")
-        self.eval_latent_optimise_method = kwargs.get("eval_latent_optimise_method", None)
 
         if self.train_dataparser_outputs is not None:
             cameras = self.train_dataparser_outputs.cameras
@@ -135,8 +145,8 @@ class RENINeuSDataManager(VanillaDataManager):  # pylint: disable=abstract-metho
     def create_eval_dataset(self) -> RENINeuSDataset:
         test_outputs = self.dataparser.get_dataparser_outputs("test")
         val_outputs = self.dataparser.get_dataparser_outputs("val")
-        self.num_test = len(test_outputs.image_filenames)
-        self.num_val = len(val_outputs.image_filenames)
+        # self.num_test = len(test_outputs.image_filenames)
+        # self.num_val = len(val_outputs.image_filenames)
         return RENINeuSDataset(
             dataparser_outputs=test_outputs if self.test_mode == "test" else val_outputs,
             scale_factor=self.config.camera_res_scale_factor,
@@ -147,72 +157,73 @@ class RENINeuSDataManager(VanillaDataManager):  # pylint: disable=abstract-metho
         """Sets up the data loader for evaluation"""
         assert self.eval_dataset is not None
         CONSOLE.print("Setting up evaluation dataset...")
-        self.eval_image_dataloader = CacheDataloader(
-            self.eval_dataset,
-            num_images_to_sample_from=self.config.eval_num_images_to_sample_from,
-            num_times_to_repeat_images=self.config.eval_num_times_to_repeat_images,
-            device=self.device,
-            num_workers=self.world_size * 4,
-            pin_memory=True,
-            collate_fn=self.config.collate_fn,
-            exclude_batch_keys_from_device=self.exclude_batch_keys_from_device,
-        )
-        self.iter_eval_image_dataloader = iter(self.eval_image_dataloader)
-        self.eval_pixel_sampler = self._get_pixel_sampler(self.eval_dataset, self.config.eval_num_rays_per_batch)
-        self.eval_ray_generator = RayGenerator(self.eval_dataset.cameras.to(self.device))
-
-        ### This is for NeRF-OSR relighting benchmark ###
-        session_image_idxs = self.eval_dataset.metadata["session_holdout_indices"] # idx of holdout relative to session
-        session_to_indices = self.eval_dataset.metadata["session_to_indices"] # maps session idx to image idxs
-        self.indices_to_session = self.eval_dataset.metadata["indices_to_session"] # maps image idxs to session idxs
-        # currently session_image_idxs is the image idxs relative to session
-        # but we want it to be relative to the whole dataset
-        image_idxs_holdout = [
-            session_to_indices[key][index] for key, index in zip(session_to_indices.keys(), session_image_idxs)
-        ]
-        self.eval_session_holdout_dataloader = SelectedIndicesCacheDataloader(
-            self.eval_dataset,
-            num_images_to_sample_from=self.config.eval_num_images_to_sample_from,
-            num_times_to_repeat_images=self.config.eval_num_times_to_repeat_images,
-            device=self.device,
-            num_workers=self.world_size * 4,
-            pin_memory=True,
-            collate_fn=self.config.collate_fn,
-            # exclude_batch_keys_from_device=self.exclude_batch_keys_from_device,
-            selected_indices=image_idxs_holdout,
-        )
-        self.iter_eval_session_holdout_dataloader = iter(self.eval_session_holdout_dataloader)
-        # image_idxs_eval = [x for x in range(len(self.eval_dataset))]
-        # image_idxs_eval = [idx for idx in image_idxs_eval if idx not in image_idxs_holdout]
-        image_idxs_eval = self.eval_dataset.test_eval_mask_dict.keys()
-        self.eval_session_compare_dataloader = SelectedIndicesCacheDataloader(
-            self.eval_dataset,
-            num_images_to_sample_from=self.config.eval_num_images_to_sample_from,
-            num_times_to_repeat_images=self.config.eval_num_times_to_repeat_images,
-            device=self.device,
-            num_workers=self.world_size * 4,
-            pin_memory=True,
-            collate_fn=self.config.collate_fn,
-            # exclude_batch_keys_from_device=self.exclude_batch_keys_from_device,
-            selected_indices=image_idxs_eval,
-        )
-        self.iter_eval_session_compare_dataloader = iter(self.eval_session_compare_dataloader)
-
-        # full images
         if self.eval_latent_optimise_method == "per_image":
-            self.eval_dataloader = RandIndicesEvalDataloader(
-                input_dataset=self.eval_dataset,
+            self.eval_image_dataloader = CacheDataloader(
+                self.eval_dataset,
+                num_images_to_sample_from=self.config.eval_num_images_to_sample_from,
+                num_times_to_repeat_images=self.config.eval_num_times_to_repeat_images,
                 device=self.device,
                 num_workers=self.world_size * 4,
+                pin_memory=True,
+                collate_fn=self.config.collate_fn,
+                exclude_batch_keys_from_device=self.exclude_batch_keys_from_device,
             )
+            self.iter_eval_image_dataloader = iter(self.eval_image_dataloader)
+            self.eval_pixel_sampler = self._get_pixel_sampler(self.eval_dataset, self.config.eval_num_rays_per_batch)
+            self.eval_ray_generator = RayGenerator(self.eval_dataset.cameras.to(self.device))
         else:
-            self.eval_dataloader = FixedIndicesEvalDataloader(
-                input_dataset=self.eval_dataset,
-                image_indices=tuple(image_idxs_eval),
+            ### This is for NeRF-OSR relighting benchmark ###
+            session_image_idxs = self.eval_dataset.metadata["session_holdout_indices"] # idx of holdout relative to session
+            session_to_indices = self.eval_dataset.metadata["session_to_indices"] # maps session idx to image idxs
+            self.indices_to_session = self.eval_dataset.metadata["indices_to_session"] # maps image idxs to session idxs
+            # currently session_image_idxs is the image idxs relative to session
+            # but we want it to be relative to the whole dataset
+            image_idxs_holdout = [
+                session_to_indices[key][index] for key, index in zip(session_to_indices.keys(), session_image_idxs)
+            ]
+            self.eval_session_holdout_dataloader = SelectedIndicesCacheDataloader(
+                self.eval_dataset,
+                num_images_to_sample_from=self.config.eval_num_images_to_sample_from,
+                num_times_to_repeat_images=self.config.eval_num_times_to_repeat_images,
                 device=self.device,
                 num_workers=self.world_size * 4,
+                pin_memory=True,
+                collate_fn=self.config.collate_fn,
+                # exclude_batch_keys_from_device=self.exclude_batch_keys_from_device,
+                selected_indices=image_idxs_holdout,
             )
-            self.iter_eval_dataloader = iter(self.eval_dataloader)
+            self.iter_eval_session_holdout_dataloader = iter(self.eval_session_holdout_dataloader)
+            # image_idxs_eval = [x for x in range(len(self.eval_dataset))]
+            # image_idxs_eval = [idx for idx in image_idxs_eval if idx not in image_idxs_holdout]
+            image_idxs_eval = self.eval_dataset.test_eval_mask_dict.keys()
+            self.eval_session_compare_dataloader = SelectedIndicesCacheDataloader(
+                self.eval_dataset,
+                num_images_to_sample_from=self.config.eval_num_images_to_sample_from,
+                num_times_to_repeat_images=self.config.eval_num_times_to_repeat_images,
+                device=self.device,
+                num_workers=self.world_size * 4,
+                pin_memory=True,
+                collate_fn=self.config.collate_fn,
+                # exclude_batch_keys_from_device=self.exclude_batch_keys_from_device,
+                selected_indices=image_idxs_eval,
+            )
+            self.iter_eval_session_compare_dataloader = iter(self.eval_session_compare_dataloader)
+
+            # full images
+            if self.eval_latent_optimise_method == "per_image":
+                self.eval_dataloader = RandIndicesEvalDataloader(
+                    input_dataset=self.eval_dataset,
+                    device=self.device,
+                    num_workers=self.world_size * 4,
+                )
+            else:
+                self.eval_dataloader = FixedIndicesEvalDataloader(
+                    input_dataset=self.eval_dataset,
+                    image_indices=tuple(image_idxs_eval),
+                    device=self.device,
+                    num_workers=self.world_size * 4,
+                )
+                self.iter_eval_dataloader = iter(self.eval_dataloader)
 
 
     def next_eval_image(self, step: int) -> Tuple[int, RayBundle, Dict]:

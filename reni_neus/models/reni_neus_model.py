@@ -192,6 +192,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
         self.fitting_eval_latents = False
         self.train_metadata = kwargs.get("train_metadata", None)
         self.eval_metadata = kwargs.get("eval_metadata", None)
+        self.viewing_training_image = False # DEBGUG for viewing training images
         super().__init__(config, scene_box, num_train_data, **kwargs)
         self.visibility_field = visibility_field
 
@@ -369,7 +370,10 @@ class RENINeuSFactoModel(NeuSFactoModel):
 
     def get_illumination_field(self):
         """Return the illumination field for the current mode."""
-        if self.training and not self.fitting_eval_latents:
+        if self.viewing_training_image:
+            illumination_latents = self.train_illumination_latents
+            scales = self.train_scale
+        elif self.training and not self.fitting_eval_latents:
             illumination_latents = self.train_illumination_latents
             scales = self.train_scale
         else:

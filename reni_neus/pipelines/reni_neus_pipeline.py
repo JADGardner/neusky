@@ -148,6 +148,7 @@ class RENINeuSPipeline(VanillaPipeline):
 
         visibility_field = None
         if self.config.visibility_field is not None:
+            # TODO god knows why I put the vis field here, move into model
             visibility_field = self._setup_visibility_field(device=device)
             self.visibility_train_sampler = self.config.visibility_train_sampler.setup(device=device)
             test_time_sampler_config = IcosahedronSamplerConfig(
