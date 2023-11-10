@@ -980,7 +980,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
         # image = self.renderer_rgb.blend_background(image)
         rgb = outputs["rgb"]
         acc = colormaps.apply_colormap(outputs["accumulation"])
-        gt_acc = colormaps.apply_colormap(batch["mask"][..., 1:2])  # fg_mask
+        gt_acc = colormaps.apply_colormap(batch["mask"][..., 1:2]).to(self.device)  # fg_mask 
 
         normal = outputs["normal"]
         normal = (normal + 1.0) / 2.0
