@@ -51,6 +51,7 @@ RENINeuS = MethodSpecification(
                     pad_to_equal_size=False,
                     scene_scale=1.0,  # AABB
                     mask_vegetation=False,
+                    mask_out_of_view_frustum_objects=True,
                 ),
                 train_num_images_to_sample_from=-1,
                 train_num_times_to_repeat_images=-1,  # # Iterations before resample a new subset

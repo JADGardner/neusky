@@ -112,6 +112,7 @@ class RENINeuSDataset(InputDataset):
         self.envmap_cameras = deepcopy(self.metadata["envmap_cameras"])
         self.metadata["num_sessions"] = len(dataparser_outputs.metadata["session_to_indices"])
         self.test_eval_mask_dict = dataparser_outputs.metadata["test_eval_mask_dict"]
+        self.out_of_view_frustum_objects_masks = dataparser_outputs.metadata["out_of_view_frustum_objects_masks"]
         self.split = split
 
     def get_numpy_image(self, image_idx: int) -> npt.NDArray[np.uint8]:
@@ -193,6 +194,17 @@ class RENINeuSDataset(InputDataset):
             )
 
             mask = (~mask).unsqueeze(-1).float()  # 1 is static, 0 is transient
+
+        if self.out_of_view_frustum_objects_masks[idx] is not None:
+            object_mask = torch.from_numpy(np.array(Image.open(self.out_of_view_frustum_objects_masks[idx]), dtype="uint8"))[:, :, 0] # Shape (H, W) With 1 as Tree and 0 and Not Tree
+            # convert to bool and invert
+            object_mask = object_mask / 255.0
+            object_mask = object_mask.bool()
+            object_mask = ~object_mask
+            object_mask = object_mask.unsqueeze(-1).float() # 1 is not tree, 0 is tree
+            # now AND the tree mask and the mask
+            mask = mask * object_mask
+            
 
         # get_foreground_mask
         fg_mask = self.get_mask_from_semantics(idx=idx, semantics=self.semantics, mask_classes=fg_mask_classes)

@@ -192,7 +192,8 @@ class NeRFOSRCityScapesDataParserConfig(NeRFOSRDataParserConfig):
     """Scaling factor for session environment maps as per NeRF-OSR relighting benchmark"""
     session_env_map_scaling_threshold: float = 0.0
     """Threshold for pixels scaled by session_env_map_scaling as per NeRF-OSR relighting benchmark"""
-
+    mask_out_of_view_frustum_objects: bool = False
+    """Mask out objects that are mostly out of view frustum"""
 
 @dataclass
 class NeRFOSRCityScapes(DataParser):
@@ -386,6 +387,25 @@ class NeRFOSRCityScapes(DataParser):
                 colors=colors,
             )
         
+        # create a list of None values the same length as image_filenames
+        out_of_view_frustum_objects_masks = [None] * len(image_filenames)
+        # check if folder exists
+        if os.path.exists(f"{split_dir}/out_of_view_frustum_objects_mask") and self.config.mask_out_of_view_frustum_objects:
+            object_mask_filenams = _find_files(
+                f"{split_dir}/out_of_view_frustum_objects_mask", exts=["*.png", "*.jpg", "*.JPG", "*.PNG"]
+            )
+            # Extracting the main part of each filename in image_filenames
+            main_image_filenames = [os.path.splitext(os.path.basename(filename))[0] for filename in image_filenames]
+
+            # Extracting the main part of each filename in tree_mask_filenams
+            main_tree_mask_filenames = {os.path.splitext(os.path.basename(filename))[0]: filename for filename in object_mask_filenams}
+
+            # Matching and updating out_of_view_frustum_tree_masks
+            for idx, main_image_filename in enumerate(main_image_filenames):
+                if main_image_filename in main_tree_mask_filenames:
+                    out_of_view_frustum_objects_masks[idx] = main_tree_mask_filenames[main_image_filename]
+
+        
         test_eval_mask_dict = {}
         if split == 'test':
             def get_filename_without_extension(path):
@@ -426,6 +446,7 @@ class NeRFOSRCityScapes(DataParser):
             "width_height": self.width_height,
             "mask_vegetation": self.config.mask_vegetation,
             "test_eval_mask_dict": test_eval_mask_dict,
+            "out_of_view_frustum_objects_masks": out_of_view_frustum_objects_masks,
         }
 
         dataparser_outputs = DataparserOutputs(
