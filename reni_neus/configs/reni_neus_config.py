@@ -52,7 +52,7 @@ RENINeuS = MethodSpecification(
                     scene_scale=1.0,  # AABB
                     mask_vegetation=False,
                 ),
-                train_num_images_to_sample_from=10,
+                train_num_images_to_sample_from=-1,
                 train_num_times_to_repeat_images=-1,  # # Iterations before resample a new subset
                 pixel_sampler=RENINeuSPixelSamplerConfig(),
                 images_on_gpu=False,
