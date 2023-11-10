@@ -193,18 +193,7 @@ class RENINeuSDataset(InputDataset):
                 mask_classes=transient_mask_classes,
             )
 
-            mask = (~mask).unsqueeze(-1).float()  # 1 is static, 0 is transient
-
-        if self.out_of_view_frustum_objects_masks[idx] is not None:
-            object_mask = torch.from_numpy(np.array(Image.open(self.out_of_view_frustum_objects_masks[idx]), dtype="uint8"))[:, :, 0] # Shape (H, W) With 1 as Tree and 0 and Not Tree
-            # convert to bool and invert
-            object_mask = object_mask / 255.0
-            object_mask = object_mask.bool()
-            object_mask = ~object_mask
-            object_mask = object_mask.unsqueeze(-1).float() # 1 is not tree, 0 is tree
-            # now AND the tree mask and the mask
-            mask = mask * object_mask
-            
+            mask = (~mask).unsqueeze(-1).float()  # 1 is static, 0 is transient           
 
         # get_foreground_mask
         fg_mask = self.get_mask_from_semantics(idx=idx, semantics=self.semantics, mask_classes=fg_mask_classes)
@@ -217,6 +206,17 @@ class RENINeuSDataset(InputDataset):
         # sky_mask
         sky_mask = self.get_mask_from_semantics(idx=idx, semantics=self.semantics, mask_classes=["sky"])
         sky_mask = sky_mask.unsqueeze(-1).float()  # 1 is sky, 0 is not sky
+
+        if self.out_of_view_frustum_objects_masks[idx] is not None:
+            object_mask = torch.from_numpy(np.array(Image.open(self.out_of_view_frustum_objects_masks[idx]), dtype="uint8"))[:, :, 0] # Shape (H, W) With 1 as Tree and 0 and Not Tree
+            # convert to bool and invert
+            object_mask = object_mask / 255.0
+            object_mask = object_mask.bool()
+            object_mask = ~object_mask
+            object_mask = object_mask.unsqueeze(-1).float() # 1 is not tree, 0 is tree
+            # now AND the tree mask and the mask
+            mask = mask * object_mask
+            fg_mask = fg_mask * object_mask
 
         # stack masks to shape H, W, 3
         mask = torch.cat([mask, fg_mask, ground_mask, sky_mask], dim=-1)
