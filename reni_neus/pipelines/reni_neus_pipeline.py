@@ -376,6 +376,7 @@ class RENINeuSPipeline(VanillaPipeline):
             num_images = len(self.datamanager.eval_dataloader.image_indices)
         else:
             num_images = len(self.datamanager.eval_dataloader)
+        eval_image_num = 0
         with Progress(
             TextColumn("[progress.description]{task.description}"),
             BarColumn(),
@@ -384,7 +385,8 @@ class RENINeuSPipeline(VanillaPipeline):
             transient=True,
         ) as progress:
             task = progress.add_task("[green]Evaluating all eval images...", total=num_images)
-            for camera_ray_bundle, batch in self.datamanager.eval_dataloader:
+            for i in range(num_images):
+                image_idx, camera_ray_bundle, batch = self.datamanager.next_eval_image(eval_image_num)
                 # time this the following line
                 inner_start = time()
                 height, width = camera_ray_bundle.shape
@@ -398,6 +400,7 @@ class RENINeuSPipeline(VanillaPipeline):
                 metrics_dict[fps_str] = metrics_dict["num_rays_per_sec"] / (height * width)
                 metrics_dict_list.append(metrics_dict)
                 progress.advance(task)
+                eval_image_num += 1
         # average the metrics list
         metrics_dict = {}
         for key in metrics_dict_list[0].keys():
