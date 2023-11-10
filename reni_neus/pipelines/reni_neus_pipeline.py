@@ -371,7 +371,10 @@ class RENINeuSPipeline(VanillaPipeline):
         if self.model.visibility_field is not None:
             self.model.visibility_field.eval()
         metrics_dict_list = []
-        num_images = len(self.datamanager.fixed_indices_eval_dataloader)
+        if hasattr(self.datamanager.eval_dataloader, 'image_indices'):
+            num_images = len(self.datamanager.eval_dataloader.image_indices)
+        else:
+            num_images = len(self.datamanager.eval_dataloader)
         with Progress(
             TextColumn("[progress.description]{task.description}"),
             BarColumn(),
@@ -380,7 +383,7 @@ class RENINeuSPipeline(VanillaPipeline):
             transient=True,
         ) as progress:
             task = progress.add_task("[green]Evaluating all eval images...", total=num_images)
-            for camera_ray_bundle, batch in self.datamanager.fixed_indices_eval_dataloader:
+            for camera_ray_bundle, batch in self.datamanager.eval_dataloader:
                 # time this the following line
                 inner_start = time()
                 height, width = camera_ray_bundle.shape

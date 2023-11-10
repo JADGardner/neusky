@@ -1038,10 +1038,12 @@ class RENINeuSFactoModel(NeuSFactoModel):
         psnr = self.psnr(image, rgb)
         ssim = self.ssim(image, rgb)
         lpips = self.lpips(image, rgb)
+        mse = torch.mean((image - rgb) ** 2)
 
         # all of these metrics will be logged as scalars
         metrics_dict = {"psnr": float(psnr.item()), "ssim": float(ssim)}  # type: ignore
         metrics_dict["lpips"] = float(lpips)
+        metrics_dict["mse"] = float(mse)
 
         for i in range(self.config.num_proposal_iterations):
             key = f"prop_depth_{i}"
