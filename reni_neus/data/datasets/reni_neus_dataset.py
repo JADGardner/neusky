@@ -166,7 +166,12 @@ class RENINeuSDataset(InputDataset):
                 mask = torch.from_numpy(np.array(Image.open(mask_filename), dtype="uint8")) # Shape (H, W)
                 # set between 0 and 1
                 mask = mask.float() / 255.0
-                mask = mask.unsqueeze(-1).float()  # 1 is static, 0 is transient # Shape (H, W, 1)
+                if len(mask.shape) == 2:
+                    mask = mask.unsqueeze(-1)
+                # if the final dimension is > 1, then just take the first channel
+                if mask.shape[-1] > 1:
+                    mask = mask[:, :, 0:1]
+                mask = mask.float()  # 1 is static, 0 is transient # Shape (H, W, 1)
 
         transient_mask_classes = ["person", "rider", "car", "truck", "bus", "train", "motorcycle", "bicycle"]
         fg_mask_classes = [
