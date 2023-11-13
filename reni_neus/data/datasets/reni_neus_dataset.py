@@ -253,7 +253,7 @@ class RENINeuSDataset(InputDataset):
         filepath = semantics.filenames[idx]
         pil_image = Image.open(filepath)
 
-        semantic_img = torch.from_numpy(np.array(pil_image, dtype="int32"))
+        semantic_img = torch.from_numpy(np.array(pil_image, dtype="int32"))[:, :, :3]
 
         mask = torch.zeros_like(semantic_img[:, :, 0])
         combined_mask = torch.zeros_like(semantic_img[:, :, 0])
