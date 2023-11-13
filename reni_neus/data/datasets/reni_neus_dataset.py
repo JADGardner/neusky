@@ -124,12 +124,12 @@ class RENINeuSDataset(InputDataset):
         image_filename = self._dataparser_outputs.image_filenames[image_idx]
         pil_image = Image.open(image_filename)
         if self.crop_to_equal_size:
-            # Crop the image from the right and bottom only
+            # Crop the image to the new size around the center point
             width, height = pil_image.size
-            left = 0  # Start from the leftmost part of the image
-            top = 0  # Start from the topmost part of the image
-            right = min(self.min_width, width)  # Crop up to min_width or the image width, whichever is smaller
-            bottom = min(self.min_height, height)  # Crop up to min_height or the image height, whichever is smaller
+            left = max((width - self.min_width) // 2, 0)
+            top = max((height - self.min_height) // 2, 0)
+            right = min((width + self.min_width) // 2, width)
+            bottom = min((height + self.min_height) // 2, height)
             pil_image = pil_image.crop((left, top, right, bottom))
         if self.pad_to_equal_size:
             width, height = pil_image.size
@@ -228,10 +228,10 @@ class RENINeuSDataset(InputDataset):
 
         if self.crop_to_equal_size:
             height, width = mask.shape[:2]
-            left = 0 # Start from the leftmost part of the image
-            top = 0 # Start from the topmost part of the image
-            right = min(self.min_width, width) # Crop up to min_width or the image width, whichever is smaller
-            bottom = min(self.min_height, height) # Crop up to min_height or the image height, whichever is smaller
+            left = max((width - self.min_width) // 2, 0)
+            top = max((height - self.min_height) // 2, 0)
+            right = min((width + self.min_width) // 2, width)
+            bottom = min((height + self.min_height) // 2, height)
             mask = mask[top:bottom, left:right, :]
 
         if self.pad_to_equal_size:
