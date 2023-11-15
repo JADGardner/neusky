@@ -11,6 +11,7 @@ dependencies=[
     "ftfy",
     "regex",
     "torchtyping",
+    "kaleido",
 ]
 
 [tool.setuptools.packages.find]

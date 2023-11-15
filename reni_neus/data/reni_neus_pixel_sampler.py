@@ -137,6 +137,7 @@ class RENINeuSPixelSampler(PixelSampler):
             keep_full_image: whether or not to include a reference to the full image in returned batch
         """
 
+        # check if its a list of images
         device = batch["image"].device
         num_images, image_height, image_width, _ = batch["image"].shape
 
@@ -151,6 +152,62 @@ class RENINeuSPixelSampler(PixelSampler):
         collated_batch = {
             key: value[c, y, x] for key, value in batch.items() if key != "image_idx" and value is not None
         }
+
+        assert collated_batch["image"].shape[0] == num_rays_per_batch
+
+        # Needed to correct the random indices to their actual camera idx locations.
+        indices[:, 0] = batch["image_idx"][c]
+        collated_batch["indices"] = indices  # with the abs camera indices
+
+        if keep_full_image:
+            collated_batch["full_image"] = batch["image"]
+
+        return collated_batch
+    
+    def collate_sky_ray_batch_list(self, batch: Dict, num_rays_per_batch: int, keep_full_image: bool = False):
+        """
+        Operates on a batch of images and samples pixels to use for generating rays.
+        Returns a collated batch which is input to the Graph.
+        It will sample only within the valid 'sky_mask' if it's specified.
+
+        Args:
+            batch: batch of images to sample from
+            num_rays_per_batch: number of rays to sample per batch
+            keep_full_image: whether or not to include a reference to the full image in returned batch
+        """
+
+        # check if its a list of images
+        device = batch["image"][0].device
+        num_images = len(batch["image"])
+
+        all_indices = []
+        all_images = []
+        num_rays_in_batch = num_rays_per_batch // num_images
+        for i in range(num_images):
+            mask = 1.0 - batch["mask"][i][..., 1:2]  # mask[..., 1] for fg_mask, 1 - fg_mask is the sky mask
+            image_height, image_width, _ = batch["image"][i].shape
+
+            if i == num_images - 1:
+                num_rays_in_batch = num_rays_per_batch - (num_images - 1) * num_rays_in_batch
+
+            indices = self.sample_method(
+                num_rays_in_batch, 1, image_height, image_width, mask=mask.unsqueeze(0), device=device
+            )
+            indices[:, 0] = i
+            all_indices.append(indices)
+            all_images.append(batch["image"][i][indices[:, 1], indices[:, 2]])
+        
+        indices = torch.cat(all_indices, dim=0)
+
+        c, y, x = (i.flatten() for i in torch.split(indices, 1, dim=-1))
+        c, y, x = c.cpu(), y.cpu(), x.cpu()
+        collated_batch = {
+            key: value[c, y, x]
+            for key, value in batch.items()
+            if key != "image_idx" and key != "image" and key != "mask" and value is not None
+        }
+
+        collated_batch["image"] = torch.cat(all_images, dim=0)
 
         assert collated_batch["image"].shape[0] == num_rays_per_batch
 
@@ -195,6 +252,68 @@ class RENINeuSPixelSampler(PixelSampler):
         collated_batch = {
             key: value[c, y, x] for key, value in batch.items() if key != "image_idx" and value is not None
         }
+
+        assert collated_batch["image"].shape[0] == num_rays_per_batch
+
+        # Needed to correct the random indices to their actual camera idx locations.
+        indices[:, 0] = batch["image_idx"][c]
+        collated_batch["indices"] = indices  # with the abs camera indices
+
+        return collated_batch
+    
+    def collate_image_half_list(self, batch: Dict, num_rays_per_batch: int, sample_region: Literal['left_image_half', 'right_image_half', 'full_image']):
+        """
+        Operates on a batch of images and samples pixels to use for generating rays.
+        Returns a collated batch which is input to the Graph.
+        It will sample only within the valid 'mask' and 'sample_region'.
+
+        Args:
+            batch: batch of images to sample from
+            num_rays_per_batch: number of rays to sample per batch
+            sample_region: which region of the image to sample from
+        """
+
+        device = batch["image"][0].device
+        num_images = len(batch["image"])
+
+        all_indices = []
+        all_images = []
+        all_masks = []
+        num_rays_in_batch = num_rays_per_batch // num_images
+        for i in range(num_images):
+            mask = batch["mask"][i][..., 0:1] # 1 is static, 0 is transient, [N, H, W, 1]
+            image_height, image_width, _ = batch["image"][i].shape
+
+            # we only want to sample in the sample region so set other region of the of the mask to 0
+            if sample_region == 'left_image_half':
+                mask[:, :, image_width//2:, :] = 0
+            elif sample_region == 'right_image_half':
+                mask[:, :, :image_width//2, :] = 0
+
+            if i == num_images - 1:
+                num_rays_in_batch = num_rays_per_batch - (num_images - 1) * num_rays_in_batch
+
+
+            indices = self.sample_method(
+                num_rays_in_batch, 1, image_height, image_width, mask=mask.unsqueeze(0), device=device
+            )
+            indices[:, 0] = i
+            all_indices.append(indices)
+            all_images.append(batch["image"][i][indices[:, 1], indices[:, 2]])
+            all_masks.append(batch["mask"][i][indices[:, 1], indices[:, 2]])
+        
+        indices = torch.cat(all_indices, dim=0)
+
+        c, y, x = (i.flatten() for i in torch.split(indices, 1, dim=-1))
+        c, y, x = c.cpu(), y.cpu(), x.cpu()
+        collated_batch = {
+            key: value[c, y, x]
+            for key, value in batch.items()
+            if key != "image_idx" and key != "image" and key != "mask" and value is not None
+        }
+
+        collated_batch["image"] = torch.cat(all_images, dim=0)
+        collated_batch["mask"] = torch.cat(all_masks, dim=0)
 
         assert collated_batch["image"].shape[0] == num_rays_per_batch
 

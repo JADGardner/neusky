@@ -110,7 +110,8 @@ class RENINeuSDataset(InputDataset):
 
         self.metadata["c2w"] = dataparser_outputs.cameras.camera_to_worlds
         self.envmap_cameras = deepcopy(self.metadata["envmap_cameras"])
-        self.metadata["num_sessions"] = len(dataparser_outputs.metadata["session_to_indices"])
+        if dataparser_outputs.metadata["session_to_indices"] is not None:
+            self.metadata["num_sessions"] = len(dataparser_outputs.metadata["session_to_indices"])
         self.test_eval_mask_dict = dataparser_outputs.metadata["test_eval_mask_dict"]
         self.out_of_view_frustum_objects_masks = dataparser_outputs.metadata["out_of_view_frustum_objects_masks"]
         self.split = split

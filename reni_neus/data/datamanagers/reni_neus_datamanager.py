@@ -112,8 +112,8 @@ class RENINeuSDataManager(VanillaDataManager):  # pylint: disable=abstract-metho
         # TODO This is a mess, can only have test or val at one time anyway so just use one variable
         # This will need updating in pipeline and model too
         if self.eval_latent_optimise_method == "per_image":
-            self.num_test = len(test_outputs.image_filenames)
-            self.num_val = len(val_outputs.image_filenames)
+            self.num_test = len(self.test_outputs.image_filenames)
+            self.num_val = len(self.val_outputs.image_filenames)
         else:
             self.num_test = len(self.eval_dataset.metadata["session_to_indices"].keys())
             self.num_val = len(self.eval_dataset.metadata["session_to_indices"].keys())
@@ -143,12 +143,12 @@ class RENINeuSDataManager(VanillaDataManager):  # pylint: disable=abstract-metho
         )
 
     def create_eval_dataset(self) -> RENINeuSDataset:
-        test_outputs = self.dataparser.get_dataparser_outputs("test")
-        val_outputs = self.dataparser.get_dataparser_outputs("val")
+        self.test_outputs = self.dataparser.get_dataparser_outputs("test")
+        self.val_outputs = self.dataparser.get_dataparser_outputs("val")
         # self.num_test = len(test_outputs.image_filenames)
         # self.num_val = len(val_outputs.image_filenames)
         return RENINeuSDataset(
-            dataparser_outputs=test_outputs if self.test_mode == "test" else val_outputs,
+            dataparser_outputs=self.test_outputs if self.test_mode == "test" else self.val_outputs,
             scale_factor=self.config.camera_res_scale_factor,
             split=self.test_split,
         )
@@ -171,6 +171,12 @@ class RENINeuSDataManager(VanillaDataManager):  # pylint: disable=abstract-metho
             self.iter_eval_image_dataloader = iter(self.eval_image_dataloader)
             self.eval_pixel_sampler = self._get_pixel_sampler(self.eval_dataset, self.config.eval_num_rays_per_batch)
             self.eval_ray_generator = RayGenerator(self.eval_dataset.cameras.to(self.device))
+
+            self.eval_dataloader = RandIndicesEvalDataloader(
+                    input_dataset=self.eval_dataset,
+                    device=self.device,
+                    num_workers=self.world_size * 4,
+                )
         else:
             ### This is for NeRF-OSR relighting benchmark ###
             session_image_idxs = self.eval_dataset.metadata["session_holdout_indices"] # idx of holdout relative to session
@@ -195,7 +201,7 @@ class RENINeuSDataManager(VanillaDataManager):  # pylint: disable=abstract-metho
             self.iter_eval_session_holdout_dataloader = iter(self.eval_session_holdout_dataloader)
             # image_idxs_eval = [x for x in range(len(self.eval_dataset))]
             # image_idxs_eval = [idx for idx in image_idxs_eval if idx not in image_idxs_holdout]
-            image_idxs_eval = self.eval_dataset.test_eval_mask_dict.keys()
+            image_idxs_eval = list(self.eval_dataset.test_eval_mask_dict.keys())
             self.eval_session_compare_dataloader = SelectedIndicesCacheDataloader(
                 self.eval_dataset,
                 num_images_to_sample_from=self.config.eval_num_images_to_sample_from,
@@ -209,21 +215,13 @@ class RENINeuSDataManager(VanillaDataManager):  # pylint: disable=abstract-metho
             )
             self.iter_eval_session_compare_dataloader = iter(self.eval_session_compare_dataloader)
 
-            # full images
-            if self.eval_latent_optimise_method == "per_image":
-                self.eval_dataloader = RandIndicesEvalDataloader(
-                    input_dataset=self.eval_dataset,
-                    device=self.device,
-                    num_workers=self.world_size * 4,
-                )
-            else:
-                self.eval_dataloader = FixedIndicesEvalDataloader(
-                    input_dataset=self.eval_dataset,
-                    image_indices=tuple(image_idxs_eval),
-                    device=self.device,
-                    num_workers=self.world_size * 4,
-                )
-                self.iter_eval_dataloader = iter(self.eval_dataloader)
+            self.eval_dataloader = FixedIndicesEvalDataloader(
+                input_dataset=self.eval_dataset,
+                image_indices=tuple(image_idxs_eval),
+                device=self.device,
+                num_workers=self.world_size * 4,
+            )
+            self.iter_eval_dataloader = iter(self.eval_dataloader)
 
 
     def next_eval_image(self, step: int) -> Tuple[int, RayBundle, Dict]:
@@ -254,7 +252,10 @@ class RENINeuSDataManager(VanillaDataManager):  # pylint: disable=abstract-metho
         # choose random
         image_batch = next(self.iter_train_image_dataloader)
         assert self.train_pixel_sampler is not None
-        batch = self.train_pixel_sampler.collate_sky_ray_batch(image_batch, num_rays_per_batch=number_of_rays)
+        if isinstance(image_batch["image"], list):
+            batch = self.train_pixel_sampler.collate_sky_ray_batch_list(image_batch, num_rays_per_batch=number_of_rays)
+        else:
+            batch = self.train_pixel_sampler.collate_sky_ray_batch(image_batch, num_rays_per_batch=number_of_rays)
         ray_indices = batch["indices"].cpu()
         ray_bundle = self.train_ray_generator(ray_indices)
         return ray_bundle
@@ -266,9 +267,14 @@ class RENINeuSDataManager(VanillaDataManager):  # pylint: disable=abstract-metho
         image_batch = next(self.iter_eval_image_dataloader)
         assert self.eval_pixel_sampler is not None
         assert isinstance(image_batch, dict)
-        batch = self.eval_pixel_sampler.collate_image_half(
-            batch=image_batch, num_rays_per_batch=self.config.eval_num_rays_per_batch, sample_region=sample_region
-        )
+        if isinstance(image_batch["image"], list):
+            batch = self.eval_pixel_sampler.collate_image_half_list(
+                batch=image_batch, num_rays_per_batch=self.config.eval_num_rays_per_batch, sample_region=sample_region
+            )
+        else:
+            batch = self.eval_pixel_sampler.collate_image_half(
+                batch=image_batch, num_rays_per_batch=self.config.eval_num_rays_per_batch, sample_region=sample_region
+            )
         ray_indices = batch["indices"].cpu()
         ray_bundle = self.eval_ray_generator(ray_indices)
         return ray_bundle, batch

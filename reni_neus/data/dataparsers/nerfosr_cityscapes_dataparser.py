@@ -313,48 +313,53 @@ class NeRFOSRCityScapes(DataParser):
         )
 
         # load a single envmap to get its size
-        envmap = Image.open(envmap_filenames[0])
-        envmap_width, envmap_height = envmap.size
+        envmap_cameras = None
+        if len(envmap_filenames) > 0:
+            envmap = Image.open(envmap_filenames[0])
+            envmap_width, envmap_height = envmap.size
 
-        c2w = torch.tensor([[[1, 0, 0, 0], [0, 0, 1, 0], [0, 1, 0, 0]]], dtype=torch.float32).repeat(
-            len(envmap_filenames), 1, 1
-        )
+            c2w = torch.tensor([[[1, 0, 0, 0], [0, 0, 1, 0], [0, 1, 0, 0]]], dtype=torch.float32).repeat(
+                len(envmap_filenames), 1, 1
+            )
 
-        envmap_cameras = Cameras(
-            fx=torch.tensor(envmap_height, dtype=torch.float32).repeat(len(envmap_filenames)),
-            fy=torch.tensor(envmap_height, dtype=torch.float32).repeat(len(envmap_filenames)),
-            cx=torch.tensor(envmap_width // 2, dtype=torch.float32).repeat(len(envmap_filenames)),
-            cy=torch.tensor(envmap_height // 2, dtype=torch.float32).repeat(len(envmap_filenames)),
-            camera_to_worlds=c2w,
-            camera_type=CameraType.EQUIRECTANGULAR,
-        )
+            envmap_cameras = Cameras(
+                fx=torch.tensor(envmap_height, dtype=torch.float32).repeat(len(envmap_filenames)),
+                fy=torch.tensor(envmap_height, dtype=torch.float32).repeat(len(envmap_filenames)),
+                cx=torch.tensor(envmap_width // 2, dtype=torch.float32).repeat(len(envmap_filenames)),
+                cy=torch.tensor(envmap_height // 2, dtype=torch.float32).repeat(len(envmap_filenames)),
+                camera_to_worlds=c2w,
+                camera_type=CameraType.EQUIRECTANGULAR,
+            )
 
-        # --- session IDs ---
-        # names of sessions are the folders within scene_dir/ENV_MAP
-        sessions = [os.path.basename(x) for x in glob.glob(f"{scene_dir}/ENV_MAP_CC/*")]
-        session_to_indices = defaultdict(list)
+        session_to_indices = None
+        indices_to_session = None
+        if scene != "trevi":
+            # --- session IDs ---
+            # names of sessions are the folders within scene_dir/ENV_MAP
+            sessions = [os.path.basename(x) for x in glob.glob(f"{scene_dir}/ENV_MAP_CC/*")]
+            session_to_indices = defaultdict(list)
 
-        for idx, filename in enumerate(image_filenames):
-            # if filename contains a session name, use that as the session ID
-            # if no match just skip so as to not have sessions with no images
-            for session in sessions:
-                if session in filename:
-                    session_to_indices[session].append(int(idx))
+            for idx, filename in enumerate(image_filenames):
+                # if filename contains a session name, use that as the session ID
+                # if no match just skip so as to not have sessions with no images
+                for session in sessions:
+                    if session in filename:
+                        session_to_indices[session].append(int(idx))
 
-        # update keys from strings to integers from 0 to len(session_to_indices) - 1
-        session_to_indices = {i: session_to_indices[k] for i, k in enumerate(session_to_indices.keys())}
+            # update keys from strings to integers from 0 to len(session_to_indices) - 1
+            session_to_indices = {i: session_to_indices[k] for i, k in enumerate(session_to_indices.keys())}
 
-        # also create mapping from indices to sessions
-        indices_to_session = defaultdict(list)
-        for session_idx, indices in session_to_indices.items():
-            for idx in indices:
-                indices_to_session[idx] = session_idx
+            # also create mapping from indices to sessions
+            indices_to_session = defaultdict(list)
+            for session_idx, indices in session_to_indices.items():
+                for idx in indices:
+                    indices_to_session[idx] = session_idx
 
-        if split in ["validation", "test"]:
-            session_to_indices = dict(session_to_indices)
-            assert len(self.config.session_holdout_indices) == len(
-                session_to_indices
-            ), "number of relative eval indicies must match number of unique sessions"
+            if split in ["validation", "test"]:
+                session_to_indices = dict(session_to_indices)
+                assert len(self.config.session_holdout_indices) == len(
+                    session_to_indices
+                ), "number of relative eval indicies must match number of unique sessions"
         
         # --- masks ---
         mask_filenames = None
@@ -407,7 +412,7 @@ class NeRFOSRCityScapes(DataParser):
 
         
         test_eval_mask_dict = {}
-        if split == 'test':
+        if split == 'test' and scene != "trevi":
             def get_filename_without_extension(path):
                 return path.split('/')[-1].split('.')[0]
             test_eval_mask_filenames = _find_files(f"{split_dir}/mask", exts=["*.png", "*.jpg", "*.JPG", "*.PNG"])

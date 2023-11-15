@@ -70,6 +70,7 @@ from reni.illumination_fields.base_spherical_field import SphericalFieldConfig
 from reni.illumination_fields.reni_illumination_field import RENIField, RENIFieldConfig
 from reni.illumination_fields.sg_illumination_field import SphericalGaussianFieldConfig
 from reni.illumination_fields.sh_illumination_field import SphericalHarmonicIlluminationFieldConfig
+from reni.illumination_fields.environment_map_field import EnvironmentMapFieldConfig
 from reni.model_components.illumination_samplers import IlluminationSamplerConfig, EquirectangularSamplerConfig
 from reni.field_components.field_heads import RENIFieldHeadNames
 from reni.utils.colourspace import linear_to_sRGB
@@ -317,6 +318,23 @@ class RENINeuSFactoModel(NeuSFactoModel):
 
             self.eval_illumination_latents = Parameter(
                 torch.zeros((self.num_eval_data, self.illumination_field.sg_num, 3))
+            )
+            self.eval_scale = None
+        elif isinstance(self.config.illumination_field, EnvironmentMapFieldConfig):
+            self.illumination_field = self.config.illumination_field.setup(
+                num_train_data=1,
+                num_eval_data=1,
+                normalisations={"min_max": None, "log_domain": True}
+            )
+            # These are actually just environment maps
+            H, W = self.config.illumination_field.resolution
+            self.train_illumination_latents = Parameter(
+                torch.zeros((self.num_train_data, H, W, 3))
+            )
+            self.train_scale = None
+
+            self.eval_illumination_latents = Parameter(
+                torch.zeros((self.num_eval_data, H, W, 3))
             )
             self.eval_scale = None
 

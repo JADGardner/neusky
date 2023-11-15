@@ -45,15 +45,19 @@ RENINeuS = MethodSpecification(
           test_mode='test',
             datamanager=RENINeuSDataManagerConfig(
                 dataparser=NeRFOSRCityScapesDataParserConfig(
-                    scene="site1",
+                    scene="trevi",
                     auto_scale_poses=True,
-                    crop_to_equal_size=True,
+                    crop_to_equal_size=False,
                     pad_to_equal_size=False,
                     scene_scale=1.0,  # AABB
-                    mask_vegetation=False,
+                    mask_vegetation=True,
                     mask_out_of_view_frustum_objects=True,
+                    # session_holdout_indices=[0, 0, 0, 0, 0], # site 1
+                    # session_holdout_indices=[3, 13, 2, 7, 9], # site 2
+                    # session_holdout_indices=[19, 15, 16, 13, 11], # site 3 # potentially [19, 15, 16, 13, 15]
+                    # session_holdout_indices=[0, 0, 0, 0, 0], # trevi
                 ),
-                train_num_images_to_sample_from=1,
+                train_num_images_to_sample_from=-1,
                 train_num_times_to_repeat_images=-1,  # # Iterations before resample a new subset
                 pixel_sampler=RENINeuSPixelSamplerConfig(),
                 images_on_gpu=False,
@@ -145,7 +149,7 @@ RENINeuS = MethodSpecification(
                         ),
                     },
                 },
-                eval_latent_optimise_method="nerf_osr_holdout",  # per_image, nerf_osr_holdout, nerf_osr_envmap
+                eval_latent_optimise_method="per_image",  # per_image, nerf_osr_holdout, nerf_osr_envmap (can't run nerf_osr with trevi)
                 eval_latent_sample_region="full_image",
                 illumination_field_ckpt_path=Path("outputs/reni/reni_plus_plus_models/latent_dim_100/"),
                 illumination_field_ckpt_step=50000,

@@ -190,3 +190,4 @@ camera_paths/
 */**/._.DS_Store
 /reni_neus.egg-info
 /checkpoints/
+models/
