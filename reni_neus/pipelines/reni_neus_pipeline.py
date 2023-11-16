@@ -195,11 +195,15 @@ class RENINeuSPipeline(VanillaPipeline):
             self._model = typing.cast(Model, DDP(self._model, device_ids=[local_rank], find_unused_parameters=True))
             dist.barrier(device_ids=[local_rank])
 
+        self.step_of_last_latent_optimisation = 0
+
     def _optimise_evaluation_latents(self, step):
-        self.model.fit_latent_codes_for_eval(
-            datamanager=self.datamanager,
-            global_step=step,
-        )
+        if self.step_of_last_latent_optimisation != step:
+            self.model.fit_latent_codes_for_eval(
+                datamanager=self.datamanager,
+                global_step=step,
+            )
+            self.step_of_last_latent_optimisation = step
 
     def get_param_groups(self) -> Dict[str, List[Parameter]]:
         """Get the param groups for the pipeline.
@@ -272,6 +276,7 @@ class RENINeuSPipeline(VanillaPipeline):
         Args:
             step: current iteration step
         """
+        # if we haven't already fit the eval latents this step, do it now
         self._optimise_evaluation_latents(step)
         self.model.eval()
         if self.model.visibility_field is not None:
