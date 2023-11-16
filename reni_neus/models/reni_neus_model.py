@@ -888,6 +888,9 @@ class RENINeuSFactoModel(NeuSFactoModel):
 
         image = batch["image"].to(self.device)
         pred_image = outputs["rgb"]
+        # apply inverse of sky mask to image and pred_image
+        image = image * (1 - sky_mask.float()).unsqueeze(1).expand_as(image)
+        pred_image = pred_image * (1 - sky_mask.float()).unsqueeze(1).expand_as(pred_image)
         if self.config.loss_inclusions["rgb_l1_loss"]:
             loss_dict["rgb_l1_loss"] = self.rgb_l1_loss(image, pred_image)
         if self.config.loss_inclusions["rgb_l2_loss"]:

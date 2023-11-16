@@ -45,17 +45,16 @@ RENINeuS = MethodSpecification(
           test_mode='test',
             datamanager=RENINeuSDataManagerConfig(
                 dataparser=NeRFOSRCityScapesDataParserConfig(
-                    scene="trevi",
+                    scene="site2",
                     auto_scale_poses=True,
-                    crop_to_equal_size=False,
+                    crop_to_equal_size=True,
                     pad_to_equal_size=False,
                     scene_scale=1.0,  # AABB
                     mask_vegetation=True,
                     mask_out_of_view_frustum_objects=True,
                     # session_holdout_indices=[0, 0, 0, 0, 0], # site 1
-                    # session_holdout_indices=[3, 13, 2, 7, 9], # site 2
-                    # session_holdout_indices=[19, 15, 16, 13, 11], # site 3 # potentially [19, 15, 16, 13, 15]
-                    # session_holdout_indices=[0, 0, 0, 0, 0], # trevi
+                    session_holdout_indices=[2, 1, 2, 7, 9], # site 2
+                    # session_holdout_indices=[0, 6, 6, 2, 11], # site 3
                 ),
                 train_num_images_to_sample_from=-1,
                 train_num_times_to_repeat_images=-1,  # # Iterations before resample a new subset
@@ -63,7 +62,7 @@ RENINeuS = MethodSpecification(
                 images_on_gpu=False,
                 masks_on_gpu=False,
                 train_num_rays_per_batch=256,
-                eval_num_rays_per_batch=256,
+                eval_num_rays_per_batch=1024,
             ),
             model=RENINeuSFactoModelConfig(
                 sdf_field=SDFAlbedoFieldConfig(
@@ -143,13 +142,13 @@ RENINeuS = MethodSpecification(
                 eval_latent_optimizer={
                     "eval_latents": {
                         "optimizer": AdamOptimizerConfig(lr=1e-1, eps=1e-15),
-                        # "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-7, max_steps=250),
-                        "scheduler": CosineDecaySchedulerConfig(
-                            warm_up_end=50, learning_rate_alpha=0.05, max_steps=250
-                        ),
+                        "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-7, max_steps=250),
+                        # "scheduler": CosineDecaySchedulerConfig(
+                        #     warm_up_end=50, learning_rate_alpha=0.05, max_steps=250
+                        # ),
                     },
                 },
-                eval_latent_optimise_method="per_image",  # per_image, nerf_osr_holdout, nerf_osr_envmap (can't run nerf_osr with trevi)
+                eval_latent_optimise_method="nerf_osr_holdout",  # per_image, nerf_osr_holdout, nerf_osr_envmap (can't run nerf_osr with trevi)
                 eval_latent_sample_region="full_image",
                 illumination_field_ckpt_path=Path("outputs/reni/reni_plus_plus_models/latent_dim_100/"),
                 illumination_field_ckpt_step=50000,

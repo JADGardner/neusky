@@ -46,14 +46,17 @@ class RENISkyPixelLoss(object):
         super().__init__()
         self.alpha = alpha
         self.mse = torch.nn.MSELoss(reduction="mean")
+        self.l1 = torch.nn.L1Loss(reduction="mean")
         self.cosine_similarity = torch.nn.CosineSimilarity(dim=1, eps=1e-20)
 
     def __call__(self, inputs, targets, mask):
         inputs = inputs * mask
         targets = targets * mask
         mse = self.mse(inputs, targets)
+        l1 = self.l1(inputs, targets)
         similarity = self.cosine_similarity(inputs, targets)
         cosine_loss = 1 - similarity.mean()
-        loss = mse + self.alpha * cosine_loss
+        # loss = mse + self.alpha * cosine_loss
+        loss = l1 + self.alpha * cosine_loss
         return loss
 
