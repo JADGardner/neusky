@@ -194,6 +194,8 @@ class NeRFOSRCityScapesDataParserConfig(NeRFOSRDataParserConfig):
     """Threshold for pixels scaled by session_env_map_scaling as per NeRF-OSR relighting benchmark"""
     mask_out_of_view_frustum_objects: bool = False
     """Mask out objects that are mostly out of view frustum"""
+    include_sidewalk_in_ground_mask: bool = True
+    """Include sidewalk in ground mask"""
 
 @dataclass
 class NeRFOSRCityScapes(DataParser):
@@ -452,6 +454,7 @@ class NeRFOSRCityScapes(DataParser):
             "mask_vegetation": self.config.mask_vegetation,
             "test_eval_mask_dict": test_eval_mask_dict,
             "out_of_view_frustum_objects_masks": out_of_view_frustum_objects_masks,
+            "include_sidewalk_in_ground_mask": self.config.include_sidewalk_in_ground_mask,
         }
 
         dataparser_outputs = DataparserOutputs(

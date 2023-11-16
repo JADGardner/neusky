@@ -206,7 +206,10 @@ class RENINeuSDataset(InputDataset):
         fg_mask = fg_mask.unsqueeze(-1).float()  # 1 is foreground + statics, 0 is background + transients
 
         # get_ground_mask
-        ground_mask = self.get_mask_from_semantics(idx=idx, semantics=self.semantics, mask_classes=["road", "sidewalk"])
+        ground_mask_classes = ["road"]
+        if self.metadata["include_sidewalk_in_ground_mask"]:
+            ground_mask_classes.append("sidewalk")
+        ground_mask = self.get_mask_from_semantics(idx=idx, semantics=self.semantics, mask_classes=ground_mask_classes)
         ground_mask = (ground_mask).unsqueeze(-1).float()  # 1 is ground, 0 is not ground
 
         # sky_mask
