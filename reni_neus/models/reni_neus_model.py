@@ -913,34 +913,24 @@ class RENINeuSFactoModel(NeuSFactoModel):
         """Compute the loss dictionary, including interlevel loss for proposal networks."""
         fg_mask = batch["mask"][..., 1].to(self.device)  # [num_rays]
         ground_mask = batch["mask"][..., 2].to(self.device)  # [num_rays]
-        sky_mask = batch["mask"][..., 3].to(self.device)  # [num_rays
+        sky_mask = batch["mask"][..., 3].to(self.device)  # [num_rays]
         loss_dict = {}
 
-        image = batch["image"].to(self.device)
-        pred_image = outputs["rgb"]
-        # apply inverse of sky mask to image and pred_image as we only apply sky losses to reni directly
-        image = image * (1 - sky_mask.float()).unsqueeze(1).expand_as(image)
-        pred_image = pred_image * (1 - sky_mask.float()).unsqueeze(1).expand_as(pred_image)
-        if self.config.loss_inclusions["rgb_l1_loss"]:
-            loss_dict["rgb_l1_loss"] = self.rgb_l1_loss(image, pred_image)
-        if self.config.loss_inclusions["rgb_l2_loss"]:
-            loss_dict["rgb_l2_loss"] = self.rgb_l2_loss(image, pred_image)
-        if self.config.loss_inclusions["cosine_colour_loss"]:
-            similarity = self.cosine_colour_loss(image, pred_image)
-            loss_dict["cosine_colour_loss"] = torch.mean(1 - similarity)
+        if self.training and not self.fitting_eval_latents:
+            # appearance
+            image = batch["image"].to(self.device)
+            pred_image = outputs["rgb"]
+            # apply inverse of sky mask to image and pred_image as we only apply sky losses to reni directly
+            image = image * (1 - sky_mask.float()).unsqueeze(1).expand_as(image)
+            pred_image = pred_image * (1 - sky_mask.float()).unsqueeze(1).expand_as(pred_image)
+            if self.config.loss_inclusions["rgb_l1_loss"]:
+                loss_dict["rgb_l1_loss"] = self.rgb_l1_loss(image, pred_image)
+            if self.config.loss_inclusions["rgb_l2_loss"]:
+                loss_dict["rgb_l2_loss"] = self.rgb_l2_loss(image, pred_image)
+            if self.config.loss_inclusions["cosine_colour_loss"]:
+                similarity = self.cosine_colour_loss(image, pred_image)
+                loss_dict["cosine_colour_loss"] = torch.mean(1 - similarity)
 
-        # SKY PIXEL LOSS
-        if self.config.eval_latent_optimise_method != 'nerf_osr_envmap':
-            if self.config.loss_inclusions["sky_pixel_loss"]["enabled"]:
-                sky_colours = linear_to_sRGB(outputs["hdr_background_colours"])  # as GT images as LDR
-                sky_mask = sky_mask.float().unsqueeze(1).expand_as(sky_colours)
-                loss_dict["sky_pixel_loss"] = self.sky_pixel_loss(
-                    inputs=linear_to_sRGB(outputs["hdr_background_colours"]),
-                    targets=batch["image"].type_as(sky_mask),
-                    mask=sky_mask,
-                )
-
-        if self.training:
             # eikonal loss
             if self.config.loss_inclusions["eikonal loss"]:
                 grad_theta = outputs["eik_grad"]
@@ -1014,6 +1004,30 @@ class RENINeuSFactoModel(NeuSFactoModel):
                         current_scale, torch.tensor(1.0).type_as(self.sigmoid_scale)
                     )
                 loss_dict["visibility_sigmoid_loss"] = vis_bias_loss + vis_scale_loss
+        else:
+            image = batch["image"].to(self.device)
+            pred_image = outputs["rgb"]
+            # apply inverse of sky mask to image and pred_image as we only apply sky losses to reni directly
+            image = image * (1 - sky_mask.float()).unsqueeze(1).expand_as(image)
+            pred_image = pred_image * (1 - sky_mask.float()).unsqueeze(1).expand_as(pred_image)
+            if self.config.loss_inclusions["rgb_l1_loss"]:
+                loss_dict["rgb_l1_loss"] = self.rgb_l1_loss(image, pred_image)
+            if self.config.loss_inclusions["rgb_l2_loss"]:
+                loss_dict["rgb_l2_loss"] = self.rgb_l2_loss(image, pred_image)
+            if self.config.loss_inclusions["cosine_colour_loss"]:
+                similarity = self.cosine_colour_loss(image, pred_image)
+                loss_dict["cosine_colour_loss"] = torch.mean(1 - similarity)
+                
+            # SKY PIXEL LOSS TEST
+            if self.config.eval_latent_optimise_method != 'nerf_osr_envmap':
+                if self.config.loss_inclusions["sky_pixel_loss"]["enabled"]:
+                    sky_colours = linear_to_sRGB(outputs["hdr_background_colours"])  # as GT images as LDR
+                    sky_mask = sky_mask.float().unsqueeze(1).expand_as(sky_colours)
+                    loss_dict["sky_pixel_loss"] = self.sky_pixel_loss(
+                        inputs=linear_to_sRGB(outputs["hdr_background_colours"]),
+                        targets=batch["image"].type_as(sky_mask),
+                        mask=sky_mask,
+                    )
 
         loss_dict = misc.scale_dict(loss_dict, self.config.loss_coefficients)
         return loss_dict
@@ -1365,6 +1379,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
                     self.eval_scale.data = torch.ones_like(self.eval_scale.data)
 
                 for _ in range(steps):
+                    rotation_matrices = None
                     if self.config.eval_latent_optimise_method == "per_image":
                         ray_bundle, batch = datamanager.get_eval_image_half_bundle(
                             sample_region=self.config.eval_latent_sample_region

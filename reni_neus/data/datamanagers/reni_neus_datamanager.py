@@ -199,6 +199,13 @@ class RENINeuSDataManager(VanillaDataManager):  # pylint: disable=abstract-metho
                 selected_indices=image_idxs_holdout,
             )
             self.iter_eval_session_holdout_dataloader = iter(self.eval_session_holdout_dataloader)
+            self.holdout_eval_dataloader = FixedIndicesEvalDataloader(
+                input_dataset=self.eval_dataset,
+                image_indices=tuple(image_idxs_holdout),
+                device=self.device,
+                num_workers=self.world_size * 4,
+            )
+            self.iter_holdout_eval_dataloader = iter(self.holdout_eval_dataloader)
             # image_idxs_eval = [x for x in range(len(self.eval_dataset))]
             # image_idxs_eval = [idx for idx in image_idxs_eval if idx not in image_idxs_holdout]
             image_idxs_eval = list(self.eval_dataset.test_eval_mask_dict.keys())
@@ -246,6 +253,21 @@ class RENINeuSDataManager(VanillaDataManager):  # pylint: disable=abstract-metho
                 image_idx = int(camera_ray_bundle.camera_indices[0, 0, 0])
                 return image_idx, camera_ray_bundle, batch
             raise ValueError("No more eval images")
+    
+    def next_holdout_image(self, step: int):
+        if self.holdout_eval_dataloader.count >= len(self.holdout_eval_dataloader.image_indices):
+            self.holdout_eval_dataloader.count = 0
+        camera_ray_bundle, batch = next(self.iter_holdout_eval_dataloader)
+        assert camera_ray_bundle.camera_indices is not None
+        camera_idx = int(camera_ray_bundle.camera_indices[0, 0, 0])
+        # we need to use the indices_to_session mapping to get the session idx
+        # as all images from a sessioin have the same latent code
+        image_idx = self.indices_to_session[camera_idx]
+        batch["image_idx"] = image_idx
+        # we also need to update camera_ray_bundle.camera_indices which is shape [H, W, 1]
+        # to also just be same shape but all image_idx
+        camera_ray_bundle.camera_indices = torch.ones_like(camera_ray_bundle.camera_indices) * image_idx
+        return image_idx, camera_ray_bundle, batch
 
     def get_sky_ray_bundle(self, number_of_rays: int) -> Tuple[RayBundle, Dict]:
         """Returns a sky ray bundle for the given step."""
