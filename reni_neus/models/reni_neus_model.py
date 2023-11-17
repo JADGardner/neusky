@@ -161,6 +161,10 @@ class RENINeuSFactoModelConfig(NeuSFactoModelConfig):
     """Method for optimising eval latents"""
     mask_to_building_in_metrics: bool = False
     """Apply building mask so only building contributes to metrics as per NeRF-OSR eval"""
+    render_ambient_light: bool = False
+    """Render ambient light"""
+    lower_hermisphere_visibility: bool = True
+    """If true, lower hemisphere visibility will always be 1.0 if False, then it will be zero"""
 
 
 class RENINeuSFactoModel(NeuSFactoModel):
@@ -251,6 +255,8 @@ class RENINeuSFactoModel(NeuSFactoModel):
                 num_eval_data=None,
             )
             # use local latents as illumination field is just for decoder
+            self.eval_rotation = Parameter(torch.ones(self.num_eval_data))
+
             self.train_illumination_latents = Parameter(
                 torch.zeros((self.num_train_data, self.illumination_field.latent_dim, 3))
             )
@@ -326,15 +332,14 @@ class RENINeuSFactoModel(NeuSFactoModel):
                 num_eval_data=1,
                 normalisations={"min_max": None, "log_domain": True}
             )
-            # These are actually just environment maps
-            H, W = self.config.illumination_field.resolution
             self.train_illumination_latents = Parameter(
-                torch.zeros((self.num_train_data, H, W, 3))
-            )
+                torch.zeros_like(self.illumination_field.train_mu)
+            ) # [1, 3, H, W]
+
             self.train_scale = None
 
             self.eval_illumination_latents = Parameter(
-                torch.zeros((self.num_eval_data, H, W, 3))
+                torch.zeros_like(self.illumination_field.eval_mu)
             )
             self.eval_scale = None
 
@@ -469,11 +474,13 @@ class RENINeuSFactoModel(NeuSFactoModel):
 
 
         if isinstance(self.illumination_field, RENIField):
+            if rotation is not None:
+                rotation = rotation[illumination_ray_samples.camera_indices] # [num_unique_camera_indices * num_illumination_directions, 3, 3]
             illumination_field_outputs = self.illumination_field.forward(
                 ray_samples=illumination_ray_samples,
                 latent_codes=illumination_latents[illumination_ray_samples.camera_indices], # [num_unique_camera_indices * num_illumination_directions, 3]
                 scale=scales[illumination_ray_samples.camera_indices], # [num_unique_camera_indices * num_illumination_directions]
-                rotation=rotation
+                rotation=rotation 
             )  # [num_unique_camera_indices * num_illumination_directions, 3]
         else:
             illumination_field_outputs = self.illumination_field.forward(
@@ -511,6 +518,8 @@ class RENINeuSFactoModel(NeuSFactoModel):
 
         # now we need to get samples from distant illumination field for camera rays
         if isinstance(self.illumination_field, RENIField):
+            if rotation is not None:
+                rotation = rotation[ray_samples.camera_indices[:, 0, 0]]
             illumination_field_outputs = self.illumination_field.forward(
                 ray_samples=ray_samples[:, 0],
                 latent_codes=illumination_latents[ray_samples.camera_indices[:, 0, 0]],
@@ -747,6 +756,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
         accumulation = None
         p2p_dist = None
         depth = None
+        shading = None
         if self.config.use_visibility:
             visibility = samples_and_field_outputs["visibility_dict"]["visibility"]
         if "accumulation" in samples_and_field_outputs:
@@ -801,11 +811,28 @@ class RENINeuSFactoModel(NeuSFactoModel):
                         c2w_matrices=self.eval_metadata["c2w"][ray_samples.camera_indices],
                     )
                 else:
+                    if self.config.render_ambient_light:
+                        light_colours = torch.ones_like(hdr_illumination_colours)
+                        albedo_colours = torch.ones_like(field_outputs[RENINeuSFieldHeadNames.ALBEDO])
+                        # visibility is shape [num_rays * samples_per_ray, num_light_directions, 1]
+                        num_rays, num_samples = ray_samples.shape[0], ray_samples.shape[1]
+                        num_light_directions = visibility.shape[1]
+                        shading = visibility[:, :, 0] # [num_rays, num_light_directions]
+                        shading = shading.reshape(num_rays, num_samples, num_light_directions) # [num_rays, num_samples, num_light_directions]
+                        shading = shading[:, 0, :] # [num_rays, num_light_directions]
+                        # now we want to sum over light directions
+                        shading = torch.sum(shading, dim=-1) # [num_rays]
+                        # and normalise by number of light directions
+                        shading = shading / num_light_directions
+                    else:
+                        light_colours = hdr_illumination_colours
+                        albedo_colours = field_outputs[RENINeuSFieldHeadNames.ALBEDO]
+
                     rgb = self.lambertian_renderer(
-                        albedos=field_outputs[RENINeuSFieldHeadNames.ALBEDO],
+                        albedos=albedo_colours,
                         normals=field_outputs[FieldHeadNames.NORMALS],
                         light_directions=illumination_directions,
-                        light_colors=hdr_illumination_colours,
+                        light_colors=light_colours,
                         visibility=visibility,
                         background_illumination=hdr_background_colours,
                         weights=weights,
@@ -849,6 +876,9 @@ class RENINeuSFactoModel(NeuSFactoModel):
             "directions_norm": ray_bundle.metadata["directions_norm"],
         }
 
+        if shading is not None:
+            outputs["shading"] = shading
+
         if not self.training and self.render_shadow_map_static_flag:
             shadow_map = samples_and_field_outputs["shadow_map"]["visibility"]
             outputs["shadow_map"] = shadow_map
@@ -888,7 +918,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
 
         image = batch["image"].to(self.device)
         pred_image = outputs["rgb"]
-        # apply inverse of sky mask to image and pred_image
+        # apply inverse of sky mask to image and pred_image as we only apply sky losses to reni directly
         image = image * (1 - sky_mask.float()).unsqueeze(1).expand_as(image)
         pred_image = pred_image * (1 - sky_mask.float()).unsqueeze(1).expand_as(pred_image)
         if self.config.loss_inclusions["rgb_l1_loss"]:
@@ -900,14 +930,15 @@ class RENINeuSFactoModel(NeuSFactoModel):
             loss_dict["cosine_colour_loss"] = torch.mean(1 - similarity)
 
         # SKY PIXEL LOSS
-        if self.config.loss_inclusions["sky_pixel_loss"]["enabled"]:
-            sky_colours = linear_to_sRGB(outputs["hdr_background_colours"])  # as GT images as LDR
-            sky_mask = sky_mask.float().unsqueeze(1).expand_as(sky_colours)
-            loss_dict["sky_pixel_loss"] = self.sky_pixel_loss(
-                inputs=linear_to_sRGB(outputs["hdr_background_colours"]),
-                targets=batch["image"].type_as(sky_mask),
-                mask=sky_mask,
-            )
+        if self.config.eval_latent_optimise_method != 'nerf_osr_envmap':
+            if self.config.loss_inclusions["sky_pixel_loss"]["enabled"]:
+                sky_colours = linear_to_sRGB(outputs["hdr_background_colours"])  # as GT images as LDR
+                sky_mask = sky_mask.float().unsqueeze(1).expand_as(sky_colours)
+                loss_dict["sky_pixel_loss"] = self.sky_pixel_loss(
+                    inputs=linear_to_sRGB(outputs["hdr_background_colours"]),
+                    targets=batch["image"].type_as(sky_mask),
+                    mask=sky_mask,
+                )
 
         if self.training:
             # eikonal loss
@@ -953,6 +984,15 @@ class RENINeuSFactoModel(NeuSFactoModel):
                 normal_gt = torch.tensor([0.0, 0.0, 1.0]).expand_as(normal_pred).to(self.device)
                 ground_mask = ground_mask.unsqueeze(1).expand_as(normal_pred)
                 loss_dict["ground_plane_loss"] = monosdf_normal_loss(normal_pred * ground_mask, normal_gt * ground_mask)
+
+            if self.config.loss_inclusions["sky_pixel_loss"]["enabled"]:
+                sky_colours = linear_to_sRGB(outputs["hdr_background_colours"])  # as GT images as LDR
+                sky_mask = sky_mask.float().unsqueeze(1).expand_as(sky_colours)
+                loss_dict["sky_pixel_loss"] = self.sky_pixel_loss(
+                    inputs=linear_to_sRGB(outputs["hdr_background_colours"]),
+                    targets=batch["image"].type_as(sky_mask),
+                    mask=sky_mask,
+                )
 
             if self.visibility_threshold_method == "learnable":
                 vis_bias_loss = torch.tensor(0.0).type_as(self.visibility_threshold)
@@ -1294,10 +1334,14 @@ class RENINeuSFactoModel(NeuSFactoModel):
         # Make sure we are using eval RENI inside self.forward()
         self.fitting_eval_latents = True
 
-        if self.eval_scale is not None:
-            param_group = {"eval_latents": [self.eval_illumination_latents, self.eval_scale]}
+        if not self.config.eval_latent_optimise_method == "nerf_osr_envmap":
+            if self.eval_scale is not None:
+                param_group = {"eval_latents": [self.eval_illumination_latents, self.eval_scale]}
+            else:
+                param_group = {"eval_latents": [self.eval_illumination_latents]}
         else:
-            param_group = {"eval_latents": [self.eval_illumination_latents]}
+            param_group = {"eval_latents": [self.eval_scale, self.eval_rotation]}
+
         optimizer = Optimizers(self.config.eval_latent_optimizer, param_group)
         steps = optimizer.config["eval_latents"]["scheduler"].max_steps
 
@@ -1315,7 +1359,8 @@ class RENINeuSFactoModel(NeuSFactoModel):
             # ensures only latents (and scale if used) are optimised
             with self.illumination_field.hold_decoder_fixed():
                 # Reset latents and scales to zeros for fitting
-                self.eval_illumination_latents.data = torch.zeros_like(self.eval_illumination_latents.data)
+                if not self.config.eval_latent_optimise_method == "nerf_osr_envmap":
+                    self.eval_illumination_latents.data = torch.zeros_like(self.eval_illumination_latents.data)
                 if self.eval_scale is not None:
                     self.eval_scale.data = torch.ones_like(self.eval_scale.data)
 
@@ -1327,11 +1372,25 @@ class RENINeuSFactoModel(NeuSFactoModel):
                     elif self.config.eval_latent_optimise_method == "nerf_osr_holdout":
                         ray_bundle, batch = datamanager.get_nerfosr_lighting_eval_bundle("optimise")
                     elif self.config.eval_latent_optimise_method == "nerf_osr_envmap":
-                        raise NotImplementedError
+                        ray_bundle, batch = datamanager.get_nerfosr_lighting_eval_bundle("compare")
+                        gamma = torch.sigmoid(self.eval_rotation) * 2 * np.pi
+                        cos_gamma = torch.cos(gamma)
+                        sin_gamma = torch.sin(gamma)
+                        
+                        # Initialize a zero tensor for the batch of rotation matrices
+                        batch_size = gamma.size(0)
+                        rotation_matrices = torch.zeros(batch_size, 3, 3, dtype=gamma.dtype, device=gamma.device)
+
+                        # Assign values to each rotation matrix in the batch
+                        rotation_matrices[:, 0, 0] = cos_gamma
+                        rotation_matrices[:, 0, 1] = -sin_gamma
+                        rotation_matrices[:, 1, 0] = sin_gamma
+                        rotation_matrices[:, 1, 1] = cos_gamma
+                        rotation_matrices[:, 2, 2] = 1
                     else:
                         raise NotImplementedError
 
-                    model_outputs = self.forward(ray_bundle=ray_bundle, step=global_step)
+                    model_outputs = self.forward(ray_bundle=ray_bundle, step=global_step, rotation=rotation_matrices)
                     loss_dict = self.get_loss_dict(model_outputs, batch)
                     loss = functools.reduce(torch.add, loss_dict.values())
                     optimizer.zero_grad_all()
@@ -1498,7 +1557,10 @@ class RENINeuSFactoModel(NeuSFactoModel):
         if self.config.only_upperhemisphere_visibility and not compute_shadow_map:
             # we now need to use the mask we created earlier to select only the upper hemisphere
             # and then use the predicted visibility values there
-            total_vis = torch.ones(num_rays, original_num_light_directions, 1).type_as(visibility)
+            if self.config.lower_hermisphere_visibility:
+                total_vis = torch.ones(num_rays, original_num_light_directions, 1).type_as(visibility)
+            else:
+                total_vis = torch.zeros(num_rays, original_num_light_directions, 1).type_as(visibility)
             # reshape mask to match the total_vis dimensions
             mask = mask.reshape(1, original_num_light_directions, 1).expand_as(total_vis)
             # use the mask to replace the values
