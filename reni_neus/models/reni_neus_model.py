@@ -42,7 +42,6 @@ from nerfstudio.configs.config_utils import to_immutable_dict
 
 from nerfstudio.models.base_model import ModelConfig
 from nerfstudio.models.neus_facto import NeuSFactoModel, NeuSFactoModelConfig
-from nerfstudio.utils import colormaps
 from nerfstudio.model_components.scene_colliders import AABBBoxCollider, SphereCollider
 from nerfstudio.field_components.spatial_distortions import SceneContraction
 from nerfstudio.utils import colormaps, misc
@@ -475,7 +474,10 @@ class RENINeuSFactoModel(NeuSFactoModel):
 
         if isinstance(self.illumination_field, RENIField):
             if rotation is not None:
-                rotation = rotation[illumination_ray_samples.camera_indices] # [num_unique_camera_indices * num_illumination_directions, 3, 3]
+                if len(rotation.shape) == 2:
+                    rotation = rotation
+                elif len(rotation.shape) == 3:
+                    rotation = rotation[illumination_ray_samples.camera_indices] # [num_unique_camera_indices * num_illumination_directions, 3, 3]
             illumination_field_outputs = self.illumination_field.forward(
                 ray_samples=illumination_ray_samples,
                 latent_codes=illumination_latents[illumination_ray_samples.camera_indices], # [num_unique_camera_indices * num_illumination_directions, 3]
@@ -519,7 +521,10 @@ class RENINeuSFactoModel(NeuSFactoModel):
         # now we need to get samples from distant illumination field for camera rays
         if isinstance(self.illumination_field, RENIField):
             if rotation is not None:
-                rotation = rotation[ray_samples.camera_indices[:, 0, 0]]
+                if len(rotation.shape) == 2:
+                    rotation = rotation
+                elif len(rotation.shape) == 3:
+                    rotation = rotation[ray_samples.camera_indices[:, 0, 0]]
             illumination_field_outputs = self.illumination_field.forward(
                 ray_samples=ray_samples[:, 0],
                 latent_codes=illumination_latents[ray_samples.camera_indices[:, 0, 0]],
@@ -1479,7 +1484,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
         # we only want [num_light_directions, xyz]
         illumination_directions = illumination_directions[0, :, :]
 
-        if self.config.only_upperhemisphere_visibility and not compute_shadow_map:
+        if self.config.only_upperhemisphere_visibility:
             # we dot product illumination_directions with the vertical z axis
             # and use it as mask to select only the upper hemisphere
             dot_products = torch.sum(
@@ -1569,7 +1574,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
         occlusion = torch.sigmoid(sigmoid_scale * (difference - threshold_distance))
         visibility = 1.0 - occlusion
 
-        if self.config.only_upperhemisphere_visibility and not compute_shadow_map:
+        if self.config.only_upperhemisphere_visibility:
             # we now need to use the mask we created earlier to select only the upper hemisphere
             # and then use the predicted visibility values there
             if self.config.lower_hermisphere_visibility:
