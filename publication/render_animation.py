@@ -98,10 +98,10 @@ model = model.eval()
 # load camera poses
 # %%
 scene = 'site1'
-keyframe_for_illumination_rotation = 5
+keyframe_for_illumination_rotation = 4
 illumination_idx = 143
 seconds_for_rotation = 10
-camera_poses_path = f'/workspace/reni_neus/publication/{scene}_demo_path.json'
+camera_poses_path = f'/workspace/reni_neus/publication/{scene}_demo_path_2.json'
 meta = load_from_json(Path(camera_poses_path))
 fps = meta['fps']
 
@@ -240,7 +240,7 @@ def create_animation(folder, image_type, fps, format='gif'):
     print(f"Animation saved at {output_path}")
 
 
-create_animation(folder_path, 'ldr_envmap', 4, 'mp4')
+create_animation(folder_path, 'render', 24, 'mp4')
 
 # %%
 import torch
@@ -293,5 +293,53 @@ ani = animation.FuncAnimation(fig, update, frames=num_frames, fargs=(tensor, qui
 ani.save('latent_code_rotation_3D_vectors.mp4', writer='ffmpeg')
 
 # %%
+scene = 'site1'
+keyframe_for_illumination_rotation = 4
+illumination_idx = 143
+seconds_for_rotation = 10
+camera_poses_path = f'/workspace/reni_neus/publication/{scene}_demo_path_2.json'
+meta = load_from_json(Path(camera_poses_path))
+fps = meta['fps']
+
+assert keyframe_for_illumination_rotation < len(meta['keyframes'])
+
+# create folder in /workspace/reni_neus/publication/animations/{scene}_datetime
+# save all rendered images in this folder
+datetime_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+folder_path = f'/workspace/reni_neus/publication/animations/{scene}_{datetime_str}'
+if not os.path.exists(folder_path):
+    os.makedirs(folder_path)
+
+render_height = meta['render_height']
+render_width = meta['render_width']
+render_height = 144
+render_width = 256
+cx = render_width / 2.0
+cy = render_height / 2.0
+fov = meta['keyframes'][0]['fov']
+aspect = render_width / render_height
+fx = render_width / (2 * math.tan(math.radians(fov) / 2))
+fy = fx
+c2w = torch.eye(4)[:3, :4]
+
+camera = Cameras(camera_to_worlds=c2w,
+                 fy=fy,
+                 fx=fx,
+                 cx=cx,
+                 cy=cy,
+                 camera_type=CameraType.PERSPECTIVE)
 
 
+keyframe_matrix = np.fromstring(meta['keyframes'][keyframe_for_illumination_rotation]['matrix'].strip('[]'), sep=',').reshape((4, 4)).transpose()
+keyframe_matrix = torch.from_numpy(keyframe_matrix).to(torch.float32)
+for frame_idx, frame in enumerate(meta['camera_path']):
+    camera_to_world = torch.from_numpy(np.array(frame['camera_to_world']).reshape((4, 4))).to(torch.float32)
+    if torch.allclose(camera_to_world, keyframe_matrix, rtol=1e-03, atol=1e-02) and :
+        print(f'Found keyframe at frame_idx: {frame_idx}')
+        print(f'camera_to_world: {camera_to_world}')
+        print(f'keyframe_matrix: {keyframe_matrix}')
+
+# %%
+keyframe_matrix
+# %%
+camera_to_world

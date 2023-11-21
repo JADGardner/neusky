@@ -90,6 +90,8 @@ class RENINeuSPipelineConfig(VanillaPipelineConfig):
     """Whether to use ground truth envmaps for evaluation"""
     test_mode: Union[Literal["test", "val", "inference"], None] = None
     """overwrite test mode"""
+    least_squares_global_scale: bool = False
+    """Whether to use least squares to find the global scale"""
 
 
 class RENINeuSPipeline(VanillaPipeline):
@@ -205,6 +207,21 @@ class RENINeuSPipeline(VanillaPipeline):
             )
             self.step_of_last_latent_optimisation = step
 
+    def global_scale(self, pred_img, gt_img):
+        pred_img_flat = pred_img.view(-1)
+        gt_img_flat = gt_img.view(-1)
+
+        # ensure both on same divice
+        gt_img_flat = gt_img_flat.to(pred_img_flat.device)
+
+        # Compute the optimal scale
+        alpha = torch.dot(gt_img_flat, pred_img_flat) / torch.dot(pred_img_flat, pred_img_flat)
+
+        # Scale the predicted image
+        scaled_pred_img = alpha * pred_img
+
+        return scaled_pred_img
+
     def get_param_groups(self) -> Dict[str, List[Parameter]]:
         """Get the param groups for the pipeline.
 
@@ -305,6 +322,8 @@ class RENINeuSPipeline(VanillaPipeline):
         self.eval_image_num = self.eval_image_num % self.max_eval_num
         image_idx, camera_ray_bundle, batch = self.datamanager.next_eval_image(self.eval_image_num)
         outputs = self.model.get_outputs_for_camera_ray_bundle(camera_ray_bundle, show_progress=True, step=step)
+        if self.config.least_squares_global_scale:
+            outputs['rgb'] = self.global_scale(outputs['rgb'], batch['image'])
         metrics_dict, images_dict = self.model.get_image_metrics_and_images(outputs, batch)
 
         if self.model.visibility_field is not None and self.model.config.fit_visibility_field:
@@ -397,6 +416,8 @@ class RENINeuSPipeline(VanillaPipeline):
                 height, width = camera_ray_bundle.shape
                 num_rays = height * width
                 outputs = self.model.get_outputs_for_camera_ray_bundle(camera_ray_bundle, step=step)
+                if self.config.least_squares_global_scale:
+                    outputs['rgb'] = self.global_scale(outputs['rgb'], batch['image'])
                 metrics_dict, _ = self.model.get_image_metrics_and_images(outputs, batch)
                 assert "num_rays_per_sec" not in metrics_dict
                 metrics_dict["num_rays_per_sec"] = num_rays / (time() - inner_start)

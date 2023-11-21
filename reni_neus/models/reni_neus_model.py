@@ -101,6 +101,8 @@ class RENINeuSFactoModelConfig(NeuSFactoModelConfig):
     """Number of steps till min visibility threshold"""
     only_upperhemisphere_visibility: bool = False
     """Lower hemisphere visibility will always be 1.0 if this is True"""
+    lower_hermisphere_visibility: bool = True
+    """If true, lower hemisphere visibility will always be 1.0 if False, then it will be zero"""
     sdf_to_visibility_stop_gradients: Literal["none", "sdf", "depth", "both"] = "none"
     """Stop gradients from sdf to visibility"""
     fix_test_illumination_directions: bool = False
@@ -162,9 +164,8 @@ class RENINeuSFactoModelConfig(NeuSFactoModelConfig):
     """Apply building mask so only building contributes to metrics as per NeRF-OSR eval"""
     render_ambient_light: bool = False
     """Render ambient light"""
-    lower_hermisphere_visibility: bool = True
-    """If true, lower hemisphere visibility will always be 1.0 if False, then it will be zero"""
-
+    optimise_compare_eval_scale: bool = False
+    """If true, optimise scale only on the compare eval set"""
 
 class RENINeuSFactoModel(NeuSFactoModel):
     """NeuSFactoModel extends NeuSModel for a more efficient sampling strategy.
@@ -1355,7 +1356,10 @@ class RENINeuSFactoModel(NeuSFactoModel):
 
         if not self.config.eval_latent_optimise_method == "nerf_osr_envmap":
             if self.eval_scale is not None:
-                param_group = {"eval_latents": [self.eval_illumination_latents, self.eval_scale]}
+                if self.config.optimise_compare_eval_scale:
+                    param_group = {"eval_latents": [self.eval_scale]}
+                else:
+                    param_group = {"eval_latents": [self.eval_illumination_latents, self.eval_scale]}
             else:
                 param_group = {"eval_latents": [self.eval_illumination_latents]}
         else:
@@ -1390,7 +1394,10 @@ class RENINeuSFactoModel(NeuSFactoModel):
                             sample_region=self.config.eval_latent_sample_region
                         )
                     elif self.config.eval_latent_optimise_method == "nerf_osr_holdout":
-                        ray_bundle, batch = datamanager.get_nerfosr_lighting_eval_bundle("optimise")
+                        if self.config.optimise_compare_eval_scale:
+                            ray_bundle, batch = datamanager.get_nerfosr_lighting_eval_bundle("compare")
+                        else:
+                            ray_bundle, batch = datamanager.get_nerfosr_lighting_eval_bundle("optimise")
                     elif self.config.eval_latent_optimise_method == "nerf_osr_envmap":
                         ray_bundle, batch = datamanager.get_nerfosr_lighting_eval_bundle("compare")
                         gamma = torch.sigmoid(self.eval_rotation) * 2 * np.pi
