@@ -113,15 +113,18 @@ class RENINeuSDataManager(VanillaDataManager):  # pylint: disable=abstract-metho
         # This will need updating in pipeline and model too
         if self.eval_latent_optimise_method == "per_image":
             self.num_test = len(self.test_outputs.image_filenames)
-            self.num_val = len(self.val_outputs.image_filenames)
+            if self.test_mode == "test":
+                self.num_val = len(self.test_outputs.image_filenames)
+            else:
+                self.num_val = len(self.val_outputs.image_filenames)
         else:
             self.num_test = len(self.eval_dataset.metadata["session_to_indices"].keys())
             self.num_val = len(self.eval_dataset.metadata["session_to_indices"].keys())
         
         self.exclude_batch_keys_from_device = self.train_dataset.exclude_batch_keys_from_device
-        if self.config.masks_on_gpu is True:
+        if self.config.masks_on_gpu is True and 'mask' in self.exclude_batch_keys_from_device:
             self.exclude_batch_keys_from_device.remove("mask")
-        if self.config.images_on_gpu is True:
+        if self.config.images_on_gpu is True and 'image' in self.exclude_batch_keys_from_device:
             self.exclude_batch_keys_from_device.remove("image")
 
         if self.train_dataparser_outputs is not None:

@@ -335,7 +335,7 @@ class NeRFOSRCityScapes(DataParser):
 
         session_to_indices = None
         indices_to_session = None
-        if scene != "trevi":
+        if scene not in ["trevi", "europa"]:
             # --- session IDs ---
             # names of sessions are the folders within scene_dir/ENV_MAP
             sessions = [os.path.basename(x) for x in glob.glob(f"{scene_dir}/ENV_MAP_CC/*")]
@@ -414,7 +414,7 @@ class NeRFOSRCityScapes(DataParser):
 
         
         test_eval_mask_dict = {}
-        if split == 'test' and scene != "trevi":
+        if split == 'test' and scene not in ["trevi", "europa"]:
             def get_filename_without_extension(path):
                 return path.split('/')[-1].split('.')[0]
             test_eval_mask_filenames = _find_files(f"{split_dir}/mask", exts=["*.png", "*.jpg", "*.JPG", "*.PNG"])
