@@ -77,7 +77,7 @@ device = 'cuda:0'
 scene = 'site1'
 
 reni_neus_config = RENINeuS
-reni_neus_config.config.load_dir = Path(f'/workspace/reni_neus/models/{scene}/nerfstudio_models')
+reni_neus_config.config.load_dir = Path(f'/users/jadg502/scratch/code/nerfstudio/reni_neus/models/{scene}/nerfstudio_models')
 reni_neus_config.config.load_step = 100000
 reni_neus_config.config.pipeline.datamanager.dataparser.scene = scene
 
@@ -100,8 +100,8 @@ model = model.eval()
 scene = 'site1'
 keyframe_for_illumination_rotation = 4
 illumination_idx = 143
-seconds_for_rotation = 10
-camera_poses_path = f'/workspace/reni_neus/publication/{scene}_demo_path_2.json'
+seconds_for_rotation = 8
+camera_poses_path = f'/users/jadg502/scratch/code/nerfstudio/reni_neus/publication/{scene}_demo_path_2.json'
 meta = load_from_json(Path(camera_poses_path))
 fps = meta['fps']
 
@@ -110,14 +110,14 @@ assert keyframe_for_illumination_rotation < len(meta['keyframes'])
 # create folder in /workspace/reni_neus/publication/animations/{scene}_datetime
 # save all rendered images in this folder
 datetime_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-folder_path = f'/workspace/reni_neus/publication/animations/{scene}_{datetime_str}'
+folder_path = f'/users/jadg502/scratch/code/nerfstudio/reni_neus/publication/animations/{scene}_{datetime_str}'
 if not os.path.exists(folder_path):
     os.makedirs(folder_path)
 
 render_height = meta['render_height']
 render_width = meta['render_width']
-render_height = 144
-render_width = 256
+render_height = 1080 # 1080, 144
+render_width = 1920 # 1920, 256
 cx = render_width / 2.0
 cy = render_height / 2.0
 fov = meta['keyframes'][0]['fov']
@@ -138,7 +138,7 @@ base_ray_bundle = base_ray_bundle.to(device)
 
 model.viewing_training_image = True
 
-def save_model_output(model_output, frame_num, c2w, rotation = None):
+def save_model_output(model_output, frame_num, c2w, path, rotation = None):
     rendered_image = model_output['rgb'].detach().cpu().numpy()
     normal = model_output['normal'].cpu()
     normal = normal @ c2w[:3, :3]
@@ -157,40 +157,71 @@ def save_model_output(model_output, frame_num, c2w, rotation = None):
     albedo = model_output['albedo'].detach().cpu().numpy()
     ldr_envmap = get_envmap(illumination_idx, rotation).detach().cpu().numpy()
     # now save everything
-    plt.imsave(f'{folder_path}/frame_{str(frame_num).zfill(3)}_render.png', rendered_image)
-    plt.imsave(f'{folder_path}/frame_{str(frame_num).zfill(3)}_normal.png', normal_world)
-    plt.imsave(f'{folder_path}/frame_{str(frame_num).zfill(3)}_normal_scaled.png', normal_scaled)
-    plt.imsave(f'{folder_path}/frame_{str(frame_num).zfill(3)}_depth.png', depth)
-    plt.imsave(f'{folder_path}/frame_{str(frame_num).zfill(3)}_albedo.png', albedo)
-    plt.imsave(f'{folder_path}/frame_{str(frame_num).zfill(3)}_ldr_envmap.png', ldr_envmap)
+    plt.imsave(f'{path}/frame_{str(frame_num).zfill(3)}_render.png', rendered_image)
+    plt.imsave(f'{path}/frame_{str(frame_num).zfill(3)}_normal.png', normal_world)
+    plt.imsave(f'{path}/frame_{str(frame_num).zfill(3)}_normal_scaled.png', normal_scaled)
+    plt.imsave(f'{path}/frame_{str(frame_num).zfill(3)}_depth.png', depth)
+    plt.imsave(f'{path}/frame_{str(frame_num).zfill(3)}_albedo.png', albedo)
+    plt.imsave(f'{path}/frame_{str(frame_num).zfill(3)}_ldr_envmap.png', ldr_envmap)
 
-illumination_rotated = False
-keyframe_matrix = np.fromstring(meta['keyframes'][keyframe_for_illumination_rotation]['matrix'].strip('[]'), sep=',').reshape((4, 4)).transpose()
-for frame_idx, frame in enumerate(meta['camera_path']):
-    camera_to_world = torch.from_numpy(np.array(frame['camera_to_world']).reshape((4, 4))).to(torch.float32)
-    camera.camera_to_worlds = camera_to_world[:3, :4]
-    ray_bundle = camera.generate_rays(0)
-    ray_bundle = ray_bundle.to(device)
-    ray_bundle.camera_indices = torch.ones_like(ray_bundle.camera_indices) * illumination_idx
-    if np.allclose(camera_to_world, keyframe_matrix):
-    # perform illumination rotation
-        for i in range(fps*seconds_for_rotation):
-            # we do a full 360 degree rotation, need in radians
-            angle = 2 * math.pi * i / (fps*seconds_for_rotation)
-            angle_degrees = angle * 180 / math.pi
-            rotation = rot_z(torch.tensor(angle)).to(device)
-            model_output = model.get_outputs_for_camera_ray_bundle(camera_ray_bundle=ray_bundle, rotation=rotation)
-            print(f'Rendered frame_idx: {frame_idx + i}, with rotation angle: {angle_degrees}')
-            save_model_output(model_output, frame_idx + i, camera_to_world[:3, :4], rotation)
-        illumination_rotated = True
+# Add a parameter for an optional output folder
+def process_scene(scene, camera_poses_path, illumination_idx, keyframe_for_illumination_rotation, seconds_for_rotation, optional_output_folder=None):
+    meta = load_from_json(Path(camera_poses_path))
+    fps = meta['fps']
+
+    assert keyframe_for_illumination_rotation < len(meta['keyframes'])
+
+    # Use the provided output folder or create a new one based on 'scene' and 'datetime'
+    if optional_output_folder:
+        folder_path = optional_output_folder
     else:
-        if illumination_rotated == True:
-            frame_idx = frame_idx + fps*seconds_for_rotation - 1
-        # just render the frame normally
-        print(f'Rendered frame_idx: {frame_idx}')
-        model_output = model.get_outputs_for_camera_ray_bundle(camera_ray_bundle=ray_bundle)
-        save_model_output(model_output, frame_idx, camera_to_world[:3, :4])  
+        datetime_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+        folder_path = f'/users/jadg502/scratch/code/nerfstudio/reni_neus/publication/animations/{scene}_{datetime_str}'
+    
+    if not os.path.exists(folder_path):
+        os.makedirs(folder_path)
 
+    # Your existing setup code here...
+
+    illumination_rotated = False
+    keyframe_matrix = np.fromstring(meta['keyframes'][keyframe_for_illumination_rotation]['matrix'].strip('[]'), sep=',').reshape((4, 4)).transpose()
+    
+    for frame_idx, frame in enumerate(meta['camera_path']):       
+        camera_to_world = torch.from_numpy(np.array(frame['camera_to_world']).reshape((4, 4))).to(torch.float32)
+        camera.camera_to_worlds = camera_to_world[:3, :4]
+        ray_bundle = camera.generate_rays(0)
+        ray_bundle = ray_bundle.to(device)
+        ray_bundle.camera_indices = torch.ones_like(ray_bundle.camera_indices) * illumination_idx
+        if np.allclose(camera_to_world, keyframe_matrix, rtol=1e-03, atol=1e-02) and illumination_rotated == False:
+        # perform illumination rotation
+            for i in range(fps*seconds_for_rotation):
+                output_file_path = f'{folder_path}/frame_{str(frame_idx + i).zfill(3)}_render.png'
+                if os.path.exists(output_file_path):
+                    print(f'Skipping idx {frame_idx + i}')
+                    continue
+                # we do a full 360 degree rotation, need in radians
+                angle = 2 * math.pi * i / (fps*seconds_for_rotation)
+                angle_degrees = angle * 180 / math.pi
+                rotation = rot_z(torch.tensor(angle)).to(device)
+                model_output = model.get_outputs_for_camera_ray_bundle(camera_ray_bundle=ray_bundle, rotation=rotation)
+                print(f'Rendering frame_idx: {frame_idx + i}, with rotation angle: {angle_degrees}')
+                save_model_output(model_output, frame_idx + i, camera_to_world[:3, :4], folder_path, rotation)
+            illumination_rotated = True
+        else:
+            if illumination_rotated == True:
+                frame_idx = frame_idx + fps*seconds_for_rotation - 1
+            # Check if the file for the current idx already exists
+            output_file_path = f'{folder_path}/frame_{str(frame_idx).zfill(3)}_render.png'
+            if os.path.exists(output_file_path):
+                print(f'Skipping idx {frame_idx}')
+                continue
+            # just render the frame normally
+            print(f'Rendering frame_idx: {frame_idx}')
+            model_output = model.get_outputs_for_camera_ray_bundle(camera_ray_bundle=ray_bundle)
+            save_model_output(model_output, frame_idx, camera_to_world[:3, :4], folder_path)
+
+# Call with an optional output folder
+process_scene(scene, camera_poses_path, illumination_idx, keyframe_for_illumination_rotation, seconds_for_rotation, optional_output_folder='/users/jadg502/scratch/code/nerfstudio/reni_neus/publication/animations/site1_20231121_093158')
 model.viewing_training_image = False
 # %%
 import os
@@ -239,107 +270,10 @@ def create_animation(folder, image_type, fps, format='gif'):
 
     print(f"Animation saved at {output_path}")
 
-
+folder_path = '/users/jadg502/scratch/code/nerfstudio/reni_neus/publication/animations/site1_20231121_093158'
 create_animation(folder_path, 'render', 24, 'mp4')
-
-# %%
-import torch
-import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
-import matplotlib.animation as animation
-import numpy as np
-
-# Parameters
-N = 10  # Change N as needed
-num_frames = 360  # Number of frames in the animation
-
-# Generate a PyTorch tensor using randn of shape [N, 3]
-tensor = torch.randn(N, 3)
-
-# Function to update the vectors
-def update(num, tensor, quiver):
-    # Rotate the tensor around the Z-axis
-    rotation_matrix = torch.tensor([
-        [np.cos(np.radians(num)), -np.sin(np.radians(num)), 0],
-        [np.sin(np.radians(num)), np.cos(np.radians(num)), 0],
-        [0, 0, 1]
-    ], dtype=torch.float32)
-    
-    rotated_tensor = torch.matmul(tensor, rotation_matrix)
-
-    # Update the quiver data
-    quiver.set_segments([[[0, 0, 0], rotated_tensor[i]] for i in range(N)])
-    return quiver,
-
-# Creating a 3D plot
-fig = plt.figure()
-ax = fig.add_subplot(111, projection='3d')
-
-# Zero arrays for the origins
-zeroes = torch.zeros(N)
-
-# Plotting the initial vectors using quiver
-quiver = ax.quiver(zeroes, zeroes, zeroes, tensor[:, 0], tensor[:, 1], tensor[:, 2])
-
-# Setting labels and title
-ax.set_xlabel('X axis')
-ax.set_ylabel('Y axis')
-ax.set_zlabel('Z axis')
-ax.set_title('Rotating 3D Vectors around Z-axis')
-
-# Creating the animation
-ani = animation.FuncAnimation(fig, update, frames=num_frames, fargs=(tensor, quiver), interval=50)
-
-ani.save('latent_code_rotation_3D_vectors.mp4', writer='ffmpeg')
-
-# %%
-scene = 'site1'
-keyframe_for_illumination_rotation = 4
-illumination_idx = 143
-seconds_for_rotation = 10
-camera_poses_path = f'/workspace/reni_neus/publication/{scene}_demo_path_2.json'
-meta = load_from_json(Path(camera_poses_path))
-fps = meta['fps']
-
-assert keyframe_for_illumination_rotation < len(meta['keyframes'])
-
-# create folder in /workspace/reni_neus/publication/animations/{scene}_datetime
-# save all rendered images in this folder
-datetime_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-folder_path = f'/workspace/reni_neus/publication/animations/{scene}_{datetime_str}'
-if not os.path.exists(folder_path):
-    os.makedirs(folder_path)
-
-render_height = meta['render_height']
-render_width = meta['render_width']
-render_height = 144
-render_width = 256
-cx = render_width / 2.0
-cy = render_height / 2.0
-fov = meta['keyframes'][0]['fov']
-aspect = render_width / render_height
-fx = render_width / (2 * math.tan(math.radians(fov) / 2))
-fy = fx
-c2w = torch.eye(4)[:3, :4]
-
-camera = Cameras(camera_to_worlds=c2w,
-                 fy=fy,
-                 fx=fx,
-                 cx=cx,
-                 cy=cy,
-                 camera_type=CameraType.PERSPECTIVE)
-
-
-keyframe_matrix = np.fromstring(meta['keyframes'][keyframe_for_illumination_rotation]['matrix'].strip('[]'), sep=',').reshape((4, 4)).transpose()
-keyframe_matrix = torch.from_numpy(keyframe_matrix).to(torch.float32)
-for frame_idx, frame in enumerate(meta['camera_path']):
-    camera_to_world = torch.from_numpy(np.array(frame['camera_to_world']).reshape((4, 4))).to(torch.float32)
-    if torch.allclose(camera_to_world, keyframe_matrix, rtol=1e-03, atol=1e-02) and :
-        print(f'Found keyframe at frame_idx: {frame_idx}')
-        print(f'camera_to_world: {camera_to_world}')
-        print(f'keyframe_matrix: {keyframe_matrix}')
-
-# %%
-keyframe_matrix
-# %%
-camera_to_world
+create_animation(folder_path, 'normal', 24, 'mp4')
+create_animation(folder_path, 'normal_scaled', 24, 'mp4')
+create_animation(folder_path, 'albedo', 24, 'mp4')
+create_animation(folder_path, 'depth', 24, 'mp4')
+create_animation(folder_path, 'ldr_envmap', 24, 'mp4')
