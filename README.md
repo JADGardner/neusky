@@ -20,11 +20,9 @@ You must have an NVIDIA video card with CUDA installed on the system. This libra
 
 Nerfstudio requires `python >= 3.8`. We recommend using conda to manage dependencies. Make sure to install [Conda](https://docs.conda.io/miniconda.html) before proceeding.
 
-a. Install nerfstudio
+#### Install nerfstudio
 
 ```bash
-pwd # -> Should be in /Some/Path/Ending/In/SupplementaryMaterial/Code
-
 conda create --name nerfstudio -y python=3.8
 
 conda activate nerfstudio
@@ -37,24 +35,32 @@ conda install -c "nvidia/label/cuda-11.8.0" cuda-toolkit
 
 pip install ninja git+https://github.com/NVlabs/tiny-cuda-nn/#subdirectory=bindings/torch
 
+git clone https://github.com/nerfstudio-project/nerfstudio.git
+
+cd nerfstudio
+
 pip install --upgrade pip setuptools
 
 pip install -e .
 ```
 
-b. Install RENI++
+#### Install NeuSky
+
+a. Clone repo and install RENI++
 
 ```bash
+git clone --recurse-submodules https://github.com/JADGardner/neusky.git
+
 sudo apt install libopenexr-dev
 
 conda install -c conda-forge openexr
 
-cd reni_neus/ns_reni
+cd neusky/ns_reni
 
 pip install -e .
 ```
 
-c. Install NeuSky
+b. Install NeuSky
 
 ```bash
 cd ..
@@ -62,13 +68,13 @@ cd ..
 pip install -e .
 ```
 
-d. Setup Nerfstudio CLI
+c. Setup Nerfstudio CLI
 
 ```bash
 ns-install-cli
 ```
 
-e. Close and reopen your terminal and source virtual environment again:
+d. Close and reopen your terminal and source conda environment again:
 
 ```bash
 conda activate nerfstudio
@@ -81,9 +87,7 @@ ns-download-data nerfosr --save-dir data --capture-name lk2
 ```
 
 ```bash
-pwd # -> Should be in /Some/Path/Ending/In/SupplementaryMaterial/Code
-
-python copy_segmentation_masks.py
+python download_and_copy_segmentation_masks.py
 ```
 
 ## Start Training
@@ -91,13 +95,13 @@ python copy_segmentation_masks.py
 You can now launch training for scene 'lk2'
 
 ```bash
-ns-train reni-neus --vis wandb
+ns-train neusky --vis wandb
 ```
 
 If you find you run out of GPU memory you can try updating some or all of these settings in
 
 ```bash
-reni_neus/reni_neus/configs/reni_neus_config.py
+neusky/neusky/configs/neusky_config.py
 ```
 
 ```bash
