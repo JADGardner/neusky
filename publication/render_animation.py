@@ -77,9 +77,10 @@ device = 'cuda:0'
 scene = 'site1'
 
 reni_neus_config = RENINeuS
-reni_neus_config.config.load_dir = Path(f'/users/jadg502/scratch/code/nerfstudio/reni_neus/models/{scene}/nerfstudio_models')
+reni_neus_config.config.load_dir = Path('/workspace/reni_neus/models/ablations/stronger_sdf_ddf_weighting/nerfstudio_models')
 reni_neus_config.config.load_step = 100000
 reni_neus_config.config.pipeline.datamanager.dataparser.scene = scene
+
 
 if scene == 'site1':
     reni_neus_config.config.pipeline.datamanager.dataparser.session_holdout_indices=[0, 0, 0, 0, 0]
@@ -221,7 +222,7 @@ def process_scene(scene, camera_poses_path, illumination_idx, keyframe_for_illum
             save_model_output(model_output, frame_idx, camera_to_world[:3, :4], folder_path)
 
 # Call with an optional output folder
-process_scene(scene, camera_poses_path, illumination_idx, keyframe_for_illumination_rotation, seconds_for_rotation, optional_output_folder='/users/jadg502/scratch/code/nerfstudio/reni_neus/publication/animations/site1_20231121_093158')
+process_scene(scene, camera_poses_path, illumination_idx, keyframe_for_illumination_rotation, seconds_for_rotation)
 model.viewing_training_image = False
 # %%
 import os
@@ -270,7 +271,7 @@ def create_animation(folder, image_type, fps, format='gif'):
 
     print(f"Animation saved at {output_path}")
 
-folder_path = '/users/jadg502/scratch/code/nerfstudio/reni_neus/publication/animations/site1_20231121_093158'
+folder_path = '/workspace/reni_neus/publication/animations/site2_20231124_091227'
 create_animation(folder_path, 'render', 24, 'mp4')
 create_animation(folder_path, 'normal', 24, 'mp4')
 create_animation(folder_path, 'normal_scaled', 24, 'mp4')

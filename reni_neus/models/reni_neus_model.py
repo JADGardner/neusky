@@ -911,6 +911,13 @@ class RENINeuSFactoModel(NeuSFactoModel):
         if "visibility_dict" in samples_and_field_outputs:
             outputs["visibility_batch"] = samples_and_field_outputs["visibility_dict"]["visibility_batch"]
 
+        if self.show_ddf_static_flag:
+            vis_outputs = self.visibility_field.get_outputs_for_camera_ray_bundle(
+                ray_bundle, reni_neus=None, show_progress=False
+            )
+
+            outputs['ddf_depth'] = vis_outputs["expected_termination_dist"]
+
         return outputs
 
     def get_loss_dict(
@@ -1249,6 +1256,7 @@ class RENINeuSFactoModel(NeuSFactoModel):
         self.render_shadow_envmap_overlay_static_flag = self.render_shadow_envmap_overlay_flag
         self.shadow_envmap_overlay_pos_static = self.shadow_envmap_overlay_pos
         self.shadow_envmap_overlay_dir_static = self.shadow_envmap_overlay_dir
+        self.show_ddf_static_flag = self.show_ddf_flag
 
         if show_progress:
             with Progress(
@@ -1627,6 +1635,8 @@ class RENINeuSFactoModel(NeuSFactoModel):
         self.render_normal_static_flag = True
         self.render_albedo_flag = True
         self.render_albedo_static_flag = True
+        self.show_ddf_flag = False
+        self.show_ddf_static_flag = False
         self.render_shadow_envmap_overlay_flag = False
         self.render_shadow_envmap_overlay_static_flag = False
         self.shadow_envmap_overlay_pos = [0, 0, 0]
@@ -1701,6 +1711,13 @@ class RENINeuSFactoModel(NeuSFactoModel):
 
         self.render_shadow_map_checkbox = ViewerCheckbox(
             name="Render Shadow Map", default_value=False, cb_hook=render_shadow_map_callback
+        )
+
+        def show_ddf_callback(handle: ViewerCheckbox) -> None:
+            self.show_ddf_flag = handle.value
+
+        self.show_ddf = ViewerCheckbox(
+            name="Show DDF", default_value=False, cb_hook=show_ddf_callback
         )
 
         def render_shadow_envmap_overlay_callback(handle: ViewerCheckbox) -> None:
