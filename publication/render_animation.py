@@ -99,19 +99,18 @@ model = model.eval()
 # load camera poses
 # %%
 scene = 'site1'
-keyframe_for_illumination_rotation = 4
+keyframe_for_illumination_rotation = 1
 illumination_idx = 143
 seconds_for_rotation = 8
 camera_poses_path = f'/users/jadg502/scratch/code/nerfstudio/reni_neus/publication/{scene}_demo_path_2.json'
+camera_poses_path = '/workspace/reni_neus/publication/geometry_path.json'
 meta = load_from_json(Path(camera_poses_path))
 fps = meta['fps']
-
-assert keyframe_for_illumination_rotation < len(meta['keyframes'])
 
 # create folder in /workspace/reni_neus/publication/animations/{scene}_datetime
 # save all rendered images in this folder
 datetime_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-folder_path = f'/users/jadg502/scratch/code/nerfstudio/reni_neus/publication/animations/{scene}_{datetime_str}'
+folder_path = f'/workspace/reni_neus/publication/animations/{scene}_{datetime_str}'
 if not os.path.exists(folder_path):
     os.makedirs(folder_path)
 
@@ -177,7 +176,7 @@ def process_scene(scene, camera_poses_path, illumination_idx, keyframe_for_illum
         folder_path = optional_output_folder
     else:
         datetime_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-        folder_path = f'/users/jadg502/scratch/code/nerfstudio/reni_neus/publication/animations/{scene}_{datetime_str}'
+        folder_path = f'/workspace/reni_neus/publication/animations/{scene}_{datetime_str}'
     
     if not os.path.exists(folder_path):
         os.makedirs(folder_path)
@@ -220,6 +219,7 @@ def process_scene(scene, camera_poses_path, illumination_idx, keyframe_for_illum
             print(f'Rendering frame_idx: {frame_idx}')
             model_output = model.get_outputs_for_camera_ray_bundle(camera_ray_bundle=ray_bundle)
             save_model_output(model_output, frame_idx, camera_to_world[:3, :4], folder_path)
+        break
 
 # Call with an optional output folder
 process_scene(scene, camera_poses_path, illumination_idx, keyframe_for_illumination_rotation, seconds_for_rotation)
