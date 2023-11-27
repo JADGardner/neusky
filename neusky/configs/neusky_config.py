@@ -18,44 +18,39 @@ from nerfstudio.engine.schedulers import (
     ExponentialDecaySchedulerConfig,
 )
 
-from reni_neus.data.dataparsers.nerfosr_cityscapes_dataparser import NeRFOSRCityScapesDataParserConfig
-from reni_neus.models.reni_neus_model import RENINeuSFactoModelConfig
-from reni_neus.pipelines.reni_neus_pipeline import RENINeuSPipelineConfig
-from reni_neus.data.datamanagers.reni_neus_datamanager import RENINeuSDataManagerConfig
-from reni_neus.fields.sdf_albedo_field import SDFAlbedoFieldConfig
-from reni_neus.models.ddf_model import DDFModelConfig
-from reni_neus.fields.directional_distance_field import DirectionalDistanceFieldConfig
-from reni_neus.model_components.ddf_sampler import VMFDDFSamplerConfig
-from reni_neus.data.reni_neus_pixel_sampler import RENINeuSPixelSamplerConfig
+from neusky.data.dataparsers.nerfosr_cityscapes_dataparser import NeRFOSRCityScapesDataParserConfig
+from neusky.models.neusky_model import RENINeuSFactoModelConfig
+from neusky.pipelines.neusky_pipeline import RENINeuSPipelineConfig
+from neusky.data.datamanagers.neusky_datamanager import RENINeuSDataManagerConfig
+from neusky.fields.sdf_albedo_field import SDFAlbedoFieldConfig
+from neusky.models.ddf_model import DDFModelConfig
+from neusky.fields.directional_distance_field import DirectionalDistanceFieldConfig
+from neusky.model_components.ddf_sampler import VMFDDFSamplerConfig
+from neusky.data.neusky_pixel_sampler import RENINeuSPixelSamplerConfig
 
 
 RENINeuS = MethodSpecification(
     config=TrainerConfig(
-        method_name="reni-neus",
-        experiment_name="reni-neus",
+        method_name="neusky",
+        experiment_name="lk2",
         steps_per_eval_image=10,
         steps_per_eval_batch=100002,
         steps_per_save=5000,
         steps_per_eval_all_images=100000,  # set to a very large model so we don't eval with all images
         max_num_iterations=100001,
         mixed_precision=False,
-        # load_dir=Path("/workspace/outputs/unnamed/reni-neus/2023-08-09_075320/nerfstudio_models"),
-        # load_step=50000,
         pipeline=RENINeuSPipelineConfig(
           test_mode=None,
             datamanager=RENINeuSDataManagerConfig(
                 dataparser=NeRFOSRCityScapesDataParserConfig(
-                    scene="schloss",
+                    scene="site1",
                     auto_scale_poses=True,
                     crop_to_equal_size=True,
                     pad_to_equal_size=False,
                     scene_scale=1.0,  # AABB
                     mask_vegetation=True,
                     mask_out_of_view_frustum_objects=True,
-                    session_holdout_indices=[0, 0, 0], # stjacob
-                    # session_holdout_indices=[0, 0, 0, 0, 0], # site 1
-                    # session_holdout_indices=[2, 1, 2, 7, 9], # site 2
-                    # session_holdout_indices=[0, 6, 6, 2, 11], # site 3
+                    session_holdout_indices=[0, 0, 0, 0, 0],
                 ),
                 train_num_images_to_sample_from=-1,
                 train_num_times_to_repeat_images=-1,  # # Iterations before resample a new subset
@@ -144,9 +139,6 @@ RENINeuS = MethodSpecification(
                     "eval_latents": {
                         "optimizer": AdamOptimizerConfig(lr=1e-1, eps=1e-15),
                         "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-7, max_steps=250),
-                        # "scheduler": CosineDecaySchedulerConfig(
-                        #     warm_up_end=50, learning_rate_alpha=0.05, max_steps=250
-                        # ),
                     },
                 },
                 eval_latent_optimise_method="nerf_osr_holdout",  # per_image, nerf_osr_holdout, nerf_osr_envmap (can't run nerf_osr with trevi)
@@ -214,10 +206,6 @@ RENINeuS = MethodSpecification(
                 only_sample_upper_hemisphere=True,
                 concentration=20.0,
             ),
-            # visibility_ckpt_path=Path('/workspace/outputs/unnamed/ddf/2023-06-20_085448/'),
-            # visibility_ckpt_step=20000,
-            # reni_neus_ckpt_path=Path('/workspace/outputs/unnamed/reni-neus/2023-08-02_102036/'),
-            # reni_neus_ckpt_step=55000,
             visibility_field_radius="AABB",  # From dataparser
             visibility_accumulation_mask_threshold=0.0,  # 0.0 means no mask as mask = accum > threshold
         ),
@@ -247,48 +235,4 @@ RENINeuS = MethodSpecification(
         vis="viewer",
     ),
     description="Base config for RENI-NeuS.",
-)
-
-
-NeRFactoNeRFOSR = MethodSpecification(
-    config=TrainerConfig(
-        method_name="nerfacto-nerfosr",
-        steps_per_eval_batch=500,
-        steps_per_save=2000,
-        max_num_iterations=100000,
-        mixed_precision=True,
-        pipeline=VanillaPipelineConfig(
-            datamanager=RENINeuSDataManagerConfig(
-                dataparser=NeRFOSRCityScapesDataParserConfig(
-                    scene="lk2", auto_scale_poses=True, crop_to_equal_size=True, mask_source="original"
-                ),
-                train_num_rays_per_batch=2048,
-                eval_num_rays_per_batch=2048,
-            ),
-            model=NerfactoModelConfig(
-                eval_num_rays_per_chunk=1 << 15,
-                num_nerf_samples_per_ray=128,
-                num_proposal_samples_per_ray=(512, 256),
-                hidden_dim=128,
-                hidden_dim_color=128,
-                hidden_dim_transient=128,
-                max_res=3000,
-                proposal_weights_anneal_max_num_iters=5000,
-                log2_hashmap_size=21,
-            ),
-        ),
-        optimizers={
-            "proposal_networks": {
-                "optimizer": RAdamOptimizerConfig(lr=1e-2, eps=1e-15),
-                "scheduler": None,
-            },
-            "fields": {
-                "optimizer": RAdamOptimizerConfig(lr=1e-2, eps=1e-15),
-                "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-4, max_steps=100000),
-            },
-        },
-        viewer=ViewerConfig(num_rays_per_chunk=1 << 15),
-        vis="viewer",
-    ),
-    description="Base config for Nerfacto NeRF-OSR.",
 )

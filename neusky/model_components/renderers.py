@@ -35,7 +35,7 @@ from torch import nn
 from torchtyping import TensorType
 import torch.nn.functional as F
 
-from reni_neus.utils.utils import linear_to_sRGB
+from neusky.utils.utils import linear_to_sRGB
 
 BACKGROUND_COLOR_OVERRIDE: Optional[TensorType[3]] = None
 

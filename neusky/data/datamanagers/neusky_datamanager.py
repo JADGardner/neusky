@@ -45,9 +45,9 @@ from nerfstudio.data.utils.dataloaders import (
 )
 from nerfstudio.model_components.ray_generators import RayGenerator
 
-from reni_neus.data.reni_neus_pixel_sampler import RENINeuSPixelSampler
-from reni_neus.data.datasets.reni_neus_dataset import RENINeuSDataset
-from reni_neus.data.utils.dataloaders import SelectedIndicesCacheDataloader
+from neusky.data.neusky_pixel_sampler import RENINeuSPixelSampler
+from neusky.data.datasets.neusky_dataset import RENINeuSDataset
+from neusky.data.utils.dataloaders import SelectedIndicesCacheDataloader
 
 CONSOLE = Console(width=120)
 

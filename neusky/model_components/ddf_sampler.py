@@ -29,7 +29,7 @@ from torch.distributions import von_mises
 from nerfstudio.cameras.rays import Frustums, RayBundle, RaySamples
 from nerfstudio.model_components.ray_samplers import Sampler
 
-from reni_neus.utils.utils import random_points_on_unit_sphere, random_inward_facing_directions, sph2cart
+from neusky.utils.utils import random_points_on_unit_sphere, random_inward_facing_directions, sph2cart
 
 
 from nerfstudio.configs.base_config import InstantiateConfig

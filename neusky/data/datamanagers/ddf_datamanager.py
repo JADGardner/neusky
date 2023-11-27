@@ -34,9 +34,9 @@ from nerfstudio.data.datamanagers.base_datamanager import VanillaDataManager
 
 from nerfstudio.data.datamanagers.base_datamanager import DataManagerConfig, DataManager
 
-from reni_neus.data.datasets.ddf_dataset import DDFDataset
-from reni_neus.models.reni_neus_model import RENINeuSFactoModel
-from reni_neus.model_components.ddf_sampler import DDFSamplerConfig
+from neusky.data.datasets.ddf_dataset import DDFDataset
+from neusky.models.neusky_model import RENINeuSFactoModel
+from neusky.model_components.ddf_sampler import DDFSamplerConfig
 
 CONSOLE = Console(width=120)
 
@@ -83,8 +83,8 @@ class DDFDataManager(DataManager):  # pylint: disable=abstract-method
     def __init__(
         self,
         config: DDFDataManagerConfig,
-        reni_neus: RENINeuSFactoModel,
-        reni_neus_ckpt_path: Path,
+        neusky: RENINeuSFactoModel,
+        neusky_ckpt_path: Path,
         scene_box,
         ddf_radius: float,
         log_depth: bool = False,
@@ -98,14 +98,14 @@ class DDFDataManager(DataManager):  # pylint: disable=abstract-method
         self.world_size = world_size
         self.local_rank = local_rank
         super().__init__()
-        self.reni_neus = reni_neus
-        self.reni_neus_ckpt_path = reni_neus_ckpt_path
+        self.neusky = neusky
+        self.neusky_ckpt_path = neusky_ckpt_path
         self.scene_box = scene_box
         self.ddf_radius = ddf_radius
         self.log_depth = log_depth
         self.ddf_sampler = self.config.ddf_sampler.setup(device=self.device)
 
-        config = Path(self.reni_neus_ckpt_path) / "config.yml"
+        config = Path(self.neusky_ckpt_path) / "config.yml"
         config = yaml.load(config.open(), Loader=yaml.Loader)
 
         self.old_datamanager: VanillaDataManager = config.pipeline.datamanager.setup(
@@ -131,8 +131,8 @@ class DDFDataManager(DataManager):  # pylint: disable=abstract-method
         """Create a single dataset for both train and eval."""
 
         return DDFDataset(
-            reni_neus=self.reni_neus,
-            reni_neus_ckpt_path=self.reni_neus_ckpt_path,
+            neusky=self.neusky,
+            neusky_ckpt_path=self.neusky_ckpt_path,
             scene_box=self.scene_box,
             sampler=self.ddf_sampler,
             training_data_type=self.config.training_data_type,

@@ -50,12 +50,12 @@ from nerfstudio.field_components.field_heads import FieldHeadNames
 from nerfstudio.cameras.rays import RayBundle, RaySamples, Frustums
 from nerfstudio.cameras.cameras import Cameras, CameraType
 
-from reni_neus.data.datamanagers.reni_neus_datamanager import RENINeuSDataManagerConfig, RENINeuSDataManager
-from reni_neus.models.ddf_model import DDFModelConfig
-from reni_neus.models.reni_neus_model import RENINeuSFactoModelConfig
-from reni_neus.model_components.ddf_sampler import DDFSamplerConfig
-from reni_neus.model_components.illumination_samplers import IcosahedronSamplerConfig
-from reni_neus.utils.utils import look_at_target
+from neusky.data.datamanagers.neusky_datamanager import RENINeuSDataManagerConfig, RENINeuSDataManager
+from neusky.models.ddf_model import DDFModelConfig
+from neusky.models.neusky_model import RENINeuSFactoModelConfig
+from neusky.model_components.ddf_sampler import DDFSamplerConfig
+from neusky.model_components.illumination_samplers import IcosahedronSamplerConfig
+from neusky.utils.utils import look_at_target
 
 
 @dataclass
@@ -82,10 +82,10 @@ class RENINeuSPipelineConfig(VanillaPipelineConfig):
     """Visibility field sampler for training"""
     visibility_accumulation_mask_threshold: float = 0.7
     """Threshold for visibility accumulation mask, 0.0 means no mask as mask = accum > threshold"""
-    reni_neus_ckpt_path: Union[Path, None] = None
-    """Path to reni_neus checkpoint"""
-    reni_neus_ckpt_step: int = 0
-    """Step of the reni_neus checkpoint"""
+    neusky_ckpt_path: Union[Path, None] = None
+    """Path to neusky checkpoint"""
+    neusky_ckpt_step: int = 0
+    """Step of the neusky checkpoint"""
     eval_using_gt_envmaps: bool = False
     """Whether to use ground truth envmaps for evaluation"""
     test_mode: Union[Literal["test", "val", "inference"], None] = None
@@ -170,12 +170,12 @@ class RENINeuSPipeline(VanillaPipeline):
             grad_scaler=grad_scaler,
         )
 
-        if self.config.reni_neus_ckpt_path is not None:
-            assert self.config.reni_neus_ckpt_step is not None, "Invalid reni_neus_ckpt_step"
+        if self.config.neusky_ckpt_path is not None:
+            assert self.config.neusky_ckpt_step is not None, "Invalid neusky_ckpt_step"
             ckpt = torch.load(
-                self.config.reni_neus_ckpt_path
+                self.config.neusky_ckpt_path
                 / "nerfstudio_models"
-                / f"step-{self.config.reni_neus_ckpt_step:09d}.ckpt",
+                / f"step-{self.config.neusky_ckpt_step:09d}.ckpt",
                 map_location=device,
             )
             model_dict = {}
@@ -274,7 +274,7 @@ class RENINeuSPipeline(VanillaPipeline):
             ray_bundle = vis_batch["ray_bundle"]
             # we stop gradients here as we are just fitting to the scene
             vis_outputs = self._model.visibility_field(
-                ray_bundle=ray_bundle, batch=vis_batch, reni_neus=self.model, stop_gradients=True
+                ray_bundle=ray_bundle, batch=vis_batch, neusky=self.model, stop_gradients=True
             )
             vis_metrics_dict = self.model.visibility_field.get_metrics_dict(vis_outputs, vis_batch)
             vis_loss_dict = self.model.visibility_field.get_loss_dict(vis_outputs, vis_batch, vis_metrics_dict)
@@ -354,7 +354,7 @@ class RENINeuSPipeline(VanillaPipeline):
                 visibility_ray_bundle = camera.generate_rays(0)
                 visibility_ray_bundle = visibility_ray_bundle.to(self.device)
                 vis_outputs = self.model.visibility_field.get_outputs_for_camera_ray_bundle(
-                    visibility_ray_bundle, reni_neus=None, show_progress=False
+                    visibility_ray_bundle, neusky=None, show_progress=False
                 )
 
                 vis_images_dict = self.model.visibility_field.get_image_dict(vis_outputs)

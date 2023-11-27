@@ -19,5 +19,4 @@ include = ["reni_neus*"]
 
 [project.entry-points.'nerfstudio.method_configs']
 reni_neus = 'reni_neus.configs.reni_neus_config:RENINeuS'
-nerfacto_nerfosr = 'reni_neus.configs.reni_neus_config:NeRFactoNeRFOSR'
 ddf = 'reni_neus.configs.ddf_config:DirectionalDistanceField'

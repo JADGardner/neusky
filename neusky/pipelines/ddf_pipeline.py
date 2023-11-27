@@ -47,9 +47,9 @@ from nerfstudio.utils import profiler
 from nerfstudio.pipelines.base_pipeline import VanillaPipelineConfig, VanillaPipeline
 from nerfstudio.data.scene_box import SceneBox
 
-from reni_neus.data.datamanagers.reni_neus_datamanager import RENINeuSDataManagerConfig, RENINeuSDataManager
-from reni_neus.data.datamanagers.ddf_datamanager import DDFDataManagerConfig, DDFDataManager
-from reni_neus.utils.utils import find_nerfstudio_project_root
+from neusky.data.datamanagers.neusky_datamanager import RENINeuSDataManagerConfig, RENINeuSDataManager
+from neusky.data.datamanagers.ddf_datamanager import DDFDataManagerConfig, DDFDataManager
+from neusky.utils.utils import find_nerfstudio_project_root
 
 
 @dataclass
@@ -68,10 +68,10 @@ class DDFPipelineConfig(VanillaPipelineConfig):
     """Number of epochs to optimise latent during eval"""
     eval_latent_optimisation_lr: float = 0.1
     """Learning rate for latent optimisation during eval"""
-    reni_neus_ckpt_path: Path = Path("path_to_reni_neus_checkpoint")
-    """Path to reni_neus checkpoint"""
-    reni_neus_ckpt_step: int = 10000
-    """Step of reni_neus checkpoint"""
+    neusky_ckpt_path: Path = Path("path_to_neusky_checkpoint")
+    """Path to neusky checkpoint"""
+    neusky_ckpt_step: int = 10000
+    """Step of neusky checkpoint"""
     ddf_radius: Union[Literal["AABB"], float] = "AABB"
     """Radius of the DDF sphere"""
 
@@ -107,7 +107,7 @@ class DDFPipeline(VanillaPipeline):
         self.config = config
         self.test_mode = test_mode
 
-        scene_box = self._setup_reni_neus_model(device)
+        scene_box = self._setup_neusky_model(device)
 
         if self.config.ddf_radius == "AABB":
             self.ddf_radius = torch.abs(scene_box.aabb[0, 0]).item()
@@ -118,8 +118,8 @@ class DDFPipeline(VanillaPipeline):
             device=device,
             world_size=world_size,
             local_rank=local_rank,
-            reni_neus=self.reni_neus,
-            reni_neus_ckpt_path=self.config.reni_neus_ckpt_path,
+            neusky=self.neusky,
+            neusky_ckpt_path=self.config.neusky_ckpt_path,
             scene_box=scene_box,
             ddf_radius=self.ddf_radius,
             log_depth=self.config.model.log_depth,
@@ -144,11 +144,11 @@ class DDFPipeline(VanillaPipeline):
             self._model = typing.cast(Model, DDP(self._model, device_ids=[local_rank], find_unused_parameters=True))
             dist.barrier(device_ids=[local_rank])
 
-    def _setup_reni_neus_model(self, device):
+    def _setup_neusky_model(self, device):
         # Now you can use this to construct paths:
         project_root = find_nerfstudio_project_root(Path(__file__))
         relative_path = (
-            self.config.reni_neus_ckpt_path / "nerfstudio_models" / f"step-{self.config.reni_neus_ckpt_step:09d}.ckpt"
+            self.config.neusky_ckpt_path / "nerfstudio_models" / f"step-{self.config.neusky_ckpt_step:09d}.ckpt"
         )
         ckpt_path = project_root / relative_path
 
@@ -169,10 +169,10 @@ class DDFPipeline(VanillaPipeline):
         num_test_data = ckpt["pipeline"]["num_test_data"].item()
 
         # load yaml checkpoint config
-        reni_neus_config = Path(self.config.reni_neus_ckpt_path) / "config.yml"
-        reni_neus_config = yaml.load(reni_neus_config.open(), Loader=yaml.Loader)
+        neusky_config = Path(self.config.neusky_ckpt_path) / "config.yml"
+        neusky_config = yaml.load(neusky_config.open(), Loader=yaml.Loader)
 
-        self.reni_neus = reni_neus_config.pipeline.model.setup(
+        self.neusky = neusky_config.pipeline.model.setup(
             scene_box=scene_box,
             num_train_data=num_train_data,
             num_val_data=num_val_data,
@@ -181,12 +181,12 @@ class DDFPipeline(VanillaPipeline):
             visibility_field=None,
         )
 
-        self.reni_neus.load_state_dict(model_dict, strict=False)  # no visiblity field
-        self.reni_neus.eval()
-        self.reni_neus.to(device)
+        self.neusky.load_state_dict(model_dict, strict=False)  # no visiblity field
+        self.neusky.eval()
+        self.neusky.to(device)
         # things we don't need to render
-        self.reni_neus.render_rgb_flag = False
-        self.reni_neus.render_albedo_flag = False
+        self.neusky.render_rgb_flag = False
+        self.neusky.render_albedo_flag = False
 
         return scene_box
 
@@ -201,7 +201,7 @@ class DDFPipeline(VanillaPipeline):
         """
         ray_bundle, batch = self.datamanager.next_train(step)
         model_outputs = self._model(
-            ray_bundle, batch, self.reni_neus
+            ray_bundle, batch, self.neusky
         )  # train distributed data parallel model if world_size > 1
         metrics_dict = self.model.get_metrics_dict(model_outputs, batch)
 
@@ -230,11 +230,11 @@ class DDFPipeline(VanillaPipeline):
         """
         self.eval()
         ray_bundle, batch = self.datamanager.next_eval(step)
-        model_outputs = self.model(ray_bundle, None, self.reni_neus)
+        model_outputs = self.model(ray_bundle, None, self.neusky)
         metrics_dict = self.model.get_metrics_dict(model_outputs, batch)
         loss_dict = self.model.get_loss_dict(model_outputs, batch, metrics_dict)
         self.train()
-        self.reni_neus.eval()
+        self.neusky.eval()
         return model_outputs, loss_dict, metrics_dict
 
     @profiler.time_function
@@ -247,14 +247,14 @@ class DDFPipeline(VanillaPipeline):
         """
         self.eval()
         image_idx, camera_ray_bundle, batch = self.datamanager.next_eval_image(step)
-        outputs = self.model.get_outputs_for_camera_ray_bundle(camera_ray_bundle, self.reni_neus, show_progress=True)
+        outputs = self.model.get_outputs_for_camera_ray_bundle(camera_ray_bundle, self.neusky, show_progress=True)
         metrics_dict, images_dict = self.model.get_image_metrics_and_images(outputs, batch)
         assert "image_idx" not in metrics_dict
         metrics_dict["image_idx"] = image_idx
         assert "num_rays" not in metrics_dict
         metrics_dict["num_rays"] = len(camera_ray_bundle)
         self.train()
-        self.reni_neus.eval()
+        self.neusky.eval()
         return metrics_dict, images_dict
 
     @profiler.time_function
@@ -282,7 +282,7 @@ class DDFPipeline(VanillaPipeline):
                 height, width = camera_ray_bundle.shape
                 num_rays = height * width
                 outputs = self.model.get_outputs_for_camera_ray_bundle(
-                    camera_ray_bundle, self.reni_neus, show_progress=False
+                    camera_ray_bundle, self.neusky, show_progress=False
                 )
                 metrics_dict, _ = self.model.get_image_metrics_and_images(outputs, batch)
                 assert "num_rays_per_sec" not in metrics_dict
@@ -299,5 +299,5 @@ class DDFPipeline(VanillaPipeline):
                 torch.mean(torch.tensor([metrics_dict[key] for metrics_dict in metrics_dict_list]))
             )
         self.train()
-        self.reni_neus.eval()
+        self.neusky.eval()
         return metrics_dict

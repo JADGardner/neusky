@@ -35,11 +35,11 @@ from nerfstudio.data.dataparsers.base_dataparser import DataparserOutputs
 from nerfstudio.data.scene_box import SceneBox
 from nerfstudio.data.datamanagers.base_datamanager import VanillaDataManager
 
-from reni_neus.utils.utils import look_at_target
-from reni_neus.models.reni_neus_model import RENINeuSFactoModel
-from reni_neus.model_components.ddf_sampler import DDFSampler
-from reni_neus.model_components.illumination_samplers import IcosahedronSamplerConfig
-from reni_neus.utils.utils import find_nerfstudio_project_root
+from neusky.utils.utils import look_at_target
+from neusky.models.neusky_model import RENINeuSFactoModel
+from neusky.model_components.ddf_sampler import DDFSampler
+from neusky.model_components.illumination_samplers import IcosahedronSamplerConfig
+from neusky.utils.utils import find_nerfstudio_project_root
 
 CONSOLE = Console(width=120)
 
@@ -48,7 +48,7 @@ class DDFDataset(Dataset):
     """Dataset that returns images.
 
     Args:
-        reni_neus_checkpoint_path: The path to the Reni Neus checkpoint.
+        neusky_checkpoint_path: The path to the Reni Neus checkpoint.
         test_mode: The test mode to use. One of "train", "test", or "val".
         num_generated_imgs: The number of images to generate.
         cache_dir: The directory to cache/load the generated images.
@@ -58,8 +58,8 @@ class DDFDataset(Dataset):
 
     def __init__(
         self,
-        reni_neus: RENINeuSFactoModel,
-        reni_neus_ckpt_path: Path,
+        neusky: RENINeuSFactoModel,
+        neusky_ckpt_path: Path,
         scene_box: SceneBox,
         sampler: DDFSampler,
         training_data_type: Literal["rand_pnts_on_sphere", "single_camera", "all_cameras"] = "rand_pnts_on_sphere",
@@ -74,8 +74,8 @@ class DDFDataset(Dataset):
         device: Union[torch.device, str] = "cpu",
     ):
         super().__init__()
-        self.reni_neus = reni_neus
-        self.reni_neus_ckpt_path = reni_neus_ckpt_path
+        self.neusky = neusky
+        self.neusky_ckpt_path = neusky_ckpt_path
         self.training_data_type = training_data_type
         self.sampler = sampler
         self.num_generated_imgs = num_generated_imgs
@@ -97,7 +97,7 @@ class DDFDataset(Dataset):
         )
         self.camera_sampler = camera_sampler_config.setup()
 
-        config = Path(self.reni_neus_ckpt_path) / "config.yml"
+        config = Path(self.neusky_ckpt_path) / "config.yml"
         config = yaml.load(config.open(), Loader=yaml.Loader)
         scene_name = config.pipeline.datamanager.dataparser.scene
 
@@ -191,7 +191,7 @@ class DDFDataset(Dataset):
                     start_idx = i
                     end_idx = i + num_rays_per_chunk
                     ray_bundle = camera_ray_bundle.get_row_major_sliced_ray_bundle(start_idx, end_idx)
-                    outputs = self.reni_neus.generate_ddf_ground_truth(
+                    outputs = self.neusky.generate_ddf_ground_truth(
                         ray_bundle, self.accumulation_mask_threshold, self.log_depth
                     )
                     for output_name, output in outputs.items():  # type: ignore
@@ -232,7 +232,7 @@ class DDFDataset(Dataset):
     def _ddf_rays(self):
         ray_bundle = self.sampler()
 
-        outputs = self.reni_neus.generate_ddf_ground_truth(
+        outputs = self.neusky.generate_ddf_ground_truth(
             ray_bundle, mask_threshold=self.accumulation_mask_threshold, log_depth=self.log_depth
         )
         outputs["termination_dist"] = torch.clamp(outputs["termination_dist"], max=2 * self.ddf_sphere_radius)
