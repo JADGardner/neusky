@@ -188,7 +188,5 @@ camera_paths/
 ._.DS_Store
 */**/.DS_Store
 */**/._.DS_Store
-/reni_neus.egg-info
 /checkpoints/
-models/
 publication/animations/

@@ -493,7 +493,7 @@ class NeuSkyPipeline(VanillaPipeline):
 
         data["sky_ray_bundle"] = self.datamanager.get_sky_ray_bundle(256)
 
-        # just ensuring no gradients back to reni-neus
+        # just ensuring no gradients back to NeuSky
         data["ray_bundle"].origins.requires_grad = False
         data["ray_bundle"].directions.requires_grad = False
         data["sky_ray_bundle"].origins.requires_grad = False

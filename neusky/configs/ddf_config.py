@@ -87,7 +87,7 @@ DirectionalDistanceField = MethodSpecification(
                 inverse_depth_weight=False,
                 log_depth=False,
             ),
-            reni_neus_ckpt_path=Path("outputs/reni-neus/reni-neus/2023-08-30_111340"),
+            reni_neus_ckpt_path=Path("outputs/neusky/neusky/2023-08-30_111340"),
             reni_neus_ckpt_step=100000,
             ddf_radius="AABB",
         ),

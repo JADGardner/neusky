@@ -1,5 +1,5 @@
 """
-RENI-NeuS configuration file.
+NeuSky configuration file.
 """
 from pathlib import Path
 
@@ -234,5 +234,5 @@ NeuSky = MethodSpecification(
         viewer=ViewerConfig(num_rays_per_chunk=1 << 15),
         vis="viewer",
     ),
-    description="Base config for RENI-NeuS.",
+    description="Base config for NeuSky.",
 )
