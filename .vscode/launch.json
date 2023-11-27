@@ -10,9 +10,7 @@
       "request": "launch",
       "program": "nerfstudio/scripts/train.py",
       "console": "integratedTerminal",
-      "args": [
-        "reni_neus",
-      ]
-    },
+      "args": ["neusky"]
+    }
   ]
 }

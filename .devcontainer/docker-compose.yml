@@ -17,9 +17,9 @@ services:
     volumes:
       - ../:/workspace/
       - /tmp/.X11-unix:/tmp/.X11-unix
-      - /home/james/.cache/:/home/user/.cache/
-      - /home/james/.ssh/:/home/user/.ssh/
-      - /mnt/e8ab044c-11e8-496c-aab7-f757a1f48395/data/:/workspace/data/
+      - /home/james/.cache/:/home/user/.cache/ # UPDATE THIS TO YOUR CACHE DIR
+      - /home/james/.ssh/:/home/user/.ssh/ # UPDATE THIS TO YOUR SSH DIR
+      - /mnt/e8ab044c-11e8-496c-aab7-f757a1f48395/data/:/workspace/data/ # UPDATE THIS TO YOUR DATA DIR
     working_dir: /workspace/
     command: /bin/bash
     deploy:

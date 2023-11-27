@@ -25,5 +25,5 @@
       ]
     }
   },
-  "postCreateCommand": "cd /workspace && pip install -e . && cd /workspace/reni_neus/ns_reni/ && pip install -e. && cd /workspace/reni_neus/ && pip install -e ."
+  "postCreateCommand": "cd /workspace && pip install -e . && cd /workspace/neusky/ns_reni/ && pip install -e. && cd /workspace/neusky/ && pip install -e ."
 }

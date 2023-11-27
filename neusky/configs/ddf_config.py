@@ -11,11 +11,11 @@ from nerfstudio.engine.schedulers import (
     CosineDecaySchedulerConfig,
 )
 
-from reni_neus.models.ddf_model import DDFModelConfig
-from reni_neus.fields.directional_distance_field import DirectionalDistanceFieldConfig
-from reni_neus.pipelines.ddf_pipeline import DDFPipelineConfig
-from reni_neus.data.datamanagers.ddf_datamanager import DDFDataManagerConfig
-from reni_neus.model_components.ddf_sampler import VMFDDFSamplerConfig
+from neusky.models.ddf_model import DDFModelConfig
+from neusky.fields.directional_distance_field import DirectionalDistanceFieldConfig
+from neusky.pipelines.ddf_pipeline import DDFPipelineConfig
+from neusky.data.datamanagers.ddf_datamanager import DDFDataManagerConfig
+from neusky.model_components.ddf_sampler import VMFDDFSamplerConfig
 
 DirectionalDistanceField = MethodSpecification(
     config=TrainerConfig(
@@ -87,8 +87,8 @@ DirectionalDistanceField = MethodSpecification(
                 inverse_depth_weight=False,
                 log_depth=False,
             ),
-            reni_neus_ckpt_path=Path("outputs/neusky/neusky/2023-08-30_111340"),
-            reni_neus_ckpt_step=100000,
+            neusky_ckpt_path=Path("outputs/neusky/neusky/2023-08-30_111340"),
+            neusky_ckpt_step=100000,
             ddf_radius="AABB",
         ),
         optimizers={

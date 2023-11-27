@@ -1,5 +1,5 @@
 BootStrap: docker
-From: dromni/nerfstudio:0.3.3
+From: jadgardner/nerfstudio:3.0
 Stage: spython-base
 
 %post
@@ -11,13 +11,6 @@ Stage: spython-base
   touch /usr/bin/nvidia-cuda-mps-server
   mkdir -p /run/nvidia-persistenced
   touch /run/nvidia-persistenced/socket
-
-  apt update
-  apt-get -y upgrade
-  apt install -y curl
-  apt install -y python3.10-venv
-  apt-get install -y ffmpeg libglib2.0-0
-  apt-get install -y libopenexr-dev libilmbase-dev
 
   su - user
 
