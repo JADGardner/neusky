@@ -8,7 +8,7 @@ Paper: The Sky's the Limit: Re-lightable Outdoor Scenes via a Sky-pixel Constrai
 
 ## Installation
 
-We build on top of Nerfstudio. However, since Nerfstudio is still in very activate develeopment with farily large codebase changes still occuring compatibility might be an issue. Pull requests and issues are very welcome.
+We build on top of Nerfstudio. However, since Nerfstudio is still in very active development with fairly large codebase changes still occurring compatibility might be an issue. Pull requests and issues are very welcome.
 
 ### Prerequisites
 
