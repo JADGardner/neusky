@@ -32,7 +32,7 @@ from nerfstudio.field_components.encodings import NeRFEncoding, SHEncoding
 from nerfstudio.field_components.field_heads import FieldHeadNames
 from nerfstudio.fields.base_field import Field, FieldConfig
 
-from neusky.field_components.neusky_fieldheadnames import RENINeuSFieldHeadNames
+from neusky.field_components.neusky_fieldheadnames import NeuSkyFieldHeadNames
 from reni.field_components.siren import Siren
 from reni.field_components.film_siren import FiLMSiren
 from reni.field_components.transformer_decoder import Decoder
@@ -297,11 +297,11 @@ class DirectionalDistanceField(Field):
             expected_termination_dist = self.termination_output_activation(model_outputs[..., 0])
 
         expected_termination_dist = expected_termination_dist * (2 * self.ddf_radius)
-        outputs.update({RENINeuSFieldHeadNames.TERMINATION_DISTANCE: expected_termination_dist})
+        outputs.update({NeuSkyFieldHeadNames.TERMINATION_DISTANCE: expected_termination_dist})
 
         if self.config.predict_probability_of_hit:
             probability_of_hit = self.probability_of_hit_output_activation(model_outputs[..., -1])
-            outputs.update({RENINeuSFieldHeadNames.PROBABILITY_OF_HIT: probability_of_hit})
+            outputs.update({NeuSkyFieldHeadNames.PROBABILITY_OF_HIT: probability_of_hit})
 
         return outputs
 

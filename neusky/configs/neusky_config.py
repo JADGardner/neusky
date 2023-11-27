@@ -19,17 +19,17 @@ from nerfstudio.engine.schedulers import (
 )
 
 from neusky.data.dataparsers.nerfosr_cityscapes_dataparser import NeRFOSRCityScapesDataParserConfig
-from neusky.models.neusky_model import RENINeuSFactoModelConfig
-from neusky.pipelines.neusky_pipeline import RENINeuSPipelineConfig
-from neusky.data.datamanagers.neusky_datamanager import RENINeuSDataManagerConfig
+from neusky.models.neusky_model import NeuSkyFactoModelConfig
+from neusky.pipelines.neusky_pipeline import NeuSkyPipelineConfig
+from neusky.data.datamanagers.neusky_datamanager import NeuSkyDataManagerConfig
 from neusky.fields.sdf_albedo_field import SDFAlbedoFieldConfig
 from neusky.models.ddf_model import DDFModelConfig
 from neusky.fields.directional_distance_field import DirectionalDistanceFieldConfig
 from neusky.model_components.ddf_sampler import VMFDDFSamplerConfig
-from neusky.data.neusky_pixel_sampler import RENINeuSPixelSamplerConfig
+from neusky.data.neusky_pixel_sampler import NeuSkyPixelSamplerConfig
 
 
-RENINeuS = MethodSpecification(
+NeuSky = MethodSpecification(
     config=TrainerConfig(
         method_name="neusky",
         experiment_name="lk2",
@@ -39,9 +39,9 @@ RENINeuS = MethodSpecification(
         steps_per_eval_all_images=100000,  # set to a very large model so we don't eval with all images
         max_num_iterations=100001,
         mixed_precision=False,
-        pipeline=RENINeuSPipelineConfig(
+        pipeline=NeuSkyPipelineConfig(
           test_mode=None,
-            datamanager=RENINeuSDataManagerConfig(
+            datamanager=NeuSkyDataManagerConfig(
                 dataparser=NeRFOSRCityScapesDataParserConfig(
                     scene="site1",
                     auto_scale_poses=True,
@@ -54,13 +54,13 @@ RENINeuS = MethodSpecification(
                 ),
                 train_num_images_to_sample_from=-1,
                 train_num_times_to_repeat_images=-1,  # # Iterations before resample a new subset
-                pixel_sampler=RENINeuSPixelSamplerConfig(),
+                pixel_sampler=NeuSkyPixelSamplerConfig(),
                 images_on_gpu=False,
                 masks_on_gpu=False,
                 train_num_rays_per_batch=256,
                 eval_num_rays_per_batch=256,
             ),
-            model=RENINeuSFactoModelConfig(
+            model=NeuSkyFactoModelConfig(
                 sdf_field=SDFAlbedoFieldConfig(
                     use_grid_feature=True,
                     num_layers=2,

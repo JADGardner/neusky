@@ -33,7 +33,7 @@ from nerfstudio.field_components.field_heads import FieldHeadNames
 from nerfstudio.field_components.spatial_distortions import SpatialDistortion
 from nerfstudio.fields.sdf_field import SDFFieldConfig, SDFField, LearnedVariance
 
-from neusky.field_components.neusky_fieldheadnames import RENINeuSFieldHeadNames
+from neusky.field_components.neusky_fieldheadnames import NeuSkyFieldHeadNames
 
 try:
     import tinycudann as tcnn
@@ -251,7 +251,7 @@ class SDFAlbedoField(SDFField):
 
         outputs.update(
             {
-                RENINeuSFieldHeadNames.ALBEDO: albedo,
+                NeuSkyFieldHeadNames.ALBEDO: albedo,
                 FieldHeadNames.SDF: sdf,
                 FieldHeadNames.NORMALS: normals,
                 FieldHeadNames.GRADIENT: gradients,
@@ -259,7 +259,7 @@ class SDFAlbedoField(SDFField):
         )
 
         if self.config.predict_shininess:
-            outputs.update({RENINeuSFieldHeadNames.SHININESS: shininess})
+            outputs.update({NeuSkyFieldHeadNames.SHININESS: shininess})
 
         if return_alphas:
             alphas = self.get_alpha(ray_samples, sdf, gradients)

@@ -80,7 +80,7 @@ CITYSCAPE_CLASSES = {
 }
 
 
-class RENINeuSDataset(InputDataset):
+class NeuSkyDataset(InputDataset):
     """Dataset that returns images and depths.
 
     Args:

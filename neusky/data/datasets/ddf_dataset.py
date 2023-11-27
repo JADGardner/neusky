@@ -36,7 +36,7 @@ from nerfstudio.data.scene_box import SceneBox
 from nerfstudio.data.datamanagers.base_datamanager import VanillaDataManager
 
 from neusky.utils.utils import look_at_target
-from neusky.models.neusky_model import RENINeuSFactoModel
+from neusky.models.neusky_model import NeuSkyFactoModel
 from neusky.model_components.ddf_sampler import DDFSampler
 from neusky.model_components.illumination_samplers import IcosahedronSamplerConfig
 from neusky.utils.utils import find_nerfstudio_project_root
@@ -58,7 +58,7 @@ class DDFDataset(Dataset):
 
     def __init__(
         self,
-        neusky: RENINeuSFactoModel,
+        neusky: NeuSkyFactoModel,
         neusky_ckpt_path: Path,
         scene_box: SceneBox,
         sampler: DDFSampler,

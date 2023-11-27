@@ -27,10 +27,10 @@ from nerfstudio.data.pixel_samplers import PixelSampler, PixelSamplerConfig
 
 
 @dataclass
-class RENINeuSPixelSamplerConfig(PixelSamplerConfig):
+class NeuSkyPixelSamplerConfig(PixelSamplerConfig):
     """Configuration for pixel sampler instantiation."""
 
-    _target: Type = field(default_factory=lambda: RENINeuSPixelSampler)
+    _target: Type = field(default_factory=lambda: NeuSkyPixelSampler)
     """Target class to instantiate."""
     num_rays_per_batch: int = 4096
     """Number of rays to sample per batch."""
@@ -40,10 +40,10 @@ class RENINeuSPixelSamplerConfig(PixelSamplerConfig):
     """List of whether or not camera i is equirectangular."""
 
 
-class RENINeuSPixelSampler(PixelSampler):
-    config: RENINeuSPixelSamplerConfig
+class NeuSkyPixelSampler(PixelSampler):
+    config: NeuSkyPixelSamplerConfig
 
-    def __init__(self, config: RENINeuSPixelSamplerConfig, **kwargs) -> None:
+    def __init__(self, config: NeuSkyPixelSamplerConfig, **kwargs) -> None:
         super().__init__(config=config, **kwargs)
 
     def collate_image_dataset_batch_list(self, batch: Dict, num_rays_per_batch: int, keep_full_image: bool = False):

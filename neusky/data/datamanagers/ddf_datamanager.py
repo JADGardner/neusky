@@ -35,7 +35,7 @@ from nerfstudio.data.datamanagers.base_datamanager import VanillaDataManager
 from nerfstudio.data.datamanagers.base_datamanager import DataManagerConfig, DataManager
 
 from neusky.data.datasets.ddf_dataset import DDFDataset
-from neusky.models.neusky_model import RENINeuSFactoModel
+from neusky.models.neusky_model import NeuSkyFactoModel
 from neusky.model_components.ddf_sampler import DDFSamplerConfig
 
 CONSOLE = Console(width=120)
@@ -83,7 +83,7 @@ class DDFDataManager(DataManager):  # pylint: disable=abstract-method
     def __init__(
         self,
         config: DDFDataManagerConfig,
-        neusky: RENINeuSFactoModel,
+        neusky: NeuSkyFactoModel,
         neusky_ckpt_path: Path,
         scene_box,
         ddf_radius: float,

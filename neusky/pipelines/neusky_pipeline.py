@@ -50,23 +50,23 @@ from nerfstudio.field_components.field_heads import FieldHeadNames
 from nerfstudio.cameras.rays import RayBundle, RaySamples, Frustums
 from nerfstudio.cameras.cameras import Cameras, CameraType
 
-from neusky.data.datamanagers.neusky_datamanager import RENINeuSDataManagerConfig, RENINeuSDataManager
+from neusky.data.datamanagers.neusky_datamanager import NeuSkyDataManagerConfig, NeuSkyDataManager
 from neusky.models.ddf_model import DDFModelConfig
-from neusky.models.neusky_model import RENINeuSFactoModelConfig
+from neusky.models.neusky_model import NeuSkyFactoModelConfig
 from neusky.model_components.ddf_sampler import DDFSamplerConfig
 from neusky.model_components.illumination_samplers import IcosahedronSamplerConfig
 from neusky.utils.utils import look_at_target
 
 
 @dataclass
-class RENINeuSPipelineConfig(VanillaPipelineConfig):
+class NeuSkyPipelineConfig(VanillaPipelineConfig):
     """Configuration for pipeline instantiation"""
 
-    _target: Type = field(default_factory=lambda: RENINeuSPipeline)
+    _target: Type = field(default_factory=lambda: NeuSkyPipeline)
     """target class to instantiate"""
-    datamanager: DataManagerConfig = RENINeuSDataManagerConfig()
+    datamanager: DataManagerConfig = NeuSkyDataManagerConfig()
     """specifies the datamanager config"""
-    model: RENINeuSFactoModelConfig = RENINeuSFactoModelConfig()
+    model: NeuSkyFactoModelConfig = NeuSkyFactoModelConfig()
     """specifies the model config"""
     visibility_field: Union[DDFModelConfig, None] = DDFModelConfig()
     """Visibility field"""
@@ -94,7 +94,7 @@ class RENINeuSPipelineConfig(VanillaPipelineConfig):
     """Whether to use least squares to find the global scale"""
 
 
-class RENINeuSPipeline(VanillaPipeline):
+class NeuSkyPipeline(VanillaPipeline):
     """The pipeline class for the vanilla nerf setup of multiple cameras for one or a few scenes.
 
     Args:
@@ -114,7 +114,7 @@ class RENINeuSPipeline(VanillaPipeline):
 
     def __init__(
         self,
-        config: RENINeuSPipelineConfig,
+        config: NeuSkyPipelineConfig,
         device: str,
         test_mode: Literal["test", "val", "inference"] = "val",
         world_size: int = 1,
@@ -124,7 +124,7 @@ class RENINeuSPipeline(VanillaPipeline):
         super(VanillaPipeline, self).__init__()  # Call grandparent class constructor ignoring parent class
         self.config = config
         self.test_mode = test_mode if self.config.test_mode is None else self.config.test_mode
-        self.datamanager: RENINeuSDataManager = config.datamanager.setup(
+        self.datamanager: NeuSkyDataManager = config.datamanager.setup(
             device=device,
             test_mode=self.test_mode,
             world_size=world_size,

@@ -1,5 +1,5 @@
 [project]
-name = "reni_neus"
+name = "neusky"
 version = "0.1.0"
 
 dependencies=[
@@ -15,8 +15,8 @@ dependencies=[
 ]
 
 [tool.setuptools.packages.find]
-include = ["reni_neus*"]
+include = ["neusky*"]
 
 [project.entry-points.'nerfstudio.method_configs']
-reni_neus = 'reni_neus.configs.reni_neus_config:RENINeuS'
-ddf = 'reni_neus.configs.ddf_config:DirectionalDistanceField'
+neusky = 'neusky.configs.neusky_config:NeuSky'
+ddf = 'neusky.configs.ddf_config:DirectionalDistanceField'

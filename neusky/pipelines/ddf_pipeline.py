@@ -47,7 +47,7 @@ from nerfstudio.utils import profiler
 from nerfstudio.pipelines.base_pipeline import VanillaPipelineConfig, VanillaPipeline
 from nerfstudio.data.scene_box import SceneBox
 
-from neusky.data.datamanagers.neusky_datamanager import RENINeuSDataManagerConfig, RENINeuSDataManager
+from neusky.data.datamanagers.neusky_datamanager import NeuSkyDataManagerConfig, NeuSkyDataManager
 from neusky.data.datamanagers.ddf_datamanager import DDFDataManagerConfig, DDFDataManager
 from neusky.utils.utils import find_nerfstudio_project_root
 
@@ -58,7 +58,7 @@ class DDFPipelineConfig(VanillaPipelineConfig):
 
     _target: Type = field(default_factory=lambda: DDFPipeline)
     """target class to instantiate"""
-    datamanager: DataManagerConfig = RENINeuSDataManagerConfig()
+    datamanager: DataManagerConfig = NeuSkyDataManagerConfig()
     """specifies the datamanager config"""
     model: ModelConfig = ModelConfig()
     """specifies the model config"""

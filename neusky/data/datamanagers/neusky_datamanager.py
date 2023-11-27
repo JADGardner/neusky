@@ -45,22 +45,22 @@ from nerfstudio.data.utils.dataloaders import (
 )
 from nerfstudio.model_components.ray_generators import RayGenerator
 
-from neusky.data.neusky_pixel_sampler import RENINeuSPixelSampler
-from neusky.data.datasets.neusky_dataset import RENINeuSDataset
+from neusky.data.neusky_pixel_sampler import NeuSkyPixelSampler
+from neusky.data.datasets.neusky_dataset import NeuSkyDataset
 from neusky.data.utils.dataloaders import SelectedIndicesCacheDataloader
 
 CONSOLE = Console(width=120)
 
 
 @dataclass
-class RENINeuSDataManagerConfig(VanillaDataManagerConfig):
+class NeuSkyDataManagerConfig(VanillaDataManagerConfig):
     """A basic data manager"""
 
-    _target: Type = field(default_factory=lambda: RENINeuSDataManager)
+    _target: Type = field(default_factory=lambda: NeuSkyDataManager)
     """Target class to instantiate."""
 
 
-class RENINeuSDataManager(VanillaDataManager):  # pylint: disable=abstract-method
+class NeuSkyDataManager(VanillaDataManager):  # pylint: disable=abstract-method
     """Basic stored data manager implementation.
 
     This is pretty much a port over from our old dataloading utilities, and is a little jank
@@ -73,16 +73,16 @@ class RENINeuSDataManager(VanillaDataManager):  # pylint: disable=abstract-metho
         config: the DataManagerConfig used to instantiate class
     """
 
-    config: RENINeuSDataManagerConfig
+    config: NeuSkyDataManagerConfig
     train_dataset: InputDataset
     eval_dataset: InputDataset
     train_dataparser_outputs: DataparserOutputs
-    train_pixel_sampler: Optional[RENINeuSPixelSampler] = None
-    eval_pixel_sampler: Optional[RENINeuSPixelSampler] = None
+    train_pixel_sampler: Optional[NeuSkyPixelSampler] = None
+    eval_pixel_sampler: Optional[NeuSkyPixelSampler] = None
 
     def __init__(
         self,
-        config: RENINeuSDataManagerConfig,
+        config: NeuSkyDataManagerConfig,
         device: Union[torch.device, str] = "cpu",
         test_mode: Literal["test", "val", "inference"] = "val",
         world_size: int = 1,
@@ -138,19 +138,19 @@ class RENINeuSDataManager(VanillaDataManager):  # pylint: disable=abstract-metho
 
         super(VanillaDataManager, self).__init__()  # Call grandparent class constructor ignoring parent class
 
-    def create_train_dataset(self) -> RENINeuSDataset:
-        return RENINeuSDataset(
+    def create_train_dataset(self) -> NeuSkyDataset:
+        return NeuSkyDataset(
             dataparser_outputs=self.train_dataparser_outputs,
             scale_factor=self.config.camera_res_scale_factor,
             split="train",
         )
 
-    def create_eval_dataset(self) -> RENINeuSDataset:
+    def create_eval_dataset(self) -> NeuSkyDataset:
         self.test_outputs = self.dataparser.get_dataparser_outputs("test")
         self.val_outputs = self.dataparser.get_dataparser_outputs("val")
         # self.num_test = len(test_outputs.image_filenames)
         # self.num_val = len(val_outputs.image_filenames)
-        return RENINeuSDataset(
+        return NeuSkyDataset(
             dataparser_outputs=self.test_outputs if self.test_mode == "test" else self.val_outputs,
             scale_factor=self.config.camera_res_scale_factor,
             split=self.test_split,
