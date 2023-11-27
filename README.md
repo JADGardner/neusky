@@ -4,7 +4,7 @@
 
 Paper: The Sky's the Limit: Re-lightable Outdoor Scenes via a Sky-pixel Constrained Illumination Prior and Outside-In Visibility
 
-![NeuSky Teaser](https://github.com/JADGardner/neusky/blob/main/imgs/teaser.png)
+![NeuSky Teaser](imgs/teaser.jpg)
 
 ## Installation
 
