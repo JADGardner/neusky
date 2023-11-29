@@ -2,7 +2,7 @@
 
 ### Official implementation of NeuSky.
 
-Paper: The Sky's the Limit: Re-lightable Outdoor Scenes via a Sky-pixel Constrained Illumination Prior and Outside-In Visibility
+Paper: The Sky's the Limit: Relightable Outdoor Scenes via a Sky-pixel Constrained Illumination Prior and Outside-In Visibility
 
 ![NeuSky Teaser](imgs/teaser.jpg)
 
