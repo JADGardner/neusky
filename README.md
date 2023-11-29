@@ -85,7 +85,7 @@ ns-download-data nerfosr --save-dir data --capture-name lk2
 ```
 
 ```bash
-python download_and_copy_segmentation_masks.py
+python download_and_copy_segmentation_masks.py lk2 /path/to/Data/NeRF-OSR
 ```
 
 ## Start Training
