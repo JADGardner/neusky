@@ -492,21 +492,24 @@ class NeuSkyPipeline(VanillaPipeline):
 
     def generate_ddf_samples(self):
         """Generate samples for fitting the visibility field to the scene."""
-        ray_bundle = self.visibility_train_sampler()
+        if self.config.stop_sdf_gradients:
+            with torch.no_grad():
+                ray_bundle = self.visibility_train_sampler()
+        else:
+            ray_bundle = self.visibility_train_sampler()
 
         data = self.model.generate_ddf_ground_truth(ray_bundle, self.config.visibility_accumulation_mask_threshold)
 
         data["sky_ray_bundle"] = self.datamanager.get_sky_ray_bundle(256)
 
-        # just ensuring no gradients back to sdf
         if self.config.stop_sdf_gradients:
             data["ray_bundle"].origins.requires_grad = False
             data["ray_bundle"].directions.requires_grad = False
             data["sky_ray_bundle"].origins.requires_grad = False
             data["sky_ray_bundle"].directions.requires_grad = False
-            data["accumulations"].requires_grad = False
-            data["mask"].requires_grad = False
-            data["termination_dist"].requires_grad = False
-            data["normals"].requires_grad = False
+            data["accumulations"] = data["accumulations"].detach()
+            data["mask"] = data["mask"].detach()
+            data["termination_dist"] = data["termination_dist"].detach()
+            data["normals"] = data["normals"].detach()
 
         return data

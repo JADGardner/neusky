@@ -769,7 +769,8 @@ class NeuSkyFactoModel(NeuSFactoModel):
         sdf_at_termination = None
         if self.config.use_visibility:
             visibility = samples_and_field_outputs["visibility_dict"]["visibility"]
-            sdf_at_termination = samples_and_field_outputs["visibility_dict"]["sdf_at_termination"]
+            if 'sdf_at_termination' in samples_and_field_outputs["visibility_dict"]:
+                sdf_at_termination = samples_and_field_outputs["visibility_dict"]["sdf_at_termination"]
         if "accumulation" in samples_and_field_outputs:
             accumulation = samples_and_field_outputs["accumulation"]
         if "p2p_dist" in samples_and_field_outputs:
@@ -1628,9 +1629,14 @@ class NeuSkyFactoModel(NeuSFactoModel):
 
         visibility_dict["visibility_batch"] = {
             "termination_dist": termination_dist,
-            "mask": torch.ones_like(termination_dist),
-            "sdf_at_termination": outputs["sdf_at_termination"],
+            "mask": torch.ones_like(termination_dist)
         }
+
+        if "sdf_at_termination" in outputs:
+            visibility_dict["visibility_batch"]["sdf_at_termination"] = outputs["sdf_at_termination"]
+        else:
+            visibility_dict["visibility_batch"]["sdf_at_termination"] = None
+
 
         return visibility_dict
 
