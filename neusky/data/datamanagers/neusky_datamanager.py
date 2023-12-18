@@ -239,7 +239,8 @@ class NeuSkyDataManager(VanillaDataManager):  # pylint: disable=abstract-method
             # nerf osr holdout
             if self.eval_dataloader.count >= len(self.eval_dataloader.image_indices):
                 self.eval_dataloader.count = 0
-            camera_ray_bundle, batch = next(self.iter_eval_dataloader)
+            camera, batch = next(self.iter_eval_dataloader)
+            camera_ray_bundle = camera.generate_rays(camera_indices=0, keep_shape=True)
             assert camera_ray_bundle.camera_indices is not None
             camera_idx = int(camera_ray_bundle.camera_indices[0, 0, 0])
             # we need to use the indices_to_session mapping to get the session idx
@@ -251,9 +252,9 @@ class NeuSkyDataManager(VanillaDataManager):  # pylint: disable=abstract-method
             camera_ray_bundle.camera_indices = torch.ones_like(camera_ray_bundle.camera_indices) * image_idx
             return image_idx, camera_ray_bundle, batch
         else:
-            for camera_ray_bundle, batch in self.eval_dataloader:
-                assert camera_ray_bundle.camera_indices is not None
-                image_idx = int(camera_ray_bundle.camera_indices[0, 0, 0])
+            for camera, batch in self.eval_dataloader:
+                camera_ray_bundle = camera.generate_rays(camera_indices=0, keep_shape=True)
+                image_idx = batch["image_idx"]
                 return image_idx, camera_ray_bundle, batch
             raise ValueError("No more eval images")
     
