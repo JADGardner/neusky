@@ -55,10 +55,10 @@ NeuSky = MethodSpecification(
                 train_num_images_to_sample_from=-1,
                 train_num_times_to_repeat_images=-1,  # # Iterations before resample a new subset
                 pixel_sampler=NeuSkyPixelSamplerConfig(),
-                images_on_gpu=False,
-                masks_on_gpu=False,
-                train_num_rays_per_batch=256,
-                eval_num_rays_per_batch=256,
+                images_on_gpu=True,
+                masks_on_gpu=True,
+                train_num_rays_per_batch=1024,
+                eval_num_rays_per_batch=1024,
             ),
             model=NeuSkyFactoModelConfig(
                 sdf_field=SDFAlbedoFieldConfig(
@@ -141,7 +141,7 @@ NeuSky = MethodSpecification(
                         "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-7, max_steps=250),
                     },
                 },
-                eval_latent_optimise_method="nerf_osr_holdout",  # per_image, nerf_osr_holdout, nerf_osr_envmap (can't run nerf_osr with trevi)
+                eval_latent_optimise_method="per_image",  # per_image, nerf_osr_holdout, nerf_osr_envmap (can't run nerf_osr with trevi)
                 eval_latent_sample_region="full_image",
                 illumination_field_ckpt_path=Path("outputs/reni/reni_plus_plus_models/latent_dim_100/"),
                 illumination_field_ckpt_step=50000,
