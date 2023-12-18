@@ -126,6 +126,7 @@ class NeuSkyFactoModelConfig(NeuSFactoModelConfig):
             "fg_mask_loss": True,
             "normal_loss": True,
             "depth_loss": True,
+            "sdf_level_set_visibility_loss": True,
             "interlevel_loss": True,
             "sky_pixel_loss": {
                 "enabled": True,
@@ -369,6 +370,8 @@ class NeuSkyFactoModel(NeuSFactoModel):
             self.hashgrid_density_loss = torch.nn.L1Loss()
         if self.config.loss_inclusions["ground_plane_loss"]:
             self.ground_plane_loss = monosdf_normal_loss
+        if self.config.loss_inclusions["sdf_level_set_visibility_loss"]:
+            self.sdf_level_set_visibility_loss = torch.nn.MSELoss()
 
     def get_param_groups(self) -> Dict[str, List[Parameter]]:
         """Return a dictionary with the parameters of the proposal networks."""
@@ -763,8 +766,10 @@ class NeuSkyFactoModel(NeuSFactoModel):
         p2p_dist = None
         depth = None
         shading = None
+        sdf_at_termination = None
         if self.config.use_visibility:
             visibility = samples_and_field_outputs["visibility_dict"]["visibility"]
+            sdf_at_termination = samples_and_field_outputs["visibility_dict"]["sdf_at_termination"]
         if "accumulation" in samples_and_field_outputs:
             accumulation = samples_and_field_outputs["accumulation"]
         if "p2p_dist" in samples_and_field_outputs:
@@ -880,6 +885,7 @@ class NeuSkyFactoModel(NeuSFactoModel):
             "hdr_background_colours": hdr_background_colours,
             # used to scale z_vals for free space and sdf loss
             "directions_norm": ray_bundle.metadata["directions_norm"],
+            "sdf_at_termination": sdf_at_termination,
         }
 
         if shading is not None:
@@ -1017,6 +1023,11 @@ class NeuSkyFactoModel(NeuSFactoModel):
                         current_scale, torch.tensor(1.0).type_as(self.sigmoid_scale)
                     )
                 loss_dict["visibility_sigmoid_loss"] = vis_bias_loss + vis_scale_loss
+            
+            if self.config.loss_inclusions["sdf_level_set_visibility_loss"] and "sdf_at_termiantion" in outputs:
+                loss_dict["sdf_level_set_visibility_loss"] = self.sdf_level_set_visibility_loss(
+                    outputs["sdf_at_termination"], torch.zeros_like(outputs["sdf_at_termination"])
+                )
         else:
             image = batch["image"].to(self.device)
             pred_image = outputs["rgb"]
@@ -1193,24 +1204,23 @@ class NeuSkyFactoModel(NeuSFactoModel):
         self, ray_bundle: RayBundle, mask_threshold: float = 0.5, log_depth: bool = False
     ) -> Dict[str, Any]:
         """Generate ground truth for DDF."""
-        with torch.no_grad():
-            if self.collider is not None:
-                ray_bundle = self.collider(ray_bundle)
-            ray_samples, _, _ = self.proposal_sampler(ray_bundle, density_fns=self.density_fns)
-            field_outputs = self.field(ray_samples, return_alphas=True)
-            weights, _ = ray_samples.get_weights_and_transmittance_from_alphas(field_outputs[FieldHeadNames.ALPHA])
-            accumulations = self.renderer_accumulation(weights=weights).reshape(-1, 1)
-            mask = (accumulations > mask_threshold).float()
-            p2p_dist = self.renderer_depth(weights=weights, ray_samples=ray_samples).reshape(-1, 1)
-            # clamp termination distance to 2 x ddf_sphere_radius
-            if self.visibility_field is not None:
-                p2p_dist = torch.clamp(p2p_dist, max=2 * self.visibility_field.ddf_radius)
+        if self.collider is not None:
+            ray_bundle = self.collider(ray_bundle)
+        ray_samples, _, _ = self.proposal_sampler(ray_bundle, density_fns=self.density_fns)
+        field_outputs = self.field(ray_samples, return_alphas=True)
+        weights, _ = ray_samples.get_weights_and_transmittance_from_alphas(field_outputs[FieldHeadNames.ALPHA])
+        accumulations = self.renderer_accumulation(weights=weights).reshape(-1, 1)
+        mask = (accumulations > mask_threshold).float()
+        p2p_dist = self.renderer_depth(weights=weights, ray_samples=ray_samples).reshape(-1, 1)
+        # clamp termination distance to 2 x ddf_sphere_radius
+        if self.visibility_field is not None:
+            p2p_dist = torch.clamp(p2p_dist, max=2 * self.visibility_field.ddf_radius)
 
-            if log_depth:
-                p2p_dist = torch.log(p2p_dist + 1e-6)
+        if log_depth:
+            p2p_dist = torch.log(p2p_dist + 1e-6)
 
-            normals = self.renderer_normal(semantics=field_outputs[FieldHeadNames.NORMALS], weights=weights)
-            normals = normals.reshape(-1, 3)
+        normals = self.renderer_normal(semantics=field_outputs[FieldHeadNames.NORMALS], weights=weights)
+        normals = normals.reshape(-1, 3)
 
         data = {
             "ray_bundle": ray_bundle,
@@ -1568,6 +1578,8 @@ class NeuSkyFactoModel(NeuSFactoModel):
         outputs = self.visibility_field(
             visibility_ray_bundle, batch=None, neusky=self, stop_gradients=stop_gradients
         )  # [N, 2]
+        # outputs['sdf_at_termination'] we need to minimise this
+        
 
         # the ground truth distance from the point on the surrounding DDF sphere to the point on the
         # zero level set of the SDF
@@ -1617,6 +1629,7 @@ class NeuSkyFactoModel(NeuSFactoModel):
         visibility_dict["visibility_batch"] = {
             "termination_dist": termination_dist,
             "mask": torch.ones_like(termination_dist),
+            "sdf_at_termination": outputs["sdf_at_termination"],
         }
 
         return visibility_dict

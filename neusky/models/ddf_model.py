@@ -253,7 +253,7 @@ class DDFModel(Model):
                 sdf_at_termination = batch["sdf_at_termination"]
                 outputs["sdf_at_termination"] = sdf_at_termination
 
-        # # Compute the gradient of the depths with respect to the ray origins
+        # Compute the gradient of the depths with respect to the ray origins
         if self.config.compute_normals:
             d_output = torch.ones_like(
                 expected_termination_dist, requires_grad=False, device=expected_termination_dist.device

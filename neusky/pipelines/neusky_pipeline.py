@@ -92,6 +92,8 @@ class NeuSkyPipelineConfig(VanillaPipelineConfig):
     """overwrite test mode"""
     least_squares_global_scale: bool = False
     """Whether to use least squares to find the global scale"""
+    stop_sdf_gradients: bool = True
+    """Whether to stop gradients to the SDF"""
 
 
 class NeuSkyPipeline(VanillaPipeline):
@@ -274,10 +276,13 @@ class NeuSkyPipeline(VanillaPipeline):
             ray_bundle = vis_batch["ray_bundle"]
             # we stop gradients here as we are just fitting to the scene
             vis_outputs = self._model.visibility_field(
-                ray_bundle=ray_bundle, batch=vis_batch, neusky=self.model, stop_gradients=True
+                ray_bundle=ray_bundle, batch=vis_batch, neusky=self.model, stop_gradients=self.config.stop_sdf_gradients
             )
             vis_metrics_dict = self.model.visibility_field.get_metrics_dict(vis_outputs, vis_batch)
             vis_loss_dict = self.model.visibility_field.get_loss_dict(vis_outputs, vis_batch, vis_metrics_dict)
+
+            # TODO add the loss computed from model_outputs['sdf_at_termination] which is shape [N, 1] to the vis_loss_dict['sdf_l2_loss']
+            # Currently this is done in the model.
 
             model_outputs = {**model_outputs, **vis_outputs}
             loss_dict = {**loss_dict, **vis_loss_dict}
@@ -493,14 +498,15 @@ class NeuSkyPipeline(VanillaPipeline):
 
         data["sky_ray_bundle"] = self.datamanager.get_sky_ray_bundle(256)
 
-        # just ensuring no gradients back to NeuSky
-        data["ray_bundle"].origins.requires_grad = False
-        data["ray_bundle"].directions.requires_grad = False
-        data["sky_ray_bundle"].origins.requires_grad = False
-        data["sky_ray_bundle"].directions.requires_grad = False
-        data["accumulations"].requires_grad = False
-        data["mask"].requires_grad = False
-        data["termination_dist"].requires_grad = False
-        data["normals"].requires_grad = False
+        # just ensuring no gradients back to sdf
+        if self.config.stop_sdf_gradients:
+            data["ray_bundle"].origins.requires_grad = False
+            data["ray_bundle"].directions.requires_grad = False
+            data["sky_ray_bundle"].origins.requires_grad = False
+            data["sky_ray_bundle"].directions.requires_grad = False
+            data["accumulations"].requires_grad = False
+            data["mask"].requires_grad = False
+            data["termination_dist"].requires_grad = False
+            data["normals"].requires_grad = False
 
         return data
