@@ -255,6 +255,7 @@ class NeuSkyDataManager(VanillaDataManager):  # pylint: disable=abstract-method
             for camera, batch in self.eval_dataloader:
                 camera_ray_bundle = camera.generate_rays(camera_indices=0, keep_shape=True)
                 image_idx = batch["image_idx"]
+                camera_ray_bundle.camera_indices = torch.ones_like(camera_ray_bundle.camera_indices) * image_idx
                 return image_idx, camera_ray_bundle, batch
             raise ValueError("No more eval images")
     
