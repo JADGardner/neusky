@@ -1025,7 +1025,7 @@ class NeuSkyFactoModel(NeuSFactoModel):
                     )
                 loss_dict["visibility_sigmoid_loss"] = vis_bias_loss + vis_scale_loss
             
-            if self.config.loss_inclusions["sdf_level_set_visibility_loss"] and "sdf_at_termiantion" in outputs:
+            if self.config.loss_inclusions["sdf_level_set_visibility_loss"] and "sdf_at_termination" in outputs:
                 loss_dict["sdf_level_set_visibility_loss"] = self.sdf_level_set_visibility_loss(
                     outputs["sdf_at_termination"], torch.zeros_like(outputs["sdf_at_termination"])
                 )
