@@ -27,6 +27,7 @@ from neusky.models.ddf_model import DDFModelConfig
 from neusky.fields.directional_distance_field import DirectionalDistanceFieldConfig
 from neusky.model_components.ddf_sampler import VMFDDFSamplerConfig
 from neusky.data.neusky_pixel_sampler import NeuSkyPixelSamplerConfig
+from neusky.data.dataparsers.custom_neusky_dataparser import CustomNeuskyDataparserConfig
 
 
 NeuSky = MethodSpecification(
@@ -41,6 +42,7 @@ NeuSky = MethodSpecification(
         mixed_precision=False,
         pipeline=NeuSkyPipelineConfig(
           test_mode=None,
+          stop_sdf_gradients=False,
             datamanager=NeuSkyDataManagerConfig(
                 dataparser=NeRFOSRCityScapesDataParserConfig(
                     scene="site1",
@@ -105,6 +107,7 @@ NeuSky = MethodSpecification(
                     "fg_mask_loss": True,
                     "normal_loss": False,
                     "depth_loss": False,
+                    "sdf_level_set_visibility_loss": True,
                     "interlevel_loss": True,
                     "sky_pixel_loss": {"enabled": True, "cosine_weight": 0.1},
                     "hashgrid_density_loss": {
@@ -129,6 +132,7 @@ NeuSky = MethodSpecification(
                     "fg_mask_loss": 1.0,
                     "normal_loss": 1.0,
                     "depth_loss": 1.0,
+                    "sdf_level_set_visibility_loss": 1.0,
                     "interlevel_loss": 1.0,
                     "sky_pixel_loss": 1.0,
                     "hashgrid_density_loss": 1e-4,
