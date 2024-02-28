@@ -44,24 +44,26 @@ pip install -e .
 
 #### Install NeuSky
 
-a. Clone repo and install RENI++
+a. Clone repo and install RENI++ repo
 
 ```bash
-git clone --recurse-submodules https://github.com/JADGardner/neusky.git
+sudo apt install libopenexr-dev openexr
 
-sudo apt install libopenexr-dev
+git clone https://github.com/JADGardner/ns_reni.git
 
-conda install -c conda-forge openexr
-
-cd neusky/ns_reni
+cd ns_reni
 
 pip install -e .
+
+cd ..
 ```
 
 b. Install NeuSky
 
 ```bash
-cd ..
+git clone https://github.com/JADGardner/neusky.git
+
+cd neusky
 
 pip install -e .
 ```
@@ -77,6 +79,15 @@ d. Close and reopen your terminal and source conda environment again:
 ```bash
 conda activate nerfstudio
 ```
+
+## Download RENI++ pre-trained models
+```bash
+python3 ns-reni/scripts/download_models.py output/path/for/reni_plus_plus_models/
+```
+Then update this line in the config for NeuSky to point to the chosen RENI++ directory:
+
+https://github.com/JADGardner/neusky/blob/bdf689b8b23a9fc38144e789686edcb161b512e7/neusky/configs/neusky_config.py#L150
+
 
 ## Download Data
 
