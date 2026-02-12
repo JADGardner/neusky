@@ -19,4 +19,5 @@ include = ["neusky*"]
 
 [project.entry-points.'nerfstudio.method_configs']
 neusky = 'neusky.configs.neusky_config:NeuSky'
+neusky-synthetic = 'neusky.configs.neusky_synthetic_config:NeuSkySynthetic'
 ddf = 'neusky.configs.ddf_config:DirectionalDistanceField'

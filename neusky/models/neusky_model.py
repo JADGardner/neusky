@@ -268,14 +268,17 @@ class NeuSkyFactoModel(NeuSFactoModel):
             )
             self.eval_scale = Parameter(torch.ones(self.num_eval_data))
 
-            # # Now you can use this to construct paths:
-            project_root = find_nerfstudio_project_root(Path(__file__))
-            relative_path = (
+            # Construct checkpoint path
+            ckpt_subpath = (
                 self.config.illumination_field_ckpt_path
                 / "nerfstudio_models"
                 / f"step-{self.config.illumination_field_ckpt_step:09d}.ckpt"
             )
-            ckpt_path = project_root / relative_path
+            if self.config.illumination_field_ckpt_path.is_absolute():
+                ckpt_path = ckpt_subpath
+            else:
+                project_root = find_nerfstudio_project_root(Path(__file__))
+                ckpt_path = project_root / ckpt_subpath
 
             if not ckpt_path.exists():
                 raise ValueError(f"Could not find illumination field checkpoint at {ckpt_path}")

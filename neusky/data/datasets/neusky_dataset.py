@@ -250,6 +250,13 @@ class NeuSkyDataset(InputDataset):
             mask = torch.nn.functional.pad(mask, (pad_left, pad_right, pad_top, pad_bottom), mode="constant", value=0)
             mask = mask.permute(1, 2, 0)
 
+        if self.scale_factor != 1.0:
+            h, w = mask.shape[:2]
+            new_h, new_w = int(h * self.scale_factor), int(w * self.scale_factor)
+            mask = mask.permute(2, 0, 1).unsqueeze(0)
+            mask = torch.nn.functional.interpolate(mask, size=(new_h, new_w), mode='nearest')
+            mask = mask.squeeze(0).permute(1, 2, 0)
+
         return mask
 
     def get_mask_from_semantics(self, idx, semantics, mask_classes):
