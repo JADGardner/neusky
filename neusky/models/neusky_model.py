@@ -83,13 +83,13 @@ class NeuSkyFactoModelConfig(NeuSFactoModelConfig):
     """NeusFacto Model Config"""
 
     _target: Type = field(default_factory=lambda: NeuSkyFactoModel)
-    illumination_field: SphericalFieldConfig = SphericalFieldConfig()
+    illumination_field: SphericalFieldConfig = field(default_factory=SphericalFieldConfig)
     """Illumination Field"""
     illumination_field_ckpt_path: Path = Path("/path/to/ckpt.pt")
     """Path of pretrained illumination field"""
     illumination_field_ckpt_step: int = 0
     """Step of pretrained illumination field"""
-    illumination_sampler: IlluminationSamplerConfig = IlluminationSamplerConfig()
+    illumination_sampler: IlluminationSamplerConfig = field(default_factory=IlluminationSamplerConfig)
     """Illumination sampler to use"""
     illumination_field_cosine_loss_weight: float = 1e-1
     """Weight for the reni cosine loss"""
@@ -283,7 +283,7 @@ class NeuSkyFactoModel(NeuSFactoModel):
             if not ckpt_path.exists():
                 raise ValueError(f"Could not find illumination field checkpoint at {ckpt_path}")
 
-            ckpt = torch.load(str(ckpt_path))
+            ckpt = torch.load(str(ckpt_path), weights_only=False)
             illumination_field_dict = {}
             match_str = "_model.field."
             ignore_strs = [
@@ -1172,6 +1172,78 @@ class NeuSkyFactoModel(NeuSFactoModel):
 
         images_dict["albedo"] = outputs["albedo"]
         images_dict["envmap_from_camera"] = linear_to_sRGB(outputs["hdr_background_colours"])
+
+        # --- Ground-truth material evaluation (available for val/test splits) ---
+        # Foreground mask: channel 1 of the mask tensor (fg_mask), excluding sky
+        fg_mask = batch["mask"][..., 1:2].to(self.device)  # (H, W, 1), 1=foreground
+
+        # Albedo evaluation
+        if "gt_albedo" in batch:
+            gt_albedo_linear = batch["gt_albedo"].to(self.device)  # (H, W, 3), linear
+            gt_albedo_srgb = linear_to_sRGB(gt_albedo_linear)
+            pred_albedo_srgb = linear_to_sRGB(outputs["albedo"])
+
+            # Per-channel rescale prediction to match GT (NeRFactor convention)
+            # Only on foreground pixels to avoid sky contamination
+            fg_pixels = fg_mask > 0.5  # (H, W, 1)
+            for c in range(3):
+                gt_ch = gt_albedo_srgb[..., c][fg_pixels[..., 0]]
+                pred_ch = pred_albedo_srgb[..., c][fg_pixels[..., 0]]
+                if pred_ch.sum() > 1e-8:
+                    scale_c = (gt_ch * pred_ch).sum() / (pred_ch * pred_ch).sum().clamp(min=1e-8)
+                    pred_albedo_srgb[..., c] *= scale_c
+
+            # Masked PSNR/SSIM (foreground only)
+            gt_masked = gt_albedo_srgb * fg_mask
+            pred_masked = pred_albedo_srgb * fg_mask
+            gt_4d = torch.moveaxis(gt_masked, -1, 0)[None, ...]
+            pred_4d = torch.moveaxis(pred_masked, -1, 0)[None, ...]
+            metrics_dict["albedo_psnr"] = float(self.psnr(gt_4d, pred_4d).item())
+            metrics_dict["albedo_ssim"] = float(self.ssim(gt_4d, pred_4d))
+
+            # Side-by-side visualization: GT | Predicted (both sRGB, masked)
+            images_dict["gt_vs_pred_albedo"] = torch.cat([gt_albedo_srgb, pred_albedo_srgb], dim=1)
+
+        # Normal evaluation
+        if "gt_normal" in batch:
+            gt_normal = batch["gt_normal"].to(self.device)  # (H, W, 3), world-space
+            pred_normal = outputs["normal"]  # (H, W, 3), in [-1, 1]
+
+            # Normalize both to unit vectors
+            gt_norm = torch.nn.functional.normalize(gt_normal, dim=-1)
+            pred_norm = torch.nn.functional.normalize(pred_normal, dim=-1)
+
+            # Mean angular error in degrees on foreground pixels
+            fg_pixels = fg_mask[..., 0] > 0.5  # (H, W)
+            if fg_pixels.any():
+                cos_sim = (gt_norm[fg_pixels] * pred_norm[fg_pixels]).sum(dim=-1).clamp(-1.0, 1.0)
+                angular_error_deg = torch.acos(cos_sim) * (180.0 / torch.pi)
+                metrics_dict["normal_mae"] = float(angular_error_deg.mean().item())
+
+            # Visualization: map [-1,1] to [0,1]
+            gt_normal_vis = (gt_norm + 1.0) / 2.0
+            pred_normal_vis = (pred_norm + 1.0) / 2.0
+            images_dict["gt_vs_pred_normal"] = torch.cat([gt_normal_vis, pred_normal_vis], dim=1)
+
+        # Depth evaluation
+        if "gt_depth" in batch:
+            gt_depth = batch["gt_depth"].to(self.device)  # (H, W, 1)
+            pred_depth = outputs["depth"]  # (H, W, 1)
+
+            # Scale-shift align predicted depth to GT
+            valid_mask = (gt_depth[..., 0] > 0.0) & (fg_mask[..., 0] > 0.5)
+            if valid_mask.any():
+                scale, shift = normalized_depth_scale_and_shift(
+                    pred_depth[None, ..., 0], gt_depth[None, ..., 0], valid_mask[None, ...]
+                )
+                aligned_depth = pred_depth * scale + shift
+                depth_error = (aligned_depth[..., 0] - gt_depth[..., 0]) ** 2
+                metrics_dict["depth_mse"] = float(depth_error[valid_mask].mean().item())
+
+                # Visualization
+                gt_depth_vis = colormaps.apply_depth_colormap(gt_depth)
+                pred_depth_vis = colormaps.apply_depth_colormap(aligned_depth)
+                images_dict["gt_vs_pred_depth"] = torch.cat([gt_depth_vis, pred_depth_vis], dim=1)
 
         with torch.no_grad():
             ray_samples = self.equirectangular_sampler.generate_direction_samples()

@@ -13,12 +13,14 @@
 # limitations under the License.
 
 """
-SDFStudio dataset.
+NeuSky dataset with ground-truth EXR layer loading for evaluation.
 """
 from copy import deepcopy
+from dataclasses import field
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
+import cv2
 import numpy as np
 import numpy.typing as npt
 import torch
@@ -33,6 +35,31 @@ from nerfstudio.data.dataparsers.base_dataparser import (
     DataparserOutputs,
     Semantics,
 )
+
+GT_LAYER_NAMES = ["albedo", "normal", "depth", "roughness", "metallic", "ior", "transmission"]
+
+# Number of channels per GT layer
+GT_LAYER_CHANNELS = {
+    "albedo": 3,
+    "normal": 3,
+    "depth": 1,
+    "roughness": 1,
+    "metallic": 1,
+    "ior": 1,
+    "transmission": 1,
+}
+
+
+def _load_exr(filepath: str, num_channels: int = 3) -> Optional[np.ndarray]:
+    """Load an EXR file using OpenCV. Returns float32 array (H, W, C) or None on failure."""
+    img = cv2.imread(filepath, cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH)
+    if img is None:
+        return None
+    if num_channels >= 3 and img.ndim == 3 and img.shape[2] >= 3:
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    if img.ndim == 2:
+        img = img[:, :, np.newaxis]
+    return img.astype(np.float32)
 
 CITYSCAPE_CLASSES = {
     "classes": [
@@ -88,7 +115,11 @@ class NeuSkyDataset(InputDataset):
         scale_factor: The scaling factor for the dataparser outputs.
     """
 
-    exclude_batch_keys_from_device: List[str] = ["image", "mask", "fg_mask", "ground_mask"]
+    exclude_batch_keys_from_device: List[str] = [
+        "image", "mask", "fg_mask", "ground_mask",
+        "gt_albedo", "gt_normal", "gt_depth", "gt_roughness",
+        "gt_metallic", "gt_ior", "gt_transmission",
+    ]
 
     def __init__(self, dataparser_outputs: DataparserOutputs, scale_factor: float = 1.0, split: str = "train"):
         super().__init__(dataparser_outputs, scale_factor)
@@ -115,6 +146,13 @@ class NeuSkyDataset(InputDataset):
         self.test_eval_mask_dict = dataparser_outputs.metadata["test_eval_mask_dict"]
         self.out_of_view_frustum_objects_masks = dataparser_outputs.metadata["out_of_view_frustum_objects_masks"]
         self.split = split
+
+        # Extract GT layer filenames from metadata (populated by dataparser for val/test)
+        self.gt_layer_filenames = {}
+        for layer_name in GT_LAYER_NAMES:
+            key = f"gt_{layer_name}_filenames"
+            if key in self.metadata and self.metadata[key] is not None:
+                self.gt_layer_filenames[layer_name] = self.metadata[key]
 
     def get_numpy_image(self, image_idx: int) -> npt.NDArray[np.uint8]:
         """Returns the image of shape (H, W, 3 or 4).
@@ -156,6 +194,25 @@ class NeuSkyDataset(InputDataset):
         metadata = {}
 
         metadata["mask"] = self.get_mask(data["image_idx"])
+
+        # Load GT EXR layers for evaluation (val/test splits only)
+        idx = data["image_idx"]
+        for layer_name, filenames in self.gt_layer_filenames.items():
+            filepath = filenames[idx]
+            if filepath is None:
+                continue
+            num_ch = GT_LAYER_CHANNELS.get(layer_name, 3)
+            arr = _load_exr(filepath, num_channels=num_ch)
+            if arr is None:
+                continue
+            # Apply same spatial downscale as images
+            if self.scale_factor != 1.0:
+                h, w = arr.shape[:2]
+                new_h, new_w = int(h * self.scale_factor), int(w * self.scale_factor)
+                arr_t = torch.from_numpy(arr).permute(2, 0, 1).unsqueeze(0)
+                arr_t = torch.nn.functional.interpolate(arr_t, size=(new_h, new_w), mode="bilinear", align_corners=False)
+                arr = arr_t.squeeze(0).permute(1, 2, 0).numpy()
+            metadata[f"gt_{layer_name}"] = torch.from_numpy(arr)
 
         return metadata
 

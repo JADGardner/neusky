@@ -57,7 +57,7 @@ class DDFDataManagerConfig(DataManagerConfig):
     """Type of training data to use"""
     train_data_idx: int = 0
     """Index of training data to use if using single_camera"""
-    ddf_sampler: DDFSamplerConfig = DDFSamplerConfig()
+    ddf_sampler: DDFSamplerConfig = field(default_factory=DDFSamplerConfig)
     """DDF sampler config"""
     num_of_sky_ray_samples: int = 256
     """Number of sky ray samples"""

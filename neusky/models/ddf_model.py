@@ -55,7 +55,7 @@ class DDFModelConfig(ModelConfig):
     """DDF Model Config"""
 
     _target: Type = field(default_factory=lambda: DDFModel)
-    ddf_field: DirectionalDistanceFieldConfig = DirectionalDistanceFieldConfig()
+    ddf_field: DirectionalDistanceFieldConfig = field(default_factory=DirectionalDistanceFieldConfig)
     """DDF field configuration"""
     compute_normals: bool = False
     """Whether to compute normals"""

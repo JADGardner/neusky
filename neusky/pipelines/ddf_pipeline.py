@@ -58,9 +58,9 @@ class DDFPipelineConfig(VanillaPipelineConfig):
 
     _target: Type = field(default_factory=lambda: DDFPipeline)
     """target class to instantiate"""
-    datamanager: DataManagerConfig = NeuSkyDataManagerConfig()
+    datamanager: DataManagerConfig = field(default_factory=NeuSkyDataManagerConfig)
     """specifies the datamanager config"""
-    model: ModelConfig = ModelConfig()
+    model: ModelConfig = field(default_factory=ModelConfig)
     """specifies the model config"""
     eval_latent_optimisation_source: Literal["none", "envmap", "image_half", "image_full"] = "image_half"
     """Source for latent optimisation during eval"""
@@ -155,7 +155,7 @@ class DDFPipeline(VanillaPipeline):
         if not ckpt_path.exists():
             raise ValueError(f"Could not find illumination field checkpoint at {ckpt_path}")
 
-        ckpt = torch.load(str(ckpt_path))
+        ckpt = torch.load(str(ckpt_path), weights_only=False)
 
         model_dict = {}
         for key in ckpt["pipeline"].keys():

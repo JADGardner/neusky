@@ -20,15 +20,25 @@ Expected directory layout (produced by scripts/prepare_synthetic_data.py):
 
     <data>/
         transforms.json          # camera poses for ALL frames
+        points3d.ply             # (optional) SfM point cloud for centering
         train/
             rgb/*.png
             cityscapes_mask/*.png
         validation/
             rgb/*.png
             cityscapes_mask/*.png
+            albedo/*.exr          # GT layers (val/test only)
+            normal/*.exr
+            depth/*.exr
+            roughness/*.exr
+            metallic/*.exr
+            ior/*.exr
+            transmission/*.exr
         test/
             rgb/*.png
             cityscapes_mask/*.png
+            albedo/*.exr
+            ...
 """
 
 from __future__ import annotations
@@ -36,10 +46,9 @@ from __future__ import annotations
 import glob
 import json
 import os
-import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Literal, Type
+from typing import Dict, List, Literal, Optional, Type
 
 import numpy as np
 import torch
@@ -53,6 +62,7 @@ from nerfstudio.data.dataparsers.base_dataparser import (
     Semantics,
 )
 from nerfstudio.data.scene_box import SceneBox
+from nerfstudio.utils.rich_utils import CONSOLE
 
 CITYSCAPE_CLASSES = {
     "classes": [
@@ -99,15 +109,7 @@ CITYSCAPE_CLASSES = {
     ],
 }
 
-_FRAME_NUM_RE = re.compile(r"(\d+)")
-
-
-def _extract_frame_num(filename: str) -> int:
-    """Extract the last group of digits from a filename."""
-    matches = _FRAME_NUM_RE.findall(Path(filename).stem)
-    if not matches:
-        raise ValueError(f"Cannot extract frame number from {filename}")
-    return int(matches[-1])
+GT_LAYER_NAMES = ["albedo", "normal", "depth", "roughness", "metallic", "ior", "transmission"]
 
 
 def _find_files(directory: str, exts: List[str]) -> List[str]:
@@ -144,6 +146,12 @@ class CustomNeuskyDataparserConfig(DataParserConfig):
     """Include vegetation in transient masks"""
     include_sidewalk_in_ground_mask: bool = True
     """Include sidewalk in ground mask"""
+    center_method_sfm: bool = False
+    """Use SfM point cloud for scene centering instead of camera positions."""
+    sfm_outlier_percentile: float = 95.0
+    """Keep closest N% of SfM points when computing center (filters outliers)."""
+    points3d_filename: str = "points3d.ply"
+    """Name of the SfM point cloud file relative to data root."""
 
 
 @dataclass
@@ -159,27 +167,32 @@ class CustomNeuskyDataparser(DataParser):
 
     config: CustomNeuskyDataparserConfig
 
-    def _load_transforms(self):
-        """Load the transforms JSON and build a frame_num -> pose/intrinsics map."""
+    def _load_transforms(self) -> Dict[str, dict]:
+        """Load the transforms JSON and build a file_path -> pose/intrinsics map.
+
+        Uses per-frame intrinsics with fallback to global defaults.
+        Keys are the file_path strings from the JSON (e.g. 'train/rgb/0000.png').
+        """
         transforms_path = self.config.data / self.config.transforms_filename
         with open(transforms_path, "r") as f:
             meta = json.load(f)
 
-        fl_x = float(meta["fl_x"])
-        fl_y = float(meta["fl_y"])
-        cx = float(meta["cx"])
-        cy = float(meta["cy"])
+        # Global defaults
+        default_fl_x = float(meta["fl_x"])
+        default_fl_y = float(meta["fl_y"])
+        default_cx = float(meta["cx"])
+        default_cy = float(meta["cy"])
 
         frame_data = {}
         for frame in meta["frames"]:
-            frame_num = _extract_frame_num(frame["file_path"])
+            file_path = frame["file_path"]
             c2w = np.array(frame["transform_matrix"], dtype=np.float32)
-            frame_data[frame_num] = {
+            frame_data[file_path] = {
                 "c2w": c2w,
-                "fl_x": fl_x,
-                "fl_y": fl_y,
-                "cx": cx,
-                "cy": cy,
+                "fl_x": float(frame.get("fl_x", default_fl_x)),
+                "fl_y": float(frame.get("fl_y", default_fl_y)),
+                "cx": float(frame.get("cx", default_cx)),
+                "cy": float(frame.get("cy", default_cy)),
             }
         return frame_data
 
@@ -188,6 +201,142 @@ class CustomNeuskyDataparser(DataParser):
         split_name = "validation" if split == "val" else split
         d = self.config.data / split_name / subdir
         return _find_files(str(d), ["*.png", "*.jpg", "*.PNG", "*.JPG"])
+
+    def _discover_gt_layers(self, split: str, image_filenames: List[str]) -> Dict[str, List[str]]:
+        """Discover ground-truth EXR layers for a split.
+
+        Checks for {split}/albedo/*.exr, {split}/normal/*.exr, etc.
+        Returns a dict mapping layer names to aligned lists of file paths.
+        Only returns layers where every image has a matching EXR file.
+        """
+        split_name = "validation" if split == "val" else split
+        gt_layers = {}
+
+        # Build stem -> index lookup from image filenames
+        stem_to_idx = {}
+        for i, img_path in enumerate(image_filenames):
+            stem_to_idx[Path(img_path).stem] = i
+
+        for layer_name in GT_LAYER_NAMES:
+            layer_dir = self.config.data / split_name / layer_name
+            if not layer_dir.is_dir():
+                continue
+
+            exr_files = _find_files(str(layer_dir), ["*.exr", "*.EXR"])
+            if not exr_files:
+                continue
+
+            # Build stem -> exr_path lookup
+            exr_by_stem = {}
+            for ef in exr_files:
+                exr_by_stem[Path(ef).stem] = ef
+
+            # Try to match every image to an EXR
+            aligned = [None] * len(image_filenames)
+            all_matched = True
+            for stem, idx in stem_to_idx.items():
+                if stem in exr_by_stem:
+                    aligned[idx] = exr_by_stem[stem]
+                else:
+                    all_matched = False
+                    break
+
+            if all_matched:
+                gt_layers[f"gt_{layer_name}_filenames"] = aligned
+                CONSOLE.log(f"  Found GT layer '{layer_name}': {len(aligned)} files")
+
+        return gt_layers
+
+    def _load_sfm_points(self) -> Optional[np.ndarray]:
+        """Load SfM point cloud from PLY file. Returns (N, 3) array or None."""
+        ply_path = self.config.data / self.config.points3d_filename
+        if not ply_path.exists():
+            CONSOLE.log(f"[yellow]SfM point cloud not found: {ply_path}")
+            return None
+
+        try:
+            from plyfile import PlyData
+            plydata = PlyData.read(str(ply_path))
+            vertex = plydata["vertex"]
+            points = np.stack([vertex["x"], vertex["y"], vertex["z"]], axis=-1).astype(np.float32)
+            CONSOLE.log(f"Loaded {len(points)} SfM points from {ply_path}")
+            return points
+        except ImportError:
+            CONSOLE.log("[yellow]plyfile not installed, falling back to numpy PLY loading")
+            # Simple binary PLY fallback using numpy
+            return self._load_ply_numpy(ply_path)
+        except Exception as e:
+            CONSOLE.log(f"[yellow]Failed to load SfM points: {e}")
+            return None
+
+    def _load_ply_numpy(self, ply_path: Path) -> Optional[np.ndarray]:
+        """Fallback PLY loader using numpy for binary_little_endian format."""
+        try:
+            with open(ply_path, "rb") as f:
+                # Read header
+                header_lines = []
+                while True:
+                    line = f.readline().decode("ascii").strip()
+                    header_lines.append(line)
+                    if line == "end_header":
+                        break
+
+                # Parse header for vertex count and format
+                n_vertices = 0
+                is_binary = False
+                for line in header_lines:
+                    if line.startswith("element vertex"):
+                        n_vertices = int(line.split()[-1])
+                    if "binary_little_endian" in line:
+                        is_binary = True
+
+                if n_vertices == 0:
+                    return None
+
+                if is_binary:
+                    # Assume x,y,z float32 + r,g,b uint8 (common format)
+                    dtype = np.dtype([
+                        ("x", "<f4"), ("y", "<f4"), ("z", "<f4"),
+                        ("red", "u1"), ("green", "u1"), ("blue", "u1"),
+                    ])
+                    data = np.frombuffer(f.read(n_vertices * dtype.itemsize), dtype=dtype)
+                    points = np.stack([data["x"], data["y"], data["z"]], axis=-1)
+                    return points
+                else:
+                    # ASCII format
+                    data = np.loadtxt(f, max_rows=n_vertices)
+                    return data[:, :3].astype(np.float32)
+        except Exception as e:
+            CONSOLE.log(f"[yellow]Numpy PLY loading failed: {e}")
+            return None
+
+    def _compute_sfm_centering(self, points: np.ndarray):
+        """Compute scene center and scale from SfM points.
+
+        Filters outliers (keeps closest sfm_outlier_percentile% of points),
+        then computes mean center and scale to normalize mean distance to 1.
+
+        Returns (center, scale) as (np.ndarray[3], float).
+        """
+        # Initial center estimate
+        median = np.median(points, axis=0)
+        dists = np.linalg.norm(points - median, axis=1)
+
+        # Filter outliers
+        threshold = np.percentile(dists, self.config.sfm_outlier_percentile)
+        inliers = points[dists <= threshold]
+        CONSOLE.log(
+            f"SfM centering: {len(inliers)}/{len(points)} inlier points "
+            f"(percentile={self.config.sfm_outlier_percentile}%)"
+        )
+
+        # Compute center and scale from inliers
+        center = np.mean(inliers, axis=0)
+        mean_dist = np.mean(np.linalg.norm(inliers - center, axis=1))
+        scale = 1.0 / max(mean_dist, 1e-6)
+
+        CONSOLE.log(f"SfM center: {center}, scale: {scale:.4f}")
+        return center, scale
 
     def _generate_dataparser_outputs(self, split="train"):
         frame_data = self._load_transforms()
@@ -203,26 +352,28 @@ class CustomNeuskyDataparser(DataParser):
             rgb_files = self._get_split_files(s, "rgb")
             mask_files = self._get_split_files(s, "cityscapes_mask")
 
-            # Build frame_num -> mask_path lookup
-            mask_by_num = {}
+            # Build stem -> mask_path lookup (stems are unique within a split)
+            mask_by_stem = {}
             for mf in mask_files:
-                mask_by_num[_extract_frame_num(mf)] = mf
+                mask_by_stem[Path(mf).stem] = mf
 
             matched_images = []
             matched_masks = []
             count = 0
             for img_path in rgb_files:
-                fnum = _extract_frame_num(img_path)
-                if fnum not in frame_data:
+                # Compute relative path from data root to match transforms.json keys
+                rel_path = str(Path(img_path).relative_to(self.config.data))
+                if rel_path not in frame_data:
                     continue
-                fd = frame_data[fnum]
+                fd = frame_data[rel_path]
                 all_c2w.append(fd["c2w"])
                 all_fx.append(fd["fl_x"])
                 all_fy.append(fd["fl_y"])
                 all_cx.append(fd["cx"])
                 all_cy.append(fd["cy"])
                 matched_images.append(img_path)
-                matched_masks.append(mask_by_num.get(fnum))
+                stem = Path(img_path).stem
+                matched_masks.append(mask_by_stem.get(stem))
                 count += 1
 
             per_split_images[s] = matched_images
@@ -236,23 +387,56 @@ class CustomNeuskyDataparser(DataParser):
                 "Run scripts/prepare_synthetic_data.py first."
             )
 
+        CONSOLE.log(
+            f"Matched frames: train={split_counts['train']}, "
+            f"val={split_counts['val']}, test={split_counts['test']}"
+        )
+
         camera_to_worlds = torch.from_numpy(np.stack(all_c2w))  # [N, 4, 4]
 
         # --- Normalise poses across all splits ---
-        camera_to_worlds, _ = camera_utils.auto_orient_and_center_poses(
-            camera_to_worlds,
-            method=self.config.orientation_method,
-            center_method=self.config.center_method,
-        )
+        if self.config.center_method_sfm:
+            # SfM centering: use auto_orient for up-vector alignment only
+            camera_to_worlds, transform = camera_utils.auto_orient_and_center_poses(
+                camera_to_worlds,
+                method=self.config.orientation_method,
+                center_method="none",
+            )
 
-        # Shift cameras so mean z is at origin
-        camera_to_worlds[:, 2, 3] -= torch.mean(camera_to_worlds[:, 2, 3], dim=0)
+            sfm_points = self._load_sfm_points()
+            if sfm_points is not None:
+                # Apply the same orientation transform to the SfM points
+                # transform is a 3x4 matrix: R|t
+                R = transform[:3, :3].numpy()
+                t = transform[:3, 3].numpy()
+                sfm_points = (R @ sfm_points.T).T + t
 
-        # Scale poses
-        scale_factor = 1.0
-        if self.config.auto_scale_poses:
-            scale_factor /= torch.max(torch.abs(camera_to_worlds[:, :3, 3]))
-        camera_to_worlds[:, :3, 3] *= scale_factor * self.config.scale_factor
+                center, scale = self._compute_sfm_centering(sfm_points)
+
+                # Apply SfM-derived centering to camera positions
+                camera_to_worlds[:, :3, 3] -= torch.from_numpy(center).float()
+                camera_to_worlds[:, :3, 3] *= scale * self.config.scale_factor
+            else:
+                CONSOLE.log("[yellow]SfM centering requested but no points found, falling back to pose centering")
+                camera_to_worlds[:, 2, 3] -= torch.mean(camera_to_worlds[:, 2, 3], dim=0)
+                if self.config.auto_scale_poses:
+                    scale_factor = 1.0 / torch.max(torch.abs(camera_to_worlds[:, :3, 3]))
+                    camera_to_worlds[:, :3, 3] *= scale_factor * self.config.scale_factor
+        else:
+            camera_to_worlds, _ = camera_utils.auto_orient_and_center_poses(
+                camera_to_worlds,
+                method=self.config.orientation_method,
+                center_method=self.config.center_method,
+            )
+
+            # Shift cameras so mean z is at origin
+            camera_to_worlds[:, 2, 3] -= torch.mean(camera_to_worlds[:, 2, 3], dim=0)
+
+            # Scale poses
+            scale_factor = 1.0
+            if self.config.auto_scale_poses:
+                scale_factor /= torch.max(torch.abs(camera_to_worlds[:, :3, 3]))
+            camera_to_worlds[:, :3, 3] *= scale_factor * self.config.scale_factor
 
         # --- Slice out the requested split ---
         query = split if split != "val" else "val"
@@ -314,6 +498,9 @@ class CustomNeuskyDataparser(DataParser):
                 colors=colors,
             )
 
+        # Discover ground-truth layers for this split
+        gt_layers = self._discover_gt_layers(query, image_filenames)
+
         metadata = {
             "semantics": semantics,
             "session_to_indices": None,
@@ -333,6 +520,7 @@ class CustomNeuskyDataparser(DataParser):
             "out_of_view_frustum_objects_masks": [None] * len(image_filenames),
             "include_sidewalk_in_ground_mask": self.config.include_sidewalk_in_ground_mask,
         }
+        metadata.update(gt_layers)
 
         dataparser_outputs = DataparserOutputs(
             image_filenames=image_filenames,

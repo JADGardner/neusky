@@ -64,11 +64,11 @@ class NeuSkyPipelineConfig(VanillaPipelineConfig):
 
     _target: Type = field(default_factory=lambda: NeuSkyPipeline)
     """target class to instantiate"""
-    datamanager: DataManagerConfig = NeuSkyDataManagerConfig()
+    datamanager: DataManagerConfig = field(default_factory=NeuSkyDataManagerConfig)
     """specifies the datamanager config"""
-    model: NeuSkyFactoModelConfig = NeuSkyFactoModelConfig()
+    model: NeuSkyFactoModelConfig = field(default_factory=NeuSkyFactoModelConfig)
     """specifies the model config"""
-    visibility_field: Union[DDFModelConfig, None] = DDFModelConfig()
+    visibility_field: Union[DDFModelConfig, None] = field(default_factory=DDFModelConfig)
     """Visibility field"""
     visibility_ckpt_path: Union[Path, None] = None
     """Path to visibility checkpoint"""
@@ -78,7 +78,7 @@ class NeuSkyPipelineConfig(VanillaPipelineConfig):
     """Radius of the DDF sphere"""
     num_visibility_field_train_rays_per_batch: int = 256
     """Number of rays to sample of the scene for training the visibility field"""
-    visibility_train_sampler: DDFSamplerConfig = DDFSamplerConfig()
+    visibility_train_sampler: DDFSamplerConfig = field(default_factory=DDFSamplerConfig)
     """Visibility field sampler for training"""
     visibility_accumulation_mask_threshold: float = 0.7
     """Threshold for visibility accumulation mask, 0.0 means no mask as mask = accum > threshold"""
@@ -179,6 +179,7 @@ class NeuSkyPipeline(VanillaPipeline):
                 / "nerfstudio_models"
                 / f"step-{self.config.neusky_ckpt_step:09d}.ckpt",
                 map_location=device,
+                weights_only=False,
             )
             model_dict = {}
             for key in ckpt["pipeline"].keys():
@@ -462,7 +463,7 @@ class NeuSkyPipeline(VanillaPipeline):
                 / "nerfstudio_models"
                 / f"step-{self.config.visibility_ckpt_step:09d}.ckpt"
             )
-            ckpt = torch.load(str(ckpt_path))
+            ckpt = torch.load(str(ckpt_path), weights_only=False)
 
             model_dict = {}
             for key in ckpt["pipeline"].keys():
