@@ -21,7 +21,6 @@ from nerfstudio.field_components.field_heads import FieldHeadNames
 from nerfstudio.cameras.rays import RayBundle, RaySamples, Frustums
 from nerfstudio.utils.colormaps import apply_depth_colormap
 from nerfstudio.field_components.encodings import SHEncoding, NeRFEncoding
-from nerfstudio.viewer.server import viewer_utils
 from nerfstudio.utils import colormaps
 from nerfstudio.utils.io import load_from_json
 from nerfstudio.cameras.cameras import Cameras, CameraType

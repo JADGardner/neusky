@@ -68,7 +68,7 @@ class CustomNeuskyDataset(InputDataset):
         Args:
             image_idx: The image index in the dataset.
         """
-        image = self.get_image(image_idx)
+        image = self.get_image_float32(image_idx)
         data = {"image_idx": image_idx, "image": image}
 
         # TODO: Generate mask from cityscapes segmentations

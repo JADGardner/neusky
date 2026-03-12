@@ -75,7 +75,6 @@ for key in vision_model_dict.keys():
 datamanager: RENINeuSDataManager = RENINeuS.config.pipeline.datamanager.setup(
     device=device, test_mode=test_mode, world_size=world_size, local_rank=local_rank,
 )
-datamanager.to(device)
 
 # instantiate model with config with vis
 model = RENINeuS.config.pipeline.model.setup(

@@ -133,7 +133,6 @@ class NeuSkyPipeline(VanillaPipeline):
             local_rank=local_rank,
             eval_latent_optimise_method=config.model.eval_latent_optimise_method,
         )
-        self.datamanager.to(device)
         assert self.datamanager.train_dataset is not None, "Missing input dataset"
 
         if test_mode in ["val", "test"]:

@@ -124,7 +124,6 @@ class DDFPipeline(VanillaPipeline):
             ddf_radius=self.ddf_radius,
             log_depth=self.config.model.log_depth,
         )
-        self.datamanager.to(device)
         assert self.datamanager.train_dataset is not None, "Missing input dataset"
 
         if test_mode in ["val", "test"]:
