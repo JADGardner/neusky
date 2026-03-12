@@ -20,7 +20,6 @@ from dataclasses import field
 from pathlib import Path
 from typing import Dict, List, Optional
 
-import cv2
 import numpy as np
 import numpy.typing as npt
 import torch
@@ -51,14 +50,17 @@ GT_LAYER_CHANNELS = {
 
 
 def _load_exr(filepath: str, num_channels: int = 3) -> Optional[np.ndarray]:
-    """Load an EXR file using OpenCV. Returns float32 array (H, W, C) or None on failure."""
-    img = cv2.imread(filepath, cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH)
-    if img is None:
+    """Load an EXR file using pyexr. Returns float32 array (H, W, C) or None on failure."""
+    try:
+        import pyexr
+        img = pyexr.open(filepath).get()  # float32, (H, W, C) or (H, W, 1)
+    except Exception:
         return None
-    if num_channels >= 3 and img.ndim == 3 and img.shape[2] >= 3:
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     if img.ndim == 2:
         img = img[:, :, np.newaxis]
+    # Trim to expected channels (e.g. RGBA -> RGB)
+    if img.shape[2] > num_channels:
+        img = img[:, :, :num_channels]
     return img.astype(np.float32)
 
 CITYSCAPE_CLASSES = {

@@ -150,6 +150,10 @@ class CustomNeuskyDataparserConfig(DataParserConfig):
     """Use SfM point cloud for scene centering instead of camera positions."""
     sfm_outlier_percentile: float = 95.0
     """Keep closest N% of SfM points when computing center (filters outliers)."""
+    sfm_scale_percentile: float = 50.0
+    """Percentile of inlier distances to use for scale (50=median, 100=mean-like)."""
+    sfm_target_radius: float = 0.5
+    """Target normalized radius for the sfm_scale_percentile distance."""
     points3d_filename: str = "points3d.ply"
     """Name of the SfM point cloud file relative to data root."""
 
@@ -193,6 +197,8 @@ class CustomNeuskyDataparser(DataParser):
                 "fl_y": float(frame.get("fl_y", default_fl_y)),
                 "cx": float(frame.get("cx", default_cx)),
                 "cy": float(frame.get("cy", default_cy)),
+                "envmap_name": frame.get("envmap_name"),
+                "envmap_rotation": frame.get("envmap_rotation"),
             }
         return frame_data
 
@@ -246,6 +252,41 @@ class CustomNeuskyDataparser(DataParser):
                 CONSOLE.log(f"  Found GT layer '{layer_name}': {len(aligned)} files")
 
         return gt_layers
+
+    def _resolve_gt_envmaps(self, envmap_list: List[dict]) -> List[Optional[dict]]:
+        """Resolve GT HDRI paths for each frame.
+
+        Looks for {envmap_name}.exr in hdris/ (4K) then hdris_16k/ (16K) directories,
+        which are siblings of the renders/ directory.
+
+        Returns a list of dicts with 'path' and 'rotation' keys, or None per frame.
+        """
+        # HDRIs are at data_root/../../hdris/ (scene is under renders/<scene>/)
+        renders_dir = self.config.data.parent  # renders/
+        data_root = renders_dir.parent          # neusky_synthetic_data/
+        hdri_dirs = [data_root / "hdris", data_root / "hdris_16k"]
+
+        result = []
+        for info in envmap_list:
+            name = info.get("name")
+            rotation = info.get("rotation")
+            if name is None:
+                result.append(None)
+                continue
+
+            hdri_path = None
+            for d in hdri_dirs:
+                candidate = d / f"{name}.exr"
+                if candidate.exists():
+                    hdri_path = str(candidate)
+                    break
+
+            if hdri_path is not None:
+                result.append({"path": hdri_path, "rotation": rotation})
+            else:
+                result.append(None)
+
+        return result
 
     def _load_sfm_points(self) -> Optional[np.ndarray]:
         """Load SfM point cloud from PLY file. Returns (N, 3) array or None."""
@@ -314,7 +355,9 @@ class CustomNeuskyDataparser(DataParser):
         """Compute scene center and scale from SfM points.
 
         Filters outliers (keeps closest sfm_outlier_percentile% of points),
-        then computes mean center and scale to normalize mean distance to 1.
+        then computes center and percentile-based scale. Using a percentile
+        (default: median) instead of the mean makes the scale robust to
+        ground-plane and distant-feature points that dominate the tail.
 
         Returns (center, scale) as (np.ndarray[3], float).
         """
@@ -330,12 +373,18 @@ class CustomNeuskyDataparser(DataParser):
             f"(percentile={self.config.sfm_outlier_percentile}%)"
         )
 
-        # Compute center and scale from inliers
+        # Compute center from inliers
         center = np.mean(inliers, axis=0)
-        mean_dist = np.mean(np.linalg.norm(inliers - center, axis=1))
-        scale = 1.0 / max(mean_dist, 1e-6)
+        dists_from_center = np.linalg.norm(inliers - center, axis=1)
 
-        CONSOLE.log(f"SfM center: {center}, scale: {scale:.4f}")
+        # Percentile-based scale: map the Nth-percentile distance to target_radius
+        target_dist = np.percentile(dists_from_center, self.config.sfm_scale_percentile)
+        scale = self.config.sfm_target_radius / max(target_dist, 1e-6)
+
+        CONSOLE.log(
+            f"SfM center: {center}, scale: {scale:.4f} "
+            f"(p{self.config.sfm_scale_percentile:.0f}={target_dist:.2f} -> r={self.config.sfm_target_radius})"
+        )
         return center, scale
 
     def _generate_dataparser_outputs(self, split="train"):
@@ -346,6 +395,7 @@ class CustomNeuskyDataparser(DataParser):
         all_fx, all_fy, all_cx, all_cy = [], [], [], []
         per_split_images = {}    # split_name -> [image_path, ...]
         per_split_masks = {}     # split_name -> [mask_path, ...]
+        per_split_envmaps = {}   # split_name -> [{name, rotation}, ...]
         split_counts = {}        # split_name -> count of matched frames
 
         for s in ["train", "val", "test"]:
@@ -359,6 +409,7 @@ class CustomNeuskyDataparser(DataParser):
 
             matched_images = []
             matched_masks = []
+            matched_envmaps = []
             count = 0
             for img_path in rgb_files:
                 # Compute relative path from data root to match transforms.json keys
@@ -374,10 +425,15 @@ class CustomNeuskyDataparser(DataParser):
                 matched_images.append(img_path)
                 stem = Path(img_path).stem
                 matched_masks.append(mask_by_stem.get(stem))
+                matched_envmaps.append({
+                    "name": fd.get("envmap_name"),
+                    "rotation": fd.get("envmap_rotation"),
+                })
                 count += 1
 
             per_split_images[s] = matched_images
             per_split_masks[s] = matched_masks
+            per_split_envmaps[s] = matched_envmaps
             split_counts[s] = count
 
         total = sum(split_counts.values())
@@ -402,6 +458,8 @@ class CustomNeuskyDataparser(DataParser):
                 method=self.config.orientation_method,
                 center_method="none",
             )
+            # Store the orientation rotation for transforming GT normals
+            orientation_rotation = transform[:3, :3].clone()
 
             sfm_points = self._load_sfm_points()
             if sfm_points is not None:
@@ -423,11 +481,12 @@ class CustomNeuskyDataparser(DataParser):
                     scale_factor = 1.0 / torch.max(torch.abs(camera_to_worlds[:, :3, 3]))
                     camera_to_worlds[:, :3, 3] *= scale_factor * self.config.scale_factor
         else:
-            camera_to_worlds, _ = camera_utils.auto_orient_and_center_poses(
+            camera_to_worlds, transform = camera_utils.auto_orient_and_center_poses(
                 camera_to_worlds,
                 method=self.config.orientation_method,
                 center_method=self.config.center_method,
             )
+            orientation_rotation = transform[:3, :3].clone()
 
             # Shift cameras so mean z is at origin
             camera_to_worlds[:, 2, 3] -= torch.mean(camera_to_worlds[:, 2, 3], dim=0)
@@ -501,6 +560,9 @@ class CustomNeuskyDataparser(DataParser):
         # Discover ground-truth layers for this split
         gt_layers = self._discover_gt_layers(query, image_filenames)
 
+        # Resolve GT HDRI paths for this split
+        gt_envmap_info = self._resolve_gt_envmaps(per_split_envmaps[query])
+
         metadata = {
             "semantics": semantics,
             "session_to_indices": None,
@@ -519,6 +581,8 @@ class CustomNeuskyDataparser(DataParser):
             "test_eval_mask_dict": {},
             "out_of_view_frustum_objects_masks": [None] * len(image_filenames),
             "include_sidewalk_in_ground_mask": self.config.include_sidewalk_in_ground_mask,
+            "orientation_rotation": orientation_rotation,  # 3x3 rotation from auto_orient_and_center_poses
+            "gt_envmap_info": gt_envmap_info,  # per-frame HDRI path + rotation
         }
         metadata.update(gt_layers)
 

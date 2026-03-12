@@ -962,6 +962,7 @@ class NeuSkyFactoModel(NeuSFactoModel):
             # foreground mask loss
             if self.config.loss_inclusions["fg_mask_loss"]:
                 weights_sum = outputs["weights"].sum(dim=1).clip(1e-3, 1.0 - 1e-3)  # [num_rays, 1]
+                weights_sum = torch.nan_to_num(weights_sum, nan=0.5)  # guard against NaN from SDF
                 fg_label = fg_mask.float().unsqueeze(1)  # [num_rays, 1]
                 loss_dict["fg_mask_loss"] = F.binary_cross_entropy(weights_sum, fg_label)
 
@@ -1206,8 +1207,15 @@ class NeuSkyFactoModel(NeuSFactoModel):
 
         # Normal evaluation
         if "gt_normal" in batch:
-            gt_normal = batch["gt_normal"].to(self.device)  # (H, W, 3), world-space
-            pred_normal = outputs["normal"]  # (H, W, 3), in [-1, 1]
+            gt_normal = batch["gt_normal"].to(self.device)  # (H, W, 3), Blender world-space
+            pred_normal = outputs["normal"]  # (H, W, 3), in model frame (post auto_orient)
+
+            # Rotate GT normals from Blender world-space to model frame
+            # orientation_rotation is stored in eval_metadata by the dataparser
+            if self.eval_metadata is not None and "orientation_rotation" in self.eval_metadata:
+                R = self.eval_metadata["orientation_rotation"].to(self.device).float()  # (3, 3)
+                H, W, _ = gt_normal.shape
+                gt_normal = (R @ gt_normal.reshape(-1, 3).T).T.reshape(H, W, 3)
 
             # Normalize both to unit vectors
             gt_norm = torch.nn.functional.normalize(gt_normal, dim=-1)
@@ -1273,6 +1281,56 @@ class NeuSkyFactoModel(NeuSFactoModel):
             combined_reni_envmap = torch.cat([ldr_envmap, hdr_mean_log_heatmap], dim=1)
 
             images_dict["reni_envmap"] = combined_reni_envmap
+
+            # GT HDRI comparison (if available from synthetic data)
+            gt_envmap_info = None
+            if self.eval_metadata is not None:
+                all_envmap_info = self.eval_metadata.get("gt_envmap_info")
+                if all_envmap_info is not None:
+                    idx = batch["image_idx"]
+                    if idx < len(all_envmap_info) and all_envmap_info[idx] is not None:
+                        gt_envmap_info = all_envmap_info[idx]
+
+            if gt_envmap_info is not None:
+                try:
+                    import pyexr
+                    gt_hdri = pyexr.open(gt_envmap_info["path"]).get()  # (H, W, C) float32
+                    if gt_hdri.shape[2] > 3:
+                        gt_hdri = gt_hdri[:, :, :3]
+                    gt_hdri_t = torch.from_numpy(gt_hdri).to(self.device)
+
+                    # Apply Z-rotation as horizontal pixel shift
+                    rotation = gt_envmap_info.get("rotation")
+                    if rotation is not None and len(rotation) >= 3:
+                        z_angle = rotation[2]  # radians
+                        shift_frac = z_angle / (2.0 * torch.pi)
+                        shift_pixels = int(round(shift_frac.item() if isinstance(shift_frac, torch.Tensor) else shift_frac * gt_hdri_t.shape[1]))
+                        if shift_pixels != 0:
+                            gt_hdri_t = torch.roll(gt_hdri_t, shifts=-shift_pixels, dims=1)
+
+                    # Resize to match RENI++ envmap resolution
+                    gt_hdri_t = gt_hdri_t.permute(2, 0, 1).unsqueeze(0)  # (1, 3, H, W)
+                    gt_hdri_t = torch.nn.functional.interpolate(
+                        gt_hdri_t, size=(height, width), mode="bilinear", align_corners=False
+                    )
+                    gt_hdri_t = gt_hdri_t.squeeze(0).permute(1, 2, 0)  # (H, W, 3)
+
+                    # LDR tonemapped version
+                    gt_ldr = linear_to_sRGB(gt_hdri_t)
+
+                    # HDR intensity heatmap (same as RENI++ viz)
+                    gt_hdr_mean = torch.mean(gt_hdri_t, dim=-1, keepdim=True)
+                    gt_hdr_heatmap = colormaps.apply_depth_colormap(
+                        gt_hdr_mean,
+                        near_plane=gt_hdr_mean.min(),
+                        far_plane=gt_hdr_mean.max(),
+                    )
+
+                    # Side-by-side: GT (LDR + HDR) | RENI++ (LDR + HDR)
+                    gt_combined = torch.cat([gt_ldr, gt_hdr_heatmap], dim=1)
+                    images_dict["gt_vs_pred_envmap"] = torch.cat([gt_combined, combined_reni_envmap], dim=0)
+                except Exception:
+                    pass  # Gracefully skip if HDRI loading fails
 
         return metrics_dict, images_dict
 
@@ -1547,6 +1605,10 @@ class NeuSkyFactoModel(NeuSFactoModel):
         c = torch.einsum("ij,ij->i", positions - sphere_origin, positions - sphere_origin) - radius**2
 
         discriminant = b**2 - 4 * a * c
+
+        # Clamp to avoid NaN from sqrt of negative discriminant
+        # (can happen when positions are near or outside the sphere boundary)
+        discriminant = torch.clamp(discriminant, min=0.0)
 
         t0 = (-b - torch.sqrt(discriminant)) / (2 * a)
         t1 = (-b + torch.sqrt(discriminant)) / (2 * a)
