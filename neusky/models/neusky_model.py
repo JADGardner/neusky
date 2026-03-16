@@ -1804,7 +1804,10 @@ class NeuSkyFactoModel(NeuSFactoModel):
             self.shadow_envmap_overlay_pos = click.origin
             self.shadow_envmap_overlay_dir = click.direction
 
-        self.viewer_control.register_click_cb(click_cb)
+        try:
+            self.viewer_control.register_click_cb(click_cb)
+        except AttributeError:
+            pass  # viser_server not available in headless/newer nerfstudio
 
         self.render_shadow_map_flag = False
         self.render_shadow_map_static_flag = False

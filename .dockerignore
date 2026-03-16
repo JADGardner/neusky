@@ -1,0 +1,16 @@
+# Don't send data/outputs as build context
+data/
+outputs/
+wandb/
+
+# Build artifacts
+*.sif
+*_overlay.img
+__pycache__/
+*.pyc
+*.egg-info/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store

@@ -151,11 +151,15 @@ def rotation_matrix(axis: np.ndarray, angle: float) -> np.ndarray:
 
 def find_nerfstudio_project_root(start_dir: Path = Path(".")) -> Path:
     """
-    Find the project root by searching for a '.root' file.
+    Find the project root by searching for pyproject.toml or a nerfstudio/ subdir.
     """
-    # Go up in the directory tree to find the root marker
+    import os
+    # Check env var first (set by container)
+    if "PROJECT_ROOT" in os.environ:
+        return Path(os.environ["PROJECT_ROOT"])
+    # Walk up looking for project markers
     for path in [start_dir, *start_dir.parents]:
-        if (path / 'nerfstudio').exists():
+        if (path / 'pyproject.toml').exists() or (path / 'nerfstudio').exists():
             return path
     # If we didn't find it, raise an error
     raise ValueError("Project root not found.")

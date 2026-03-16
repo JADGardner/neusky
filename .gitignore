@@ -190,3 +190,8 @@ camera_paths/
 */**/._.DS_Store
 /checkpoints/
 publication/animations/
+
+# Apptainer / Docker build artifacts
+.apptainer/*.sif
+.apptainer/*_overlay.img
+.apptainer/.env

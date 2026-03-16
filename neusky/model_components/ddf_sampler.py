@@ -23,7 +23,7 @@ import torch
 from nerfacc import OccGridEstimator
 from dataclasses import dataclass, field
 from torch import nn
-from torchtyping import TensorType
+from torch import Tensor as TensorType
 from torch.distributions import von_mises
 
 from nerfstudio.cameras.rays import Frustums, RayBundle, RaySamples

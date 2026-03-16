@@ -10,7 +10,6 @@ dependencies=[
     "yacs",
     "ftfy",
     "regex",
-    "torchtyping",
     "kaleido",
 ]
 

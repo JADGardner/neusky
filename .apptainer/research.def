@@ -1,0 +1,146 @@
+BootStrap: docker
+From: nvidia/cuda:12.8.1-cudnn-devel-ubuntu24.04
+
+%labels
+    Author James Gardner
+    Description NeuSky research container (nerfstudio + tiny-cuda-nn + nvdiffrast)
+
+%post
+    export DEBIAN_FRONTEND=noninteractive
+    CUDA_ARCHITECTURES="90;89;86;80"
+
+    # Disable apt sandbox privilege dropping (fails in rootless/fakeroot builds)
+    echo 'APT::Sandbox::User "root";' > /etc/apt/apt.conf.d/01-no-sandbox
+
+    # -- System dependencies ------------------------------------------------------
+    apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+        cmake \
+        ninja-build \
+        git \
+        wget \
+        curl \
+        bzip2 \
+        ca-certificates \
+        libopenexr-dev \
+        openexr \
+        libgl1 \
+        libglib2.0-0 \
+        libsm6 \
+        libxext6 \
+        ffmpeg \
+        && rm -rf /var/lib/apt/lists/*
+
+    # -- Miniconda (arch-aware) ---------------------------------------------------
+    ARCH="$(uname -m)"
+    case "${ARCH}" in
+        x86_64)  MINICONDA_ARCH="Linux-x86_64" ;;
+        aarch64) MINICONDA_ARCH="Linux-aarch64" ;;
+        *)       echo "Unsupported architecture: ${ARCH}"; exit 1 ;;
+    esac
+    CONDA_DIR=/opt/conda
+    wget --quiet "https://repo.anaconda.com/miniconda/Miniconda3-latest-${MINICONDA_ARCH}.sh" \
+        -O /tmp/miniconda.sh
+    /bin/bash /tmp/miniconda.sh -b -p "${CONDA_DIR}"
+    rm /tmp/miniconda.sh
+    export PATH="${CONDA_DIR}/bin:${PATH}"
+
+    # -- Conda environment --------------------------------------------------------
+    conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main
+    conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r
+    conda create -n research python=3.12 -y
+    conda run -n research conda install -c conda-forge colmap sqlite ffmpeg ninja -y
+
+    # -- PyTorch + CUDA 12.8 ------------------------------------------------------
+    conda run -n research pip install --no-cache-dir \
+        torch torchvision torchaudio \
+        --extra-index-url https://download.pytorch.org/whl/cu128
+
+    # -- tiny-cuda-nn --------------------------------------------------------------
+    conda run -n research bash -c " \
+        export TCNN_CUDA_ARCHITECTURES='${CUDA_ARCHITECTURES}' && \
+        export FORCE_CUDA=1 && \
+        pip install --no-cache-dir --no-build-isolation \
+        git+https://github.com/NVlabs/tiny-cuda-nn.git#subdirectory=bindings/torch"
+
+    # -- nvdiffrast (from source, with triton linking patch) ----------------------
+    conda run -n research bash -c " \
+        export TORCH_CUDA_ARCH_LIST='8.0;8.6;8.9;9.0+PTX' && \
+        ln -sf \$CONDA_PREFIX/lib/python3.12/site-packages/triton/backends/nvidia/include/crt \$CONDA_PREFIX/include/ && \
+        pip install --no-cache-dir --no-build-isolation git+https://github.com/NVlabs/nvdiffrast.git"
+
+    # -- nerfstudio (mainline) -----------------------------------------------------
+    conda run -n research bash -c " \
+        git clone --depth 1 https://github.com/nerfstudio-project/nerfstudio.git /opt/nerfstudio && \
+        cd /opt/nerfstudio && \
+        pip install --no-cache-dir -e ."
+
+    # -- Scientific Python stack + NeuSky deps ------------------------------------
+    conda run -n research pip install --no-cache-dir \
+        numpy scipy pandas matplotlib seaborn \
+        scikit-learn scikit-image \
+        opencv-python-headless Pillow \
+        tqdm wandb tensorboard \
+        jupyterlab ipywidgets
+
+    # -- 3D / NeRF packages -------------------------------------------------------
+    conda run -n research pip install --no-cache-dir \
+        open3d trimesh plyfile pycolmap
+
+    # -- Shared nerfstudio deps ---------------------------------------------------
+    conda run -n research pip install --no-cache-dir \
+        tyro rich jaxtyping viser nerfview splines \
+        einops pyyaml packaging requests
+
+    # -- ns_reni deps -------------------------------------------------------------
+    conda run -n research pip install --no-cache-dir \
+        pyexr OpenEXR roma
+
+    # -- neusky deps --------------------------------------------------------------
+    conda run -n research pip install --no-cache-dir \
+        icosphere wget yacs ftfy regex kaleido omegaconf
+
+    # -- Image I/O ----------------------------------------------------------------
+    conda run -n research pip install --no-cache-dir \
+        "imageio[all]"
+
+    # nerfstudio CLI completions
+    conda run -n research ns-install-cli || true
+
+    # Clean conda cache
+    conda clean -afy
+
+    # NVIDIA driver stubs (Apptainer --nv injects real drivers at runtime)
+    touch /usr/bin/nvidia-smi
+    touch /usr/bin/nvidia-debugdump
+    touch /usr/bin/nvidia-persistenced
+    touch /usr/bin/nvidia-cuda-mps-control
+    touch /usr/bin/nvidia-cuda-mps-server
+    mkdir -p /run/nvidia-persistenced
+    touch /run/nvidia-persistenced/socket
+
+    # Overlay package directory
+    mkdir -p /overlay-packages
+
+    # Bind-mount targets for HPC
+    mkdir -p /workspace/code /workspace/data /workspace/outputs /workspace/model-storage
+
+%environment
+    export CONDA_DIR=/opt/conda
+    export PATH="/opt/conda/envs/research/bin:/opt/conda/bin:/usr/local/cuda/bin:${PATH}"
+    export CUDA_HOME=/usr/local/cuda
+    export LD_LIBRARY_PATH="/opt/conda/envs/research/lib/python3.12/site-packages/torch/lib:/opt/conda/envs/research/lib/python3.12/site-packages/nvidia/cudnn/lib:/opt/conda/envs/research/lib/python3.12/site-packages/nvidia/cublas/lib:/usr/local/cuda/lib64:${LD_LIBRARY_PATH}"
+    export PYTHONPATH="/overlay-packages:${PYTHONPATH}"
+
+%test
+    . /opt/conda/etc/profile.d/conda.sh
+    conda activate research
+    # CUDA won't be available during build (no --nv), so just check imports.
+    python -c "import torch; print(f'PyTorch {torch.__version__}, CUDA compiled: {torch.version.cuda}')"
+    python -c "import nerfstudio; print('nerfstudio OK')"
+    python -c "import nvdiffrast; print('nvdiffrast OK')"
+
+%runscript
+    . /opt/conda/etc/profile.d/conda.sh
+    conda activate research
+    exec "$@"

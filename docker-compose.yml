@@ -1,0 +1,58 @@
+# docker-compose.yml — NeuSky
+#
+# GPU-accelerated research container for NeuSky outdoor scene reconstruction.
+#
+# Quick reference:
+#   Build the image:        docker compose build research
+#   Start a research shell: docker compose run research bash
+#   Train NeuSky:           docker compose run research ns-train neusky --data /workspace/data/<scene>
+#
+# Environment variables (set in shell or .env file):
+#   DATA_PATH          — path to datasets (default: ./data)
+#   OUTPUTS_PATH       — path to training outputs (default: ./outputs)
+#   MODEL_STORAGE_PATH — path to pretrained models (default: ./model-storage)
+
+services:
+  research:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    volumes:
+      # Mount the project root
+      - .:/workspace
+      # Mount external data, models, and outputs (override via .env or env vars)
+      - ${DATA_PATH:-./data}:/workspace/data
+      - ${MODEL_STORAGE_PATH:-./model-storage}:/workspace/model-storage
+      # RENI++ pretrained checkpoints (needed by NeuSky illumination field)
+      # Set RENI_CKPT_PATH to the ns_reni checkpoints directory containing latent_dim_*/
+      - ${RENI_CKPT_PATH:?Set RENI_CKPT_PATH to ns_reni/checkpoints/reni_plus_plus_models}:/workspace/model-storage/reni_plus_plus
+      - ${OUTPUTS_PATH:-./outputs}:/workspace/outputs
+      # Mount entrypoint from host (avoids image rebuild for entrypoint changes)
+      - ./docker/entrypoint.sh:/entrypoint.sh:ro
+      # Mount wandb credentials
+      - ~/.netrc:/tmp/.netrc:ro
+      - ~/.cache/wandb:/tmp/home/.cache/wandb
+    user: "${UID:-1000}:${GID:-1000}"
+    working_dir: /workspace
+    ports:
+      - "7007:7007"
+    # Shared memory for PyTorch DataLoader multiprocessing
+    ipc: host
+    # Enable GPU access via the NVIDIA Container Toolkit
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    environment:
+      - CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0}
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/workspace
+      - HOME=/tmp/home
+      - NETRC=/tmp/.netrc
+      - MODEL_STORAGE_PATH=/workspace/model-storage
+      - DATA_PATH=/workspace/data
+      - OUTPUTS_PATH=/workspace/outputs
+      - PROJECT_ROOT=/workspace

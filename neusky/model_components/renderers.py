@@ -1,3 +1,4 @@
+from __future__ import annotations
 # Copyright 2022 The Nerfstudio Team. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -32,12 +33,12 @@ from typing import Generator, Optional
 import nerfacc
 import torch
 from torch import nn
-from torchtyping import TensorType
+from torch import Tensor as TensorType
 import torch.nn.functional as F
 
 from neusky.utils.utils import linear_to_sRGB
 
-BACKGROUND_COLOR_OVERRIDE: Optional[TensorType[3]] = None
+BACKGROUND_COLOR_OVERRIDE: Optional[TensorType] = None  # shape [3]
 
 
 @contextlib.contextmanager

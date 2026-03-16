@@ -1,3 +1,4 @@
+from __future__ import annotations
 # Copyright 2022 The Nerfstudio Team. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -24,7 +25,7 @@ import numpy as np
 import torch
 from torch import nn
 from torch.nn.parameter import Parameter
-from torchtyping import TensorType
+from torch import Tensor as TensorType
 
 from nerfstudio.cameras.rays import RaySamples
 from nerfstudio.field_components.embedding import Embedding

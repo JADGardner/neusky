@@ -22,7 +22,7 @@ from typing import Dict, Tuple, Type
 
 import torch
 import torch.nn.functional as F
-from torchtyping import TensorType
+from torch import Tensor as TensorType
 from typing_extensions import Literal
 
 import numpy as np

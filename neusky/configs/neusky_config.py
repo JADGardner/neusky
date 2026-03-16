@@ -147,7 +147,7 @@ NeuSky = MethodSpecification(
                 },
                 eval_latent_optimise_method="per_image",  # per_image, nerf_osr_holdout, nerf_osr_envmap (can't run nerf_osr with trevi)
                 eval_latent_sample_region="full_image",
-                illumination_field_ckpt_path=Path("outputs/reni/reni_plus_plus_models/latent_dim_100/"),
+                illumination_field_ckpt_path=Path("model-storage/reni_plus_plus/latent_dim_100/"),
                 illumination_field_ckpt_step=50000,
                 fix_test_illumination_directions=True,
                 eval_num_rays_per_chunk=256,

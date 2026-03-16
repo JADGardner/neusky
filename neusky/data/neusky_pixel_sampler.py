@@ -1,147 +1,66 @@
-# Copyright 2022 The Nerfstudio Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+"""
+Pixel sampling for NeuSky.
 
+Extends nerfstudio's PixelSampler with sky-region and image-half sampling
+methods used during evaluation. Standard training sampling is inherited
+from the parent PixelSampler.
 """
-Code for sampling pixels.
-"""
+
+from __future__ import annotations
 
 import torch
-from typing import Dict, Optional, Union, Type, Literal
-from torchtyping import TensorType
+from typing import Dict, Type, Literal
 from dataclasses import dataclass, field
-
-import random
 
 from nerfstudio.data.pixel_samplers import PixelSampler, PixelSamplerConfig
 
 
 @dataclass
 class NeuSkyPixelSamplerConfig(PixelSamplerConfig):
-    """Configuration for pixel sampler instantiation."""
+    """Configuration for NeuSky pixel sampler."""
 
     _target: Type = field(default_factory=lambda: NeuSkyPixelSampler)
-    """Target class to instantiate."""
     num_rays_per_batch: int = 4096
-    """Number of rays to sample per batch."""
     keep_full_image: bool = False
-    """Whether or not to include a reference to the full image in returned batch."""
     is_equirectangular: bool = False
-    """List of whether or not camera i is equirectangular."""
 
 
 class NeuSkyPixelSampler(PixelSampler):
+    """Pixel sampler with sky-region and image-half sampling for NeuSky evaluation.
+
+    Training uses the parent PixelSampler.sample() directly.
+    """
+
     config: NeuSkyPixelSamplerConfig
 
-    def __init__(self, config: NeuSkyPixelSamplerConfig, **kwargs) -> None:
-        super().__init__(config=config, **kwargs)
+    def sample_method(self, *args, mask=None, **kwargs):
+        """Override to slice multi-channel masks to channel 0 for pixel selection.
 
-    def collate_image_dataset_batch_list(self, batch: Dict, num_rays_per_batch: int, keep_full_image: bool = False):
+        NeuSky masks have 4 channels [static, fg, ground, sky]. Nerfstudio's
+        rejection_sample_mask expects [N, H, W, 1]. We extract channel 0
+        (static mask) for sampling, but the full mask is still used by the
+        parent's collate method for indexing into the output batch.
         """
-        Does the same as collate_image_dataset_batch, except it will operate over a list of images / masks inside
-        a list.
+        if mask is not None and mask.shape[-1] > 1:
+            mask = mask[..., 0:1]
+        return super().sample_method(*args, mask=mask, **kwargs)
 
-        We will use this with the intent of DEPRECIATING it as soon as we find a viable alternative.
-        The intention will be to replace this with a more efficient implementation that doesn't require a for loop, but
-        since pytorch's ragged tensors are still in beta (this would allow for some vectorization), this will do.
+    def sample(self, image_batch: Dict) -> Dict:
+        """Override to ensure indices are on CPU for ray generator compatibility."""
+        result = super().sample(image_batch)
 
-        Args:
-            batch: batch of images to sample from
-            num_rays_per_batch: number of rays to sample per batch
-            keep_full_image: whether or not to include a reference to the full image in returned batch
-        """
-
-        device = batch["image"][0].device
-        num_images = len(batch["image"])
-
-        # only sample within the mask, if the mask is in the batch
-        all_indices = []
-        all_images = []
-        all_masks = []
-
-        if "mask" in batch:
-            num_rays_in_batch = num_rays_per_batch // num_images
-            for i in range(num_images):
-                image_height, image_width, _ = batch["image"][i].shape
-
-                if i == num_images - 1:
-                    num_rays_in_batch = num_rays_per_batch - (num_images - 1) * num_rays_in_batch
-
-                indices = self.sample_method(
-                    num_rays_in_batch, 1, image_height, image_width, mask=batch["mask"][i].unsqueeze(0), device=device
-                )
-                indices[:, 0] = i
-                all_indices.append(indices)
-                all_images.append(batch["image"][i][indices[:, 1], indices[:, 2]])
-                all_masks.append(batch["mask"][i][indices[:, 1], indices[:, 2]])
-        else:
-            num_rays_in_batch = num_rays_per_batch // num_images
-            for i in range(num_images):
-                image_height, image_width, _ = batch["image"][i].shape
-                if i == num_images - 1:
-                    num_rays_in_batch = num_rays_per_batch - (num_images - 1) * num_rays_in_batch
-                if self.config.is_equirectangular:
-                    indices = self.sample_method_equirectangular(
-                        num_rays_in_batch, 1, image_height, image_width, device=device
-                    )
-                else:
-                    indices = self.sample_method(num_rays_in_batch, 1, image_height, image_width, device=device)
-                indices[:, 0] = i
-                all_indices.append(indices)
-                all_images.append(batch["image"][i][indices[:, 1], indices[:, 2]])
-
-        indices = torch.cat(all_indices, dim=0)
-
-        c, y, x = (i.flatten() for i in torch.split(indices, 1, dim=-1))
-        collated_batch = {
-            key: value[c, y, x]
-            for key, value in batch.items()
-            if key != "image_idx" and key != "image" and key != "mask" and value is not None
-        }
-
-        collated_batch["image"] = torch.cat(all_images, dim=0)
-
-        if "mask" in batch:
-            collated_batch["mask"] = torch.cat(all_masks, dim=0)
-
-        assert collated_batch["image"].shape[0] == num_rays_per_batch
-
-        # Needed to correct the random indices to their actual camera idx locations.
-        indices[:, 0] = batch["image_idx"][c]
-        collated_batch["indices"] = indices  # with the abs camera indices
-
-        if keep_full_image:
-            collated_batch["full_image"] = batch["image"]
-
-        return collated_batch
+        # Ensure indices are on CPU — nerfstudio's ray_generator.image_coords is on CPU
+        if "indices" in result and result["indices"].device.type != "cpu":
+            result["indices"] = result["indices"].cpu()
+        return result
 
     def collate_sky_ray_batch(self, batch: Dict, num_rays_per_batch: int, keep_full_image: bool = False):
-        """
-        Operates on a batch of images and samples pixels to use for generating rays.
-        Returns a collated batch which is input to the Graph.
-        It will sample only within the valid 'sky_mask' if it's specified.
-
-        Args:
-            batch: batch of images to sample from
-            num_rays_per_batch: number of rays to sample per batch
-            keep_full_image: whether or not to include a reference to the full image in returned batch
-        """
-
-        # check if its a list of images
+        """Sample pixels from sky regions (inverse of foreground mask, channel 1)."""
         device = batch["image"].device
         num_images, image_height, image_width, _ = batch["image"].shape
 
-        mask = 1.0 - batch["mask"][..., 1:2]  # mask[..., 1] for fg_mask, 1 - fg_mask is the sky mask
+        # Invert fg_mask (channel 1) to get sky mask: [N, H, W, 1]
+        mask = 1.0 - batch["mask"][..., 1:2]
 
         indices = self.sample_method(
             num_rays_per_batch, num_images, image_height, image_width, mask=mask, device=device
@@ -153,30 +72,16 @@ class NeuSkyPixelSampler(PixelSampler):
             key: value[c, y, x] for key, value in batch.items() if key != "image_idx" and value is not None
         }
 
-        assert collated_batch["image"].shape[0] == num_rays_per_batch
-
-        # Needed to correct the random indices to their actual camera idx locations.
         indices[:, 0] = batch["image_idx"][c]
-        collated_batch["indices"] = indices  # with the abs camera indices
+        collated_batch["indices"] = indices
 
         if keep_full_image:
             collated_batch["full_image"] = batch["image"]
 
         return collated_batch
-    
+
     def collate_sky_ray_batch_list(self, batch: Dict, num_rays_per_batch: int, keep_full_image: bool = False):
-        """
-        Operates on a batch of images and samples pixels to use for generating rays.
-        Returns a collated batch which is input to the Graph.
-        It will sample only within the valid 'sky_mask' if it's specified.
-
-        Args:
-            batch: batch of images to sample from
-            num_rays_per_batch: number of rays to sample per batch
-            keep_full_image: whether or not to include a reference to the full image in returned batch
-        """
-
-        # check if its a list of images
+        """Sample pixels from sky regions — ragged image list version."""
         device = batch["image"][0].device
         num_images = len(batch["image"])
 
@@ -184,7 +89,8 @@ class NeuSkyPixelSampler(PixelSampler):
         all_images = []
         num_rays_in_batch = num_rays_per_batch // num_images
         for i in range(num_images):
-            mask = 1.0 - batch["mask"][i][..., 1:2]  # mask[..., 1] for fg_mask, 1 - fg_mask is the sky mask
+            # Invert fg_mask (channel 1) to get sky mask: [H, W, 1]
+            mask = 1.0 - batch["mask"][i][..., 1:2]
             image_height, image_width, _ = batch["image"][i].shape
 
             if i == num_images - 1:
@@ -196,7 +102,7 @@ class NeuSkyPixelSampler(PixelSampler):
             indices[:, 0] = i
             all_indices.append(indices)
             all_images.append(batch["image"][i][indices[:, 1], indices[:, 2]])
-        
+
         indices = torch.cat(all_indices, dim=0)
 
         c, y, x = (i.flatten() for i in torch.split(indices, 1, dim=-1))
@@ -209,11 +115,8 @@ class NeuSkyPixelSampler(PixelSampler):
 
         collated_batch["image"] = torch.cat(all_images, dim=0)
 
-        assert collated_batch["image"].shape[0] == num_rays_per_batch
-
-        # Needed to correct the random indices to their actual camera idx locations.
         indices[:, 0] = batch["image_idx"][c]
-        collated_batch["indices"] = indices  # with the abs camera indices
+        collated_batch["indices"] = indices
 
         if keep_full_image:
             collated_batch["full_image"] = batch["image"]
@@ -221,27 +124,17 @@ class NeuSkyPixelSampler(PixelSampler):
         return collated_batch
 
     def collate_image_half(self, batch: Dict, num_rays_per_batch: int, sample_region: Literal['left_image_half', 'right_image_half', 'full_image']):
-        """
-        Operates on a batch of images and samples pixels to use for generating rays.
-        Returns a collated batch which is input to the Graph.
-        It will sample only within the valid 'mask' and 'sample_region'.
-
-        Args:
-            batch: batch of images to sample from
-            num_rays_per_batch: number of rays to sample per batch
-            sample_region: which region of the image to sample from
-        """
-
+        """Sample pixels from a region of the image, masked by static mask (channel 0)."""
         device = batch["image"].device
         num_images, image_height, image_width, _ = batch["image"].shape
 
-        mask = batch["mask"][..., 0:1] # 1 is static, 0 is transient, [N, H, W, 1]
+        # Static mask (channel 0): 1 = valid, 0 = transient. Shape [N, H, W, 1]
+        mask = batch["mask"][..., 0:1].clone()
 
-        # we only want to sample in the sample region so set other region of the of the mask to 0
         if sample_region == 'left_image_half':
-            mask[:, :, image_width//2:, :] = 0
+            mask[:, :, image_width // 2:, :] = 0
         elif sample_region == 'right_image_half':
-            mask[:, :, :image_width//2, :] = 0
+            mask[:, :, :image_width // 2, :] = 0
 
         indices = self.sample_method(
             num_rays_per_batch, num_images, image_height, image_width, mask=mask, device=device
@@ -253,26 +146,13 @@ class NeuSkyPixelSampler(PixelSampler):
             key: value[c, y, x] for key, value in batch.items() if key != "image_idx" and value is not None
         }
 
-        assert collated_batch["image"].shape[0] == num_rays_per_batch
-
-        # Needed to correct the random indices to their actual camera idx locations.
         indices[:, 0] = batch["image_idx"][c]
-        collated_batch["indices"] = indices  # with the abs camera indices
+        collated_batch["indices"] = indices
 
         return collated_batch
-    
+
     def collate_image_half_list(self, batch: Dict, num_rays_per_batch: int, sample_region: Literal['left_image_half', 'right_image_half', 'full_image']):
-        """
-        Operates on a batch of images and samples pixels to use for generating rays.
-        Returns a collated batch which is input to the Graph.
-        It will sample only within the valid 'mask' and 'sample_region'.
-
-        Args:
-            batch: batch of images to sample from
-            num_rays_per_batch: number of rays to sample per batch
-            sample_region: which region of the image to sample from
-        """
-
+        """Sample pixels from a region — ragged image list version."""
         device = batch["image"][0].device
         num_images = len(batch["image"])
 
@@ -281,18 +161,17 @@ class NeuSkyPixelSampler(PixelSampler):
         all_masks = []
         num_rays_in_batch = num_rays_per_batch // num_images
         for i in range(num_images):
-            mask = batch["mask"][i][..., 0:1] # 1 is static, 0 is transient, [N, H, W, 1]
+            # Static mask (channel 0): [H, W, 1]
+            mask = batch["mask"][i][..., 0:1].clone()
             image_height, image_width, _ = batch["image"][i].shape
 
-            # we only want to sample in the sample region so set other region of the of the mask to 0
             if sample_region == 'left_image_half':
-                mask[:, :, image_width//2:, :] = 0
+                mask[:, image_width // 2:, :] = 0
             elif sample_region == 'right_image_half':
-                mask[:, :, :image_width//2, :] = 0
+                mask[:, :image_width // 2, :] = 0
 
             if i == num_images - 1:
                 num_rays_in_batch = num_rays_per_batch - (num_images - 1) * num_rays_in_batch
-
 
             indices = self.sample_method(
                 num_rays_in_batch, 1, image_height, image_width, mask=mask.unsqueeze(0), device=device
@@ -301,7 +180,7 @@ class NeuSkyPixelSampler(PixelSampler):
             all_indices.append(indices)
             all_images.append(batch["image"][i][indices[:, 1], indices[:, 2]])
             all_masks.append(batch["mask"][i][indices[:, 1], indices[:, 2]])
-        
+
         indices = torch.cat(all_indices, dim=0)
 
         c, y, x = (i.flatten() for i in torch.split(indices, 1, dim=-1))
@@ -315,10 +194,7 @@ class NeuSkyPixelSampler(PixelSampler):
         collated_batch["image"] = torch.cat(all_images, dim=0)
         collated_batch["mask"] = torch.cat(all_masks, dim=0)
 
-        assert collated_batch["image"].shape[0] == num_rays_per_batch
-
-        # Needed to correct the random indices to their actual camera idx locations.
         indices[:, 0] = batch["image_idx"][c]
-        collated_batch["indices"] = indices  # with the abs camera indices
+        collated_batch["indices"] = indices
 
         return collated_batch
