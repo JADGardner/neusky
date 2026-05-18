@@ -4,8 +4,11 @@
 # Commands:
 #   build   Build (or rebuild) the SIF image and overlay
 #   install Register local code or install pip packages into /overlay-packages
+#   register Alias for install with no extra packages
 #   shell   Open an interactive shell inside the container
 #   exec    Run a command inside the container
+#   run     Alias for exec; accepts commands with or without --
+#   test    Run lightweight import/CUDA checks
 #
 # Flags:
 #   --ro                            Force read-only overlay (auto-enabled in SLURM)
@@ -17,6 +20,7 @@
 #   .apptainer/apptainer.sh install -- tensorly fpsample
 #   .apptainer/apptainer.sh shell
 #   .apptainer/apptainer.sh exec -- python -c "import torch"
+#   .apptainer/apptainer.sh run python -c "import torch"
 #   .apptainer/apptainer.sh exec -- ns-train neusky --vis wandb
 
 set -euo pipefail
@@ -50,21 +54,25 @@ PASSTHROUGH_ARGS=()
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        build|install|shell|exec)
+        build|install|register|shell|exec|run|test)
             CMD="$1"; shift ;;
         --ro)
             FORCE_RO=true; shift ;;
         --)
             shift; PASSTHROUGH_ARGS=("$@"); break ;;
         *)
+            if [[ "${CMD}" == "exec" || "${CMD}" == "run" || "${CMD}" == "install" ]]; then
+                PASSTHROUGH_ARGS=("$@")
+                break
+            fi
             echo "Unknown argument: $1" >&2
-            echo "Usage: $0 {build|install|shell|exec} [--ro] [-- cmd...]" >&2
+            echo "Usage: $0 {build|install|register|shell|exec|run|test} [--ro] [-- cmd...]" >&2
             exit 1 ;;
     esac
 done
 
 if [[ -z "${CMD}" ]]; then
-    echo "Usage: $0 {build|install|shell|exec} [--ro] [-- cmd...]" >&2
+    echo "Usage: $0 {build|install|register|shell|exec|run|test} [--ro] [-- cmd...]" >&2
     exit 1
 fi
 
@@ -153,6 +161,7 @@ do_install() {
     args+=(-B "${DATA_PATH}:/workspace/data")
     args+=(-B "${OUTPUTS_PATH}:/workspace/outputs")
     args+=(-B "${MODEL_STORAGE_PATH}:/workspace/model-storage")
+    args+=(-B "${MODEL_STORAGE_PATH}:/workspace/models")
 
     if [[ ${#PASSTHROUGH_ARGS[@]} -gt 0 ]]; then
         # Install arbitrary pip packages: install -- pkg1 pkg2
@@ -215,9 +224,12 @@ build_run_args() {
     args+=(-B "${DATA_PATH}:/workspace/data")
     args+=(-B "${OUTPUTS_PATH}:/workspace/outputs")
     args+=(-B "${MODEL_STORAGE_PATH}:/workspace/model-storage")
+    args+=(-B "${MODEL_STORAGE_PATH}:/workspace/models")
 
     # Environment variables
     args+=(--env "PYTHONPATH=/overlay-packages")
+    args+=(--env "MODELS_DIR=/workspace/models")
+    args+=(--env "MODEL_STORAGE_DIR=/workspace/model-storage")
 
     # Common optional mounts
     [[ -d "${HOME}/.ssh" ]]          && args+=(-B "${HOME}/.ssh:/root/.ssh:ro")
@@ -262,12 +274,20 @@ do_exec() {
     apptainer exec "${run_args[@]}" "${SIF_FILE}" "${PASSTHROUGH_ARGS[@]}"
 }
 
+do_test() {
+    PASSTHROUGH_ARGS=(
+        python -c "import torch; print(f'torch {torch.__version__}, cuda={torch.cuda.is_available()}'); import neusky; print('neusky OK')"
+    )
+    do_exec
+}
+
 # ---------------------------------------------------------------------------
 # Dispatch
 # ---------------------------------------------------------------------------
 case "${CMD}" in
-    build)   do_build ;;
-    install) do_install ;;
-    shell)   do_shell ;;
-    exec)    do_exec ;;
+    build)            do_build ;;
+    install|register) do_install ;;
+    shell)            do_shell ;;
+    exec|run)         do_exec ;;
+    test)             do_test ;;
 esac

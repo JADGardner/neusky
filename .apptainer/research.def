@@ -123,7 +123,7 @@ From: nvidia/cuda:12.8.1-cudnn-devel-ubuntu24.04
     mkdir -p /overlay-packages
 
     # Bind-mount targets for HPC
-    mkdir -p /workspace/code /workspace/data /workspace/outputs /workspace/model-storage
+    mkdir -p /workspace/code /workspace/data /workspace/outputs /workspace/models /workspace/model-storage
 
 %environment
     export CONDA_DIR=/opt/conda
