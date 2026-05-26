@@ -1194,13 +1194,20 @@ class NeuSkyFactoModel(NeuSFactoModel):
                     scale_c = (gt_ch * pred_ch).sum() / (pred_ch * pred_ch).sum().clamp(min=1e-8)
                     pred_albedo_srgb[..., c] *= scale_c
 
-            # Masked PSNR/SSIM (foreground only)
-            gt_masked = gt_albedo_srgb * fg_mask
-            pred_masked = pred_albedo_srgb * fg_mask
-            gt_4d = torch.moveaxis(gt_masked, -1, 0)[None, ...]
-            pred_4d = torch.moveaxis(pred_masked, -1, 0)[None, ...]
-            metrics_dict["albedo_psnr"] = float(self.psnr(gt_4d, pred_4d).item())
-            metrics_dict["albedo_ssim"] = float(self.ssim(gt_4d, pred_4d))
+            # Foreground-only metrics (no zero-padding inflation)
+            fg_pixels = fg_mask[..., 0] > 0.5  # (H, W)
+            if fg_pixels.any():
+                gt_fg = gt_albedo_srgb[fg_pixels]    # (N, 3)
+                pred_fg = pred_albedo_srgb[fg_pixels]  # (N, 3)
+                # PSNR on foreground pixels only
+                mse_fg = ((gt_fg - pred_fg) ** 2).mean().clamp(min=1e-10)
+                metrics_dict["albedo_psnr"] = float((-10.0 * torch.log10(mse_fg)).item())
+                # SSIM still needs spatial structure; use masked images
+                gt_masked = gt_albedo_srgb * fg_mask
+                pred_masked = pred_albedo_srgb * fg_mask
+                gt_4d = torch.moveaxis(gt_masked, -1, 0)[None, ...]
+                pred_4d = torch.moveaxis(pred_masked, -1, 0)[None, ...]
+                metrics_dict["albedo_ssim"] = float(self.ssim(gt_4d, pred_4d))
 
             # Side-by-side visualization: GT | Predicted (both sRGB, masked)
             images_dict["gt_vs_pred_albedo"] = torch.cat([gt_albedo_srgb, pred_albedo_srgb], dim=1)

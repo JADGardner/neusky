@@ -390,8 +390,12 @@ class NeuSkyPipeline(VanillaPipeline):
         return metrics_dict, images_dict
 
     @profiler.time_function
-    def get_average_eval_image_metrics(self, step: Optional[int] = None):
+    def get_average_eval_image_metrics(self, step: Optional[int] = None, output_path: Optional[Path] = None, **kwargs):
         """Iterate over all the images in the eval dataset and get the average.
+
+        Args:
+            step: current training step (optional)
+            output_path: if provided, save rendered images to this directory
 
         Returns:
             metrics_dict: dictionary of metrics
@@ -423,13 +427,24 @@ class NeuSkyPipeline(VanillaPipeline):
                 outputs = self.model.get_outputs_for_camera_ray_bundle(camera_ray_bundle, step=step)
                 if self.config.least_squares_global_scale:
                     outputs['rgb'] = self.global_scale(outputs['rgb'], batch['image'])
-                metrics_dict, _ = self.model.get_image_metrics_and_images(outputs, batch)
+                metrics_dict, images_dict = self.model.get_image_metrics_and_images(outputs, batch)
                 assert "num_rays_per_sec" not in metrics_dict
                 metrics_dict["num_rays_per_sec"] = num_rays / (time() - inner_start)
                 fps_str = "fps"
                 assert fps_str not in metrics_dict
                 metrics_dict[fps_str] = metrics_dict["num_rays_per_sec"] / (height * width)
                 metrics_dict_list.append(metrics_dict)
+
+                # Save rendered images if output_path is provided
+                if output_path is not None:
+                    from torchvision.utils import save_image
+                    for img_name, img_tensor in images_dict.items():
+                        img_dir = output_path / img_name
+                        img_dir.mkdir(parents=True, exist_ok=True)
+                        if img_tensor.dim() == 3:  # [H, W, C]
+                            img_tensor = img_tensor.permute(2, 0, 1)
+                        save_image(img_tensor.float(), img_dir / f"{i:04d}.png")
+
                 progress.advance(task)
                 eval_image_num += 1
         # average the metrics list

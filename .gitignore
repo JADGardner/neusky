@@ -178,6 +178,7 @@ temp*
 !temporal*
 .nfs*
 external/
+thirdparty/
 __MACOSX/
 node_modules/
 bash/

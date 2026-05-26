@@ -56,3 +56,5 @@ services:
       - DATA_PATH=/workspace/data
       - OUTPUTS_PATH=/workspace/outputs
       - PROJECT_ROOT=/workspace
+      # Legacy checkpoints contain numpy scalars that fail with PyTorch 2.6+ weights_only=True
+      - TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD=1
