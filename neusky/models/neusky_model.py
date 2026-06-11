@@ -100,6 +100,12 @@ class NeuSkyFactoModelConfig(NeuSFactoModelConfig):
     steps_till_min_visibility_threshold: int = 15000
     """Number of steps till min visibility threshold"""
     only_upperhemisphere_visibility: bool = False
+    num_visibility_directions: int = 64
+    """If >0, query the DDF at this many randomly-subset directions per step
+    (training only) and propagate visibility to the remaining shading
+    directions by nearest queried direction. Visibility is low-frequency, so
+    a small subset (e.g. 64) preserves quality at a fraction of the dominant
+    DDF cost. 0 disables (query all directions)."""
     """Lower hemisphere visibility will always be 1.0 if this is True"""
     lower_hermisphere_visibility: bool = True
     """If true, lower hemisphere visibility will always be 1.0 if False, then it will be zero"""
@@ -1664,6 +1670,18 @@ class NeuSkyFactoModel(NeuSFactoModel):
             directions = illumination_directions
 
         # more shortcuts
+        # Perf pass 3: visibility is low-frequency -- during training query
+        # the DDF at a random subset of directions and propagate to the rest
+        # by nearest queried direction. Also proportionally cuts the
+        # sdf_at_termination evaluations made inside the visibility field.
+        vis_assign = None
+        K = self.config.num_visibility_directions
+        if self.training and 0 < K < directions.shape[0] and not compute_shadow_map:
+            subset = torch.randperm(directions.shape[0], device=directions.device)[:K]
+            q_directions = directions[subset]
+            vis_assign = torch.argmax(directions @ q_directions.T, dim=-1)  # [D_used]
+            directions = q_directions
+
         num_light_directions = directions.shape[0]
 
         # since we are only using a single sample, the sample we think has hit the object,
@@ -1742,6 +1760,11 @@ class NeuSkyFactoModel(NeuSFactoModel):
         # so be biases towards being visible.
         occlusion = torch.sigmoid(sigmoid_scale * (difference - threshold_distance))
         visibility = 1.0 - occlusion
+
+        if vis_assign is not None:
+            # nearest-queried-direction upsample back to all shading directions
+            visibility = visibility.reshape(num_rays, num_light_directions)
+            visibility = visibility[:, vis_assign].reshape(-1)
 
         if self.config.only_upperhemisphere_visibility:
             # we now need to use the mask we created earlier to select only the upper hemisphere
