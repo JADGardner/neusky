@@ -1685,8 +1685,7 @@ class NeuSkyFactoModel(NeuSFactoModel):
         # bit of a hack as we need a sphere intersection point for each light direction
         positions[~inside_sphere] = (
             self.ray_sphere_intersection(origins[~inside_sphere], ray_directions[~inside_sphere], self.ddf_radius)
-            * 0.01
-            * -ray_directions[~inside_sphere]
+            - 0.01 * ray_directions[~inside_sphere]
         )
 
         positions = positions.unsqueeze(1).repeat(
