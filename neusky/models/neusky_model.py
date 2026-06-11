@@ -171,8 +171,6 @@ class NeuSkyFactoModelConfig(NeuSFactoModelConfig):
     """Apply building mask so only building contributes to metrics as per NeRF-OSR eval"""
     render_ambient_light: bool = False
     """Render ambient light"""
-    optimise_compare_eval_scale: bool = False
-    """If true, optimise scale only on the compare eval set"""
 
 class NeuSkyFactoModel(NeuSFactoModel):
     """NeuSFactoModel extends NeuSModel for a more efficient sampling strategy.
@@ -1519,10 +1517,7 @@ class NeuSkyFactoModel(NeuSFactoModel):
 
         if not self.config.eval_latent_optimise_method == "nerf_osr_envmap":
             if self.eval_scale is not None:
-                if self.config.optimise_compare_eval_scale:
-                    param_group = {"eval_latents": [self.eval_scale]}
-                else:
-                    param_group = {"eval_latents": [self.eval_illumination_latents, self.eval_scale]}
+                param_group = {"eval_latents": [self.eval_illumination_latents, self.eval_scale]}
             else:
                 param_group = {"eval_latents": [self.eval_illumination_latents]}
         else:
@@ -1557,10 +1552,7 @@ class NeuSkyFactoModel(NeuSFactoModel):
                             sample_region=self.config.eval_latent_sample_region
                         )
                     elif self.config.eval_latent_optimise_method == "nerf_osr_holdout":
-                        if self.config.optimise_compare_eval_scale:
-                            ray_bundle, batch = datamanager.get_nerfosr_lighting_eval_bundle("compare")
-                        else:
-                            ray_bundle, batch = datamanager.get_nerfosr_lighting_eval_bundle("optimise")
+                        ray_bundle, batch = datamanager.get_nerfosr_lighting_eval_bundle("optimise")
                     elif self.config.eval_latent_optimise_method == "nerf_osr_envmap":
                         ray_bundle, batch = datamanager.get_nerfosr_lighting_eval_bundle("compare")
                         gamma = torch.sigmoid(self.eval_rotation) * 2 * np.pi
