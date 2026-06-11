@@ -258,11 +258,26 @@ def load_model(
             config_hook(config)
         return config
 
-    config, pipeline, ckpt_path, loaded_step = eval_setup(
-        run_dir / "config.yml",
-        test_mode=test_mode,
-        update_config_callback=_callback,
-    )
+    # torch>=2.6 defaults torch.load to weights_only=True, which rejects
+    # nerfstudio checkpoints (they pickle numpy scalars). These are our own
+    # trusted checkpoints, so force the legacy behaviour for eval_setup.
+    import torch
+
+    _orig_load = torch.load
+
+    def _trusted_load(*args, **kwargs):
+        kwargs["weights_only"] = False
+        return _orig_load(*args, **kwargs)
+
+    torch.load = _trusted_load
+    try:
+        config, pipeline, ckpt_path, loaded_step = eval_setup(
+            run_dir / "config.yml",
+            test_mode=test_mode,
+            update_config_callback=_callback,
+        )
+    finally:
+        torch.load = _orig_load
     pipeline.to(device)
     pipeline.eval()
     return config, pipeline, ckpt_path, loaded_step
