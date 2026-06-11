@@ -47,6 +47,7 @@ NeuSky = MethodSpecification(
                 dataparser=NeRFOSRCityScapesDataParserConfig(
                     scene="site1",
                     auto_scale_poses=True,
+                    center_method_sfm=True,  # robust SfM rescaling; falls back to auto_scale_poses if no point cloud
                     crop_to_equal_size=True,
                     pad_to_equal_size=False,
                     scene_scale=1.0,  # AABB

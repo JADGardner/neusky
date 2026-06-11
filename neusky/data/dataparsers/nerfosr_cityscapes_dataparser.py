@@ -43,6 +43,8 @@ from nerfstudio.data.scene_box import SceneBox
 from nerfstudio.utils.io import load_from_json
 from nerfstudio.data.dataparsers.nerfosr_dataparser import NeRFOSRDataParserConfig
 
+from neusky.data.dataparsers import sfm_utils
+
 CONSOLE = Console(width=120)
 
 CITYSCAPE_CLASSES = {
@@ -196,6 +198,16 @@ class NeRFOSRCityScapesDataParserConfig(NeRFOSRDataParserConfig):
     """Mask out objects that are mostly out of view frustum"""
     include_sidewalk_in_ground_mask: bool = True
     """Include sidewalk in ground mask"""
+    center_method_sfm: bool = False
+    """Use SfM point cloud for scene centering/scaling instead of camera positions."""
+    sfm_outlier_percentile: float = 95.0
+    """Keep closest N% of SfM points when computing center (filters outliers)."""
+    sfm_scale_percentile: float = 50.0
+    """Percentile of inlier distances to use for scale (50=median, 100=mean-like)."""
+    sfm_target_radius: float = 0.5
+    """Target normalized radius for the sfm_scale_percentile distance."""
+    points3d_filename: str = "points3d.ply"
+    """Name of the SfM point cloud file relative to the scene's final/ directory."""
 
 @dataclass
 class NeRFOSRCityScapes(DataParser):
@@ -216,6 +228,26 @@ class NeRFOSRCityScapes(DataParser):
         assert not (
             self.config.crop_to_equal_size and self.config.pad_to_equal_size
         ), "Cannot crop and pad at the same time"
+
+    def _load_sfm_points(self, scene_dir: str, data: str, scene: str):
+        """Load SfM points for a scene, in the dataset-normalized camera space.
+
+        Prefers {scene_dir}/points3d.ply (shipped via the NeuSky NeRF-OSR extras
+        archive / scripts/nerfosr_pointclouds.py convert); falls back to the raw
+        COLMAP triangulation at {data}/{scene}/colmap/sparse_triangulated/points3D.bin.
+        Both were triangulated against the known cam_dict_norm.json poses, so no
+        registration is needed.
+        """
+        ply_path = Path(scene_dir) / self.config.points3d_filename
+        points = sfm_utils.load_ply_points(ply_path)
+        if points is not None:
+            return points
+
+        colmap_bin = Path(data) / scene / "colmap" / "sparse_triangulated" / "points3D.bin"
+        loaded = sfm_utils.load_colmap_points3d_bin(colmap_bin)
+        if loaded is not None:
+            return loaded[0]
+        return None
 
     def _generate_dataparser_outputs(self, split="train"):
         data = self.config.data
@@ -261,22 +293,54 @@ class NeRFOSRCityScapes(DataParser):
 
         camera_to_worlds = torch.cat([camera_to_worlds_train, camera_to_worlds_val, camera_to_worlds_test], dim=0)
 
-        camera_to_worlds, transform = camera_utils.auto_orient_and_center_poses(
-            camera_to_worlds,
-            method=self.config.orientation_method,
-            center_method=self.config.center_method,
-        )
+        if self.config.center_method_sfm:
+            # SfM centering: use auto_orient for up-vector alignment only
+            camera_to_worlds, transform = camera_utils.auto_orient_and_center_poses(
+                camera_to_worlds,
+                method=self.config.orientation_method,
+                center_method="none",
+            )
 
-        # get average z component of camera-to-world translation and shift all cameras by that amount towards the origin
-        # just to move the cameras onto the z=0 plane
-        camera_to_worlds[:, 2, 3] -= torch.mean(camera_to_worlds[:, 2, 3], dim=0)
+            sfm_points = self._load_sfm_points(scene_dir, data, scene)
+            if sfm_points is not None:
+                # Apply the same orientation transform to the SfM points
+                # transform is a 3x4 matrix: R|t
+                R = transform[:3, :3].numpy()
+                t = transform[:3, 3].numpy()
+                sfm_points = (R @ sfm_points.T).T + t
 
-        # Scale poses
-        scale_factor = 1.0
-        if self.config.auto_scale_poses:
-            scale_factor /= torch.max(torch.abs(camera_to_worlds[:, :3, 3]))
+                center, scale = sfm_utils.compute_sfm_centering(
+                    sfm_points,
+                    outlier_percentile=self.config.sfm_outlier_percentile,
+                    scale_percentile=self.config.sfm_scale_percentile,
+                    target_radius=self.config.sfm_target_radius,
+                )
 
-        camera_to_worlds[:, :3, 3] *= scale_factor * self.config.scale_factor
+                camera_to_worlds[:, :3, 3] -= torch.from_numpy(center).float()
+                camera_to_worlds[:, :3, 3] *= scale * self.config.scale_factor
+            else:
+                CONSOLE.log("[yellow]SfM centering requested but no points found, falling back to pose centering")
+                camera_to_worlds[:, 2, 3] -= torch.mean(camera_to_worlds[:, 2, 3], dim=0)
+                if self.config.auto_scale_poses:
+                    scale_factor = 1.0 / torch.max(torch.abs(camera_to_worlds[:, :3, 3]))
+                    camera_to_worlds[:, :3, 3] *= scale_factor * self.config.scale_factor
+        else:
+            camera_to_worlds, transform = camera_utils.auto_orient_and_center_poses(
+                camera_to_worlds,
+                method=self.config.orientation_method,
+                center_method=self.config.center_method,
+            )
+
+            # get average z component of camera-to-world translation and shift all cameras by that amount towards the origin
+            # just to move the cameras onto the z=0 plane
+            camera_to_worlds[:, 2, 3] -= torch.mean(camera_to_worlds[:, 2, 3], dim=0)
+
+            # Scale poses
+            scale_factor = 1.0
+            if self.config.auto_scale_poses:
+                scale_factor /= torch.max(torch.abs(camera_to_worlds[:, :3, 3]))
+
+            camera_to_worlds[:, :3, 3] *= scale_factor * self.config.scale_factor
 
         if split == "train":
             camera_to_worlds = camera_to_worlds[:n_train]

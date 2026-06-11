@@ -64,6 +64,8 @@ from nerfstudio.data.dataparsers.base_dataparser import (
 from nerfstudio.data.scene_box import SceneBox
 from nerfstudio.utils.rich_utils import CONSOLE
 
+from neusky.data.dataparsers import sfm_utils
+
 CITYSCAPE_CLASSES = {
     "classes": [
         "road",
@@ -290,102 +292,16 @@ class CustomNeuskyDataparser(DataParser):
 
     def _load_sfm_points(self) -> Optional[np.ndarray]:
         """Load SfM point cloud from PLY file. Returns (N, 3) array or None."""
-        ply_path = self.config.data / self.config.points3d_filename
-        if not ply_path.exists():
-            CONSOLE.log(f"[yellow]SfM point cloud not found: {ply_path}")
-            return None
-
-        try:
-            from plyfile import PlyData
-            plydata = PlyData.read(str(ply_path))
-            vertex = plydata["vertex"]
-            points = np.stack([vertex["x"], vertex["y"], vertex["z"]], axis=-1).astype(np.float32)
-            CONSOLE.log(f"Loaded {len(points)} SfM points from {ply_path}")
-            return points
-        except ImportError:
-            CONSOLE.log("[yellow]plyfile not installed, falling back to numpy PLY loading")
-            # Simple binary PLY fallback using numpy
-            return self._load_ply_numpy(ply_path)
-        except Exception as e:
-            CONSOLE.log(f"[yellow]Failed to load SfM points: {e}")
-            return None
-
-    def _load_ply_numpy(self, ply_path: Path) -> Optional[np.ndarray]:
-        """Fallback PLY loader using numpy for binary_little_endian format."""
-        try:
-            with open(ply_path, "rb") as f:
-                # Read header
-                header_lines = []
-                while True:
-                    line = f.readline().decode("ascii").strip()
-                    header_lines.append(line)
-                    if line == "end_header":
-                        break
-
-                # Parse header for vertex count and format
-                n_vertices = 0
-                is_binary = False
-                for line in header_lines:
-                    if line.startswith("element vertex"):
-                        n_vertices = int(line.split()[-1])
-                    if "binary_little_endian" in line:
-                        is_binary = True
-
-                if n_vertices == 0:
-                    return None
-
-                if is_binary:
-                    # Assume x,y,z float32 + r,g,b uint8 (common format)
-                    dtype = np.dtype([
-                        ("x", "<f4"), ("y", "<f4"), ("z", "<f4"),
-                        ("red", "u1"), ("green", "u1"), ("blue", "u1"),
-                    ])
-                    data = np.frombuffer(f.read(n_vertices * dtype.itemsize), dtype=dtype)
-                    points = np.stack([data["x"], data["y"], data["z"]], axis=-1)
-                    return points
-                else:
-                    # ASCII format
-                    data = np.loadtxt(f, max_rows=n_vertices)
-                    return data[:, :3].astype(np.float32)
-        except Exception as e:
-            CONSOLE.log(f"[yellow]Numpy PLY loading failed: {e}")
-            return None
+        return sfm_utils.load_ply_points(self.config.data / self.config.points3d_filename)
 
     def _compute_sfm_centering(self, points: np.ndarray):
-        """Compute scene center and scale from SfM points.
-
-        Filters outliers (keeps closest sfm_outlier_percentile% of points),
-        then computes center and percentile-based scale. Using a percentile
-        (default: median) instead of the mean makes the scale robust to
-        ground-plane and distant-feature points that dominate the tail.
-
-        Returns (center, scale) as (np.ndarray[3], float).
-        """
-        # Initial center estimate
-        median = np.median(points, axis=0)
-        dists = np.linalg.norm(points - median, axis=1)
-
-        # Filter outliers
-        threshold = np.percentile(dists, self.config.sfm_outlier_percentile)
-        inliers = points[dists <= threshold]
-        CONSOLE.log(
-            f"SfM centering: {len(inliers)}/{len(points)} inlier points "
-            f"(percentile={self.config.sfm_outlier_percentile}%)"
+        """Compute scene center and scale from SfM points. See sfm_utils.compute_sfm_centering."""
+        return sfm_utils.compute_sfm_centering(
+            points,
+            outlier_percentile=self.config.sfm_outlier_percentile,
+            scale_percentile=self.config.sfm_scale_percentile,
+            target_radius=self.config.sfm_target_radius,
         )
-
-        # Compute center from inliers
-        center = np.mean(inliers, axis=0)
-        dists_from_center = np.linalg.norm(inliers - center, axis=1)
-
-        # Percentile-based scale: map the Nth-percentile distance to target_radius
-        target_dist = np.percentile(dists_from_center, self.config.sfm_scale_percentile)
-        scale = self.config.sfm_target_radius / max(target_dist, 1e-6)
-
-        CONSOLE.log(
-            f"SfM center: {center}, scale: {scale:.4f} "
-            f"(p{self.config.sfm_scale_percentile:.0f}={target_dist:.2f} -> r={self.config.sfm_target_radius})"
-        )
-        return center, scale
 
     def _generate_dataparser_outputs(self, split="train"):
         frame_data = self._load_transforms()
