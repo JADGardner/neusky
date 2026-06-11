@@ -270,6 +270,27 @@ def load_model(
         return _orig_load(*args, **kwargs)
 
     torch.load = _trusted_load
+
+    # The checkpoint's eval_* latent banks are sized to the training-time eval
+    # set (e.g. 5 NeRF-OSR session holdouts), but in test_mode="test" the model
+    # builds banks sized to the full test split. Figures either render train
+    # views or refit eval latents from scratch, so resize mismatched eval banks
+    # (repeat-pad / trim) instead of failing the strict load.
+    from nerfstudio.pipelines import base_pipeline
+
+    _orig_lsd = base_pipeline.Pipeline.load_state_dict
+
+    def _tolerant_lsd(self, state_dict, strict=None):
+        model_state = self.model.state_dict()
+        for name, target in model_state.items():
+            key = f"_model.{name}"
+            if key in state_dict and state_dict[key].shape != target.shape and name.startswith("eval_"):
+                src = state_dict[key]
+                reps = -(-target.shape[0] // max(src.shape[0], 1))  # ceil
+                state_dict[key] = src.repeat(reps, *([1] * (src.dim() - 1)))[: target.shape[0]]
+        return _orig_lsd(self, state_dict, strict=strict)
+
+    base_pipeline.Pipeline.load_state_dict = _tolerant_lsd
     try:
         config, pipeline, ckpt_path, loaded_step = eval_setup(
             run_dir / "config.yml",
@@ -278,6 +299,7 @@ def load_model(
         )
     finally:
         torch.load = _orig_load
+        base_pipeline.Pipeline.load_state_dict = _orig_lsd
     pipeline.to(device)
     pipeline.eval()
     return config, pipeline, ckpt_path, loaded_step
@@ -323,6 +345,22 @@ def normal_to_camera_vis(normal, c2w):
     vis = (normal_cam + 1) / 2
     vis[normal.norm(dim=-1) < 0.5] = 1
     return vis.numpy()
+
+
+def load_envmap_preview(envmap_path, height: int = 64):
+    """Load an HDRI file and tonemap/downsample it for a figure strip [H, W, 3]."""
+    import numpy as np
+    import torch
+    import torch.nn.functional as F
+    from reni.utils.colourspace import linear_to_sRGB
+
+    import pyexr
+
+    hdr = pyexr.read(str(envmap_path))[..., :3].astype(np.float32)
+    t = torch.from_numpy(hdr).permute(2, 0, 1)[None]
+    width = max(1, round(height * t.shape[-1] / t.shape[-2]))
+    t = F.interpolate(t, size=(height, width), mode="area")[0].permute(1, 2, 0)
+    return linear_to_sRGB(t.clamp(min=0)).numpy()
 
 
 def render_envmap(model, illumination_idx: int, rotation=None):

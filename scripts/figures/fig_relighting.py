@@ -27,7 +27,8 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 
 from _common import (REPO_ROOT, SCENE_DEFAULT_VIEWS, add_common_args, load_model,
-                     render_envmap, render_view, restore_illumination, save_figure,
+                     load_envmap_preview, render_envmap, render_view,
+                     restore_illumination, save_figure,
                      seed_all, swap_in_environment_map)
 
 DAM_WALL_URL = "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/1k/dam_wall_1k.exr"
@@ -98,7 +99,10 @@ def main():
         try:
             outputs = render_view(model, cameras, view_idx, args.device)
             renders.append(outputs["rgb"].cpu().numpy())
-            envmaps.append(render_envmap(model, view_idx).numpy())
+            # Decoding through the illumination field would index the full
+            # envmap texture per direction sample (OOM); the preview is just
+            # the HDRI itself.
+            envmaps.append(load_envmap_preview(envmap_path))
             labels.append(envmap_path.stem)
         finally:
             restore_illumination(model, original)
