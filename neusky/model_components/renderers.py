@@ -86,41 +86,36 @@ class RGBLambertianRendererWithVisibility(nn.Module):
             Outputs rgb values.
         """
 
-        albedos = albedos.view(-1, 3)
-        normals = normals.view(-1, 3)
+        # Factored layout (memory-optimised): only normals/albedos vary per
+        # sample; visibility and light colours are per-ray; the direction set
+        # is shared. Shapes:
+        #   albedos/normals: [num_rays * num_samples, 3]
+        #   light_directions: [D, 3]            light_colors: [num_rays, D, 3]
+        #   visibility: [num_rays, D, 1] or None
+        n_rays, n_samples = weights.shape[0], weights.shape[1]
+        albedos = albedos.view(n_rays, n_samples, 3)
+        normals = normals.view(n_rays, n_samples, 3)
 
-        # compute dot product between normals [num_rays * samples_per_ray, 3] and light directions [num_rays * samples_per_ray, num_illumination_directions, 3]
-        dot_prod = torch.einsum(
-            "bi,bji->bj", normals, light_directions
-        )  # [num_rays * samples_per_ray, num_reni_directions]
+        dot_prod = torch.einsum("rsi,ji->rsj", normals, light_directions)  # [R, S, D]
+        dot_prod = dot_prod.clamp(min=0.0, max=1.0)
 
-        # clamp dot product values to be between 0 and 1
-        dot_prod.clamp_(min=0.0, max=1.0)
-
-        # count the number of elements in dot product that are greater than 0
-        count = torch.sum((dot_prod > 0).float(), dim=1, keepdim=True)
-
-        # replace all 0 values with 1 to avoid division by 0
+        # hemisphere-average normalisation: number of front-facing directions
+        count = torch.sum((dot_prod > 0).float(), dim=-1, keepdim=True)
         count = torch.where(count > 0, count, torch.ones_like(count))
-
         dot_prod = dot_prod / count
 
-        if visibility is not None:
-            # Apply the visibility mask to the dot product
-            dot_prod = dot_prod * visibility.squeeze()
+        # fold per-ray visibility into the per-ray light colours: [R, D, 3]
+        weighted_light = light_colors if visibility is None else visibility * light_colors
 
-        # compute final color by multiplying dot product with albedo color and light color
-        color = torch.einsum("bi,bj,bji->bi", albedos, dot_prod, light_colors)  # [num_rays * samples_per_ray, 3]
-
-        radiance = color.view(*weights.shape[:-1], 3)
+        # per-ray batched GEMM over directions: [R, S, D] @ [R, D, 3] -> [R, S, 3]
+        radiance = torch.bmm(dot_prod, weighted_light) * albedos
 
         if ray_indices is not None and num_rays is not None:
-            # Necessary for packed samples from volumetric ray sampler
-            comp_rgb = nerfacc.accumulate_along_rays(weights, ray_indices, radiance, num_rays)
-            accumulated_weight = nerfacc.accumulate_along_rays(weights, ray_indices, None, num_rays)
-        else:
-            comp_rgb = torch.sum(weights * radiance, dim=-2)
-            accumulated_weight = torch.sum(weights, dim=-2)
+            raise NotImplementedError(
+                "Packed-sample rendering is incompatible with the factored "
+                "illumination layout; use a [num_rays, num_samples] sampler.")
+        comp_rgb = torch.sum(weights * radiance, dim=-2)
+        accumulated_weight = torch.sum(weights, dim=-2)
 
         assert isinstance(background_illumination, torch.Tensor)
 

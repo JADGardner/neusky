@@ -508,21 +508,14 @@ class NeuSkyFactoModel(NeuSFactoModel):
         hdr_illumination_colours = hdr_illumination_colours.reshape(
             num_unique_camera_indices, num_illumination_directions, 3
         )
-        # and use inverse indices to get back to [num_rays, num_illumination_directions, 3]
-        hdr_illumination_colours = hdr_illumination_colours[
-            inverse_indices
-        ]  # [num_rays, samples_per_ray, num_illumination_directions, 3]
-        # and then unsqueeze, repeat and reshape to get to [num_rays * samples_per_ray, num_illumination_directions, 3]
-        hdr_illumination_colours = hdr_illumination_colours.reshape(
-            -1, num_illumination_directions, 3
-        )  # [num_rays * samples_per_ray, num_illumination_directions, 3]
-        # same for illumination directions
-        illumination_directions = directions[
-            inverse_indices
-        ]  # [num_rays, samples_per_ray, num_illumination_directions, 3]
-        illumination_directions = illumination_directions.reshape(
-            -1, num_illumination_directions, 3
-        )  # [num_rays * samples_per_ray, num_illumination_directions, 3]
+        # Per-ray gather: every sample of a ray shares its camera, and the
+        # direction set is identical for every camera, so illumination stays
+        # factored as [num_rays, D, 3] colours + a single [D, 3] direction
+        # set. The renderer broadcasts across samples; this avoids two
+        # ~300 MB per-sample materialisations per step.
+        ray_inverse = inverse_indices[:, 0] if inverse_indices.dim() == 2 else inverse_indices
+        hdr_illumination_colours = hdr_illumination_colours[ray_inverse]  # [num_rays, D, 3]
+        illumination_directions = directions[0]  # [D, 3] (shared)
 
 
         # now we need to get samples from distant illumination field for camera rays
@@ -782,12 +775,16 @@ class NeuSkyFactoModel(NeuSFactoModel):
 
         if self.training:
             if NeuSkyFieldHeadNames.SHININESS in field_outputs:
+                _nr, _ns = weights.shape[0], weights.shape[1]
+                _ld = illumination_directions.unsqueeze(0).expand(_nr * _ns, -1, -1)
+                _lc = hdr_illumination_colours.repeat_interleave(_ns, dim=0)
+                _vis = visibility.repeat_interleave(_ns, dim=0) if visibility is not None else None
                 rgb = self.blinn_phong_renderer(
                     albedos=field_outputs[NeuSkyFieldHeadNames.ALBEDO],
                     normals=field_outputs[FieldHeadNames.NORMALS],
-                    light_directions=illumination_directions,
-                    light_colors=hdr_illumination_colours,
-                    visibility=visibility,
+                    light_directions=_ld,
+                    light_colors=_lc,
+                    visibility=_vis,
                     background_illumination=hdr_background_colours,
                     weights=weights,
                     shininess=field_outputs[NeuSkyFieldHeadNames.SHININESS],
@@ -814,12 +811,16 @@ class NeuSkyFactoModel(NeuSFactoModel):
         else:
             if self.render_rgb_static_flag:
                 if NeuSkyFieldHeadNames.SHININESS in field_outputs:
+                    _nr, _ns = weights.shape[0], weights.shape[1]
+                    _ld = illumination_directions.unsqueeze(0).expand(_nr * _ns, -1, -1)
+                    _lc = hdr_illumination_colours.repeat_interleave(_ns, dim=0)
+                    _vis = visibility.repeat_interleave(_ns, dim=0) if visibility is not None else None
                     rgb = self.blinn_phong_renderer(
                         albedos=field_outputs[NeuSkyFieldHeadNames.ALBEDO],
                         normals=field_outputs[FieldHeadNames.NORMALS],
-                        light_directions=illumination_directions,
-                        light_colors=hdr_illumination_colours,
-                        visibility=visibility,
+                        light_directions=_ld,
+                        light_colors=_lc,
+                        visibility=_vis,
                         background_illumination=hdr_background_colours,
                         weights=weights,
                         shininess=field_outputs[NeuSkyFieldHeadNames.SHININESS],
@@ -829,16 +830,8 @@ class NeuSkyFactoModel(NeuSFactoModel):
                     if self.config.render_ambient_light:
                         light_colours = torch.ones_like(hdr_illumination_colours)
                         albedo_colours = torch.ones_like(field_outputs[NeuSkyFieldHeadNames.ALBEDO])
-                        # visibility is shape [num_rays * samples_per_ray, num_light_directions, 1]
-                        num_rays, num_samples = ray_samples.shape[0], ray_samples.shape[1]
-                        num_light_directions = visibility.shape[1]
-                        shading = visibility[:, :, 0] # [num_rays, num_light_directions]
-                        shading = shading.reshape(num_rays, num_samples, num_light_directions) # [num_rays, num_samples, num_light_directions]
-                        shading = shading[:, 0, :] # [num_rays, num_light_directions]
-                        # now we want to sum over light directions
-                        shading = torch.sum(shading, dim=-1) # [num_rays]
-                        # and normalise by number of light directions
-                        shading = shading / num_light_directions
+                        # visibility is [num_rays, num_light_directions, 1]
+                        shading = visibility[:, :, 0].mean(dim=-1)  # [num_rays]
                     else:
                         light_colours = hdr_illumination_colours
                         albedo_colours = field_outputs[NeuSkyFieldHeadNames.ALBEDO]
@@ -1653,11 +1646,11 @@ class NeuSkyFactoModel(NeuSFactoModel):
         # shortcuts for later
         num_rays = ray_samples.frustums.origins.shape[0]
         num_samples = ray_samples.frustums.origins.shape[1]
-        original_num_light_directions = illumination_directions.shape[1]
-
-        # illumination_directions = [num_rays * num_samples, num_light_directions, xyz]
-        # we only want [num_light_directions, xyz]
-        illumination_directions = illumination_directions[0, :, :]
+        # accept a shared [num_light_directions, 3] set or the legacy
+        # per-sample [N, num_light_directions, 3] layout
+        if illumination_directions.dim() == 3:
+            illumination_directions = illumination_directions[0, :, :]
+        original_num_light_directions = illumination_directions.shape[0]
 
         if self.config.only_upperhemisphere_visibility:
             # we dot product illumination_directions with the vertical z axis
@@ -1763,11 +1756,10 @@ class NeuSkyFactoModel(NeuSFactoModel):
             total_vis[mask] = visibility
             visibility = total_vis
 
-        visibility = visibility.unsqueeze(1).repeat(
-            1, num_samples, 1, 1
-        )  # [num_rays, num_samples, num_light_directions, 1]
-        # and reshape so that it is [num_rays * num_samples, original_num_light_directions, 1]
-        visibility = visibility.reshape(-1, original_num_light_directions, 1)
+        # visibility is queried once per ray (at the expected surface point);
+        # keep it [num_rays, num_light_directions, 1] and let the renderer
+        # broadcast across samples instead of materialising per-sample copies
+        visibility = visibility.reshape(num_rays, original_num_light_directions, 1)
 
         visibility_dict = outputs
         visibility_dict["visibility"] = visibility
