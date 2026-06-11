@@ -49,6 +49,7 @@ def main() -> None:
 
     scene_label = {"site1": "lk2", "site2": "st", "site3": "lwp"}.get(args.scene, args.scene)
     config.experiment_name = args.experiment_name or f"{scene_label}_refit_sfm"
+    config.project_name = "neusky"
     config.output_dir = args.output_dir
     config.vis = args.vis
     config.data = dp.data
