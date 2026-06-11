@@ -964,7 +964,12 @@ class NeuSkyFactoModel(NeuSFactoModel):
                 weights_sum = outputs["weights"].sum(dim=1).clip(1e-3, 1.0 - 1e-3)  # [num_rays, 1]
                 weights_sum = torch.nan_to_num(weights_sum, nan=0.5)  # guard against NaN from SDF
                 fg_label = fg_mask.float().unsqueeze(1)  # [num_rays, 1]
-                loss_dict["fg_mask_loss"] = F.binary_cross_entropy(weights_sum, fg_label)
+                # weights_sum is a probability (not a logit), so BCE must run
+                # in fp32 outside autocast (BCE is unsafe under AMP)
+                with torch.autocast(device_type="cuda", enabled=False):
+                    loss_dict["fg_mask_loss"] = F.binary_cross_entropy(
+                        weights_sum.float(), fg_label
+                    )
 
             # monocular normal loss
             if self.config.loss_inclusions["normal_loss"]:

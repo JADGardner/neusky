@@ -461,10 +461,12 @@ class DDFModel(Model):
             )
 
         if self.config.loss_inclusions["prob_hit_loss"]:
-            loss_dict["prob_hit_loss"] = self.prob_hit_loss(
-                outputs["expected_probability_of_hit"],
-                batch["mask"].squeeze(-1),
-            )
+            # probability input (not a logit): BCE must run in fp32 under AMP
+            with torch.autocast(device_type="cuda", enabled=False):
+                loss_dict["prob_hit_loss"] = self.prob_hit_loss(
+                    outputs["expected_probability_of_hit"].float(),
+                    batch["mask"].squeeze(-1).float(),
+                )
 
         if self.config.loss_inclusions["normal_loss"]:
             loss_dict["normal_loss"] = self.normal_loss(
