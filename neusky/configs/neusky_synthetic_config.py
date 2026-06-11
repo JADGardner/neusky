@@ -145,7 +145,7 @@ NeuSkySynthetic = MethodSpecification(
                 },
                 eval_latent_optimise_method="per_image",
                 eval_latent_sample_region="full_image",
-                illumination_field_ckpt_path=Path("/workspace/reni_models/reni_plus_plus_models/latent_dim_100/"),
+                illumination_field_ckpt_path=Path("model-storage/reni_paper_models/reni_plus_plus_models/latent_dim_100/"),
                 illumination_field_ckpt_step=50000,
                 fix_test_illumination_directions=True,
                 eval_num_rays_per_chunk=256,
