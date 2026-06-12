@@ -6,6 +6,8 @@ tables (replaces `publication/figures_and_tables.ipynb`). Same philosophy as
 loader, env-overridable roots with repo-relative defaults, argparse CLIs
 (`--help` on every script).
 
+Synthetic-benchmark scoring/rendering lives in `scripts/synthetic_benchmark/` (see its README).
+
 All commands run from the repo root:
 
 ```bash
