@@ -245,8 +245,10 @@ class NeuSkyDataManager(VanillaDataManager):  # pylint: disable=abstract-method
                 self.eval_dataloader.count = 0
             camera, batch = next(self.iter_eval_dataloader)
             camera_ray_bundle = camera.generate_rays(camera_indices=0, keep_shape=True)
-            assert camera_ray_bundle.camera_indices is not None
-            camera_idx = int(camera_ray_bundle.camera_indices[0, 0, 0])
+            # the dataloader yields a [idx:idx+1] camera slice that carries no
+            # index (its generated rays always report camera 0), so take the
+            # true image index from the batch
+            camera_idx = int(batch["image_idx"])
             # we need to use the indices_to_session mapping to get the session idx
             # as all images from a sessioin have the same latent code
             image_idx = self.indices_to_session[camera_idx]
@@ -266,9 +268,10 @@ class NeuSkyDataManager(VanillaDataManager):  # pylint: disable=abstract-method
     def next_holdout_image(self, step: int):
         if self.holdout_eval_dataloader.count >= len(self.holdout_eval_dataloader.image_indices):
             self.holdout_eval_dataloader.count = 0
-        camera_ray_bundle, batch = next(self.iter_holdout_eval_dataloader)
-        assert camera_ray_bundle.camera_indices is not None
-        camera_idx = int(camera_ray_bundle.camera_indices[0, 0, 0])
+        camera, batch = next(self.iter_holdout_eval_dataloader)
+        camera_ray_bundle = camera.generate_rays(camera_indices=0, keep_shape=True)
+        # as in next_eval_image: the camera slice carries no index, use the batch
+        camera_idx = int(batch["image_idx"])
         # we need to use the indices_to_session mapping to get the session idx
         # as all images from a sessioin have the same latent code
         image_idx = self.indices_to_session[camera_idx]
