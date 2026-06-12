@@ -74,10 +74,13 @@ in parentheses).
   a small number of pixels (anti-aliased material boundaries in Blender's
   Cycles aux passes). GT is used as stored; the masked MSE is dominated by
   in-range pixels.
-- **RGB tonemap provenance.** The q98-exposure + standard sRGB encode was
-  verified for `abandoned_buildings` test frame 0000 against its raw EXR and
-  is implemented in `scripts/prepare_synthetic_data.py` (phd repo); not
-  re-verified per-frame for all scenes.
+- **RGB tonemap provenance: RESOLVED (2026-06-12).** The q98-exposure +
+  standard sRGB encode is implemented in `scripts/prepare_synthetic_data.py`
+  (phd repo) and verified against the raw linear EXRs for all 125 test
+  frames across all five scenes (content-matched PNG to EXR; worst absolute
+  error exactly 1/255, i.e. quantisation only). Note the exposure gauge is
+  per image: methods without a per-image exposure or scale parameter should
+  rely on the exposure-aligned PSNR variant.
 
 ## Tracks
 
