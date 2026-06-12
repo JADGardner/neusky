@@ -156,6 +156,10 @@ class CustomNeuskyDataparserConfig(DataParserConfig):
     """Percentile of inlier distances to use for scale (50=median, 100=mean-like)."""
     sfm_target_radius: float = 0.5
     """Target normalized radius for the sfm_scale_percentile distance."""
+    sfm_max_camera_radius: float = 0.95
+    """Cap the SfM scale so all cameras stay within this radius. NeuSky's DDF/sky
+    sphere has radius 1; cameras outside it produce rays that miss the sphere
+    entirely and render NaN."""
     points3d_filename: str = "points3d.ply"
     """Name of the SfM point cloud file relative to data root."""
 
@@ -389,6 +393,19 @@ class CustomNeuskyDataparser(DataParser):
 
                 # Apply SfM-derived centering to camera positions
                 camera_to_worlds[:, :3, 3] -= torch.from_numpy(center).float()
+
+                # Cap the scale so cameras stay inside the unit DDF/sky sphere:
+                # rays from origins outside it can miss the sphere and NaN.
+                max_cam_dist = camera_to_worlds[:, :3, 3].norm(dim=-1).max().item()
+                cap = self.config.sfm_max_camera_radius / max(max_cam_dist, 1e-6)
+                if scale > cap:
+                    CONSOLE.log(
+                        f"[yellow]SfM scale {scale:.4f} would put cameras at radius "
+                        f"{scale * max_cam_dist:.2f}; capping to {cap:.4f} "
+                        f"(max camera radius {self.config.sfm_max_camera_radius})"
+                    )
+                    scale = cap
+
                 camera_to_worlds[:, :3, 3] *= scale * self.config.scale_factor
             else:
                 CONSOLE.log("[yellow]SfM centering requested but no points found, falling back to pose centering")
