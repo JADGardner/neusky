@@ -70,10 +70,13 @@ in parentheses).
   abandoned_buildings test views. What `depth`/`normal` mean exactly at
   transmissive surfaces (front surface vs through-glass) has not been
   verified geometrically; these layers are not scored.
-- **Out-of-range AA values.** `metallic` reaches 3.1 and `roughness` 1.06 at
-  a small number of pixels (anti-aliased material boundaries in Blender's
-  Cycles aux passes). GT is used as stored; the masked MSE is dominated by
-  in-range pixels.
+- **Out-of-range AA values: RESOLVED by policy (2026-06-12).** `metallic`
+  reaches 3.1 and `roughness` 1.06 at ~0.24% of pixels: Cycles' pixel
+  reconstruction filter has negative lobes and overshoots at anti-aliased
+  material boundaries. The scorer clamps BOTH ground truth and predictions
+  to [0, 1] before the masked MSE (no physical material exceeds the range).
+  In-range boundary mixtures are kept: they are legitimate filtered averages,
+  directly comparable to a method's own anti-aliased output.
 - **RGB tonemap provenance: RESOLVED (2026-06-12).** The q98-exposure +
   standard sRGB encode is implemented in `scripts/prepare_synthetic_data.py`
   (phd repo) and verified against the raw linear EXRs for all 125 test

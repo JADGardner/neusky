@@ -429,9 +429,14 @@ def evaluate_decomposition(pred_dir: Path, stem: str, gt: dict, notes: list) -> 
         if p is not None and layer in gt:
             pred = load_prediction(p, 1)
             _check_shape(pred, gt[layer], stem, layer)
-            m[f"decomposition/{layer}_mse_masked"] = float(
-                np.mean((pred[mask].astype(np.float64) - gt[layer][mask].astype(np.float64)) ** 2)
-            )
+            # Both sides clamped to [0, 1]: Cycles' pixel filter overshoots at
+            # anti-aliased material boundaries (GT metallic up to ~3), which no
+            # physical material can have. In-range AA mixtures are kept; they
+            # are legitimate filtered averages comparable to a method's own
+            # anti-aliased output.
+            gt_c = np.clip(gt[layer][mask].astype(np.float64), 0.0, 1.0)
+            pred_c = np.clip(pred[mask].astype(np.float64), 0.0, 1.0)
+            m[f"decomposition/{layer}_mse_masked"] = float(np.mean((pred_c - gt_c) ** 2))
     return m
 
 
