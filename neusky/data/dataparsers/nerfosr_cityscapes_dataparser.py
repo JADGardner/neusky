@@ -399,6 +399,7 @@ class NeRFOSRCityScapes(DataParser):
 
         session_to_indices = None
         indices_to_session = None
+        session_names = None
         if scene not in ["trevi", "europa", "rathaus", "schloss"]:
             # --- session IDs ---
             # names of sessions are the folders within scene_dir/ENV_MAP
@@ -413,6 +414,7 @@ class NeRFOSRCityScapes(DataParser):
                         session_to_indices[session].append(int(idx))
 
             # update keys from strings to integers from 0 to len(session_to_indices) - 1
+            session_names = {i: k for i, k in enumerate(session_to_indices.keys())}
             session_to_indices = {i: session_to_indices[k] for i, k in enumerate(session_to_indices.keys())}
 
             # also create mapping from indices to sessions
@@ -505,7 +507,13 @@ class NeRFOSRCityScapes(DataParser):
             "semantics": semantics,
             "session_to_indices": session_to_indices,
             "indices_to_session": indices_to_session,
+            "session_names": session_names,
             "session_holdout_indices": self.config.session_holdout_indices,
+            "scene_dir": scene_dir,
+            # auto_orient transform mapping the raw pose/*.txt frame into the
+            # model frame (applied to SfM points / known envmap rotations the
+            # same way as to the camera poses).
+            "orientation_transform": transform,
             "envmap_filenames": envmap_filenames,
             "envmap_cameras": envmap_cameras,
             "depth_filenames": None,

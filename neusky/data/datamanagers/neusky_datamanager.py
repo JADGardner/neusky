@@ -18,12 +18,16 @@ Datamanager.
 
 from __future__ import annotations
 
+import json
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Type, Union
 from itertools import cycle
 
+import numpy as np
 import torch
+from PIL import Image
 from rich.progress import Console
 from typing_extensions import Literal
 
@@ -328,6 +332,109 @@ class NeuSkyDataManager(VanillaDataManager):  # pylint: disable=abstract-method
         ray_bundle.camera_indices = batch["indices"][:, 0][:, None]
         return ray_bundle, batch
 
-    def get_nerfosr_envmap_lighting_optimisation_bundle(self):
-        """return the envmap for the session"""
-        raise NotImplementedError
+    def get_nerfosr_envmap_lighting_optimisation_bundle(
+        self,
+        saturation_scale: float = 10.0,
+        saturation_threshold: float = 0.95,
+        envmap_height: int = 64,
+    ) -> Dict[int, Dict[str, torch.Tensor]]:
+        """GT session envmaps for the nerf_osr_envmap relighting protocol.
+
+        For each test session this loads the session's ENV_MAP_CC panorama,
+        applies the NeRF-OSR pseudo-HDR scaling (pixels above
+        saturation_threshold multiplied by saturation_scale) and maps the
+        panorama pixel directions into the model world frame using the KNOWN
+        per-session rotation from <scene_dir>/envmap_rotations.json composed
+        with the dataparser's auto-orientation transform (the same way the
+        dataparser orients the SfM points).
+
+        envmap_rotations.json is produced by scripts/register_envmaps.py and
+        maps ERP panorama directions (its convention: lon 0 at the centre
+        column increasing rightwards, lat -pi/2 at the top row / zenith,
+        d_pano = [cos(lat)sin(lon), sin(lat), cos(lat)cos(lon)], so
+        d_world = rotation @ d_pano) into the dataset-normalised world frame
+        of the raw pose/*.txt files, i.e. BEFORE auto-orientation. The
+        optional "envmap_image" key pins the panorama filename within the
+        session folder (default: first, alphabetically).
+
+        Returns {session_idx: {"directions": [N, 3], "rgb": [N, 3],
+        "sineweight": [N, 1]}} (CPU); sineweight corrects the equirectangular
+        oversampling towards the poles, as in RENI++ inversion.
+        """
+        metadata = self.eval_dataset.metadata
+        scene_dir = metadata.get("scene_dir")
+        session_names = metadata.get("session_names")
+        transform = metadata.get("orientation_transform")
+        envmap_filenames = metadata.get("envmap_filenames") or []
+        if scene_dir is None or session_names is None or not envmap_filenames:
+            raise ValueError(
+                "nerf_osr_envmap protocol needs session envmaps; the eval dataparser "
+                "did not provide scene_dir/session_names/ENV_MAP_CC metadata "
+                "(NeRF-OSR scenes with ENV_MAP_CC only)."
+            )
+
+        rotations_path = Path(scene_dir) / "envmap_rotations.json"
+        if not rotations_path.exists():
+            raise FileNotFoundError(
+                f"nerf_osr_envmap protocol requires known per-session envmap rotations but none were "
+                f"found at the expected path: {rotations_path}. Generate them with "
+                "scripts/register_envmaps.py (format {\"<session>\": {\"rotation\": [[3x3 row-major]]}}, "
+                "mapping panorama directions into the dataset-normalised world frame of "
+                "final/<split>/pose/*.txt, before auto-orientation)."
+            )
+        session_rotations = json.loads(rotations_path.read_text())
+
+        # Rays in the model frame need the same orientation transform the
+        # dataparser applied to the poses/SfM points (rotation part only).
+        orientation_rotation = torch.eye(3) if transform is None else torch.as_tensor(transform)[:3, :3].float()
+
+        # ERP pixel grid directions in the register_envmaps.py convention.
+        height, width = envmap_height, envmap_height * 2
+        lon = 2 * torch.pi * (torch.arange(width, dtype=torch.float32) + 0.5) / width - torch.pi
+        lat = torch.pi * (torch.arange(height, dtype=torch.float32) + 0.5) / height - torch.pi / 2
+        lat, lon = torch.meshgrid(lat, lon, indexing="ij")  # [H, W]
+        d_pano = torch.stack(
+            (torch.cos(lat) * torch.sin(lon), torch.sin(lat), torch.cos(lat) * torch.cos(lon)), dim=-1
+        ).reshape(-1, 3)  # [N, 3]
+        # Solid-angle weighting of the ERP grid (sin of polar = cos of lat).
+        sineweight = torch.cos(lat).reshape(-1, 1)  # [N, 1]
+
+        bundle = {}
+        for session_idx, session_name in session_names.items():
+            if session_name not in session_rotations:
+                raise KeyError(
+                    f"Session '{session_name}' missing from {rotations_path}; "
+                    f"available sessions: {sorted(session_rotations.keys())}"
+                )
+            entry = session_rotations[session_name]
+            panorama_to_pose_frame = torch.as_tensor(entry["rotation"], dtype=torch.float32)
+            assert panorama_to_pose_frame.shape == (3, 3), f"rotation for '{session_name}' must be 3x3"
+
+            filenames = sorted(
+                f for f in envmap_filenames if f"{os.sep}{session_name}{os.sep}" in f
+            )
+            if not filenames:
+                raise FileNotFoundError(f"No ENV_MAP_CC panorama found for session '{session_name}'")
+            if entry.get("envmap_image") is not None:
+                pinned = os.path.basename(entry["envmap_image"])
+                filenames = [f for f in filenames if os.path.basename(f) == pinned]
+                if not filenames:
+                    raise FileNotFoundError(
+                        f"Panorama '{pinned}' pinned in {rotations_path} not found in "
+                        f"session '{session_name}'"
+                    )
+
+            # Panorama pixels -> linear-ish [0, 1] -> NeRF-OSR pseudo-HDR.
+            envmap = torch.from_numpy(
+                np.array(Image.open(filenames[0]).convert("RGB"), dtype="float32") / 255.0
+            ).permute(2, 0, 1)[None]  # [1, 3, H, W]
+            envmap = torch.nn.functional.interpolate(envmap, size=(height, width), mode="area")
+            envmap[envmap > saturation_threshold] *= saturation_scale
+            rgb = envmap.squeeze(0).permute(1, 2, 0).reshape(-1, 3)  # [N, 3]
+
+            # Panorama directions -> pose frame (known rotation) -> model frame.
+            rotation = orientation_rotation @ panorama_to_pose_frame
+            directions = d_pano @ rotation.T  # [N, 3]
+
+            bundle[session_idx] = {"directions": directions, "rgb": rgb, "sineweight": sineweight}
+        return bundle

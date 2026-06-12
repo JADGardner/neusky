@@ -167,6 +167,13 @@ class NeuSkyFactoModelConfig(NeuSFactoModelConfig):
     """Sample region of images for eval latent optimisation if method is per image"""
     eval_latent_optimise_method: Literal["per_image", "nerf_osr_holdout", "nerf_osr_envmap"] = "per_image"
     """Method for optimising eval latents"""
+    eval_latent_optimisation_seed: int = 42
+    """Seed set before eval latent optimisation so relighting evals are deterministic"""
+    envmap_saturation_scale: float = 10.0
+    """NeRF-OSR pseudo-HDR scaling for GT session envmaps (nerf_osr_envmap protocol):
+    pixels above envmap_saturation_threshold are multiplied by this factor"""
+    envmap_saturation_threshold: float = 0.95
+    """Threshold above which GT envmap pixels are treated as saturated"""
     mask_to_building_in_metrics: bool = False
     """Apply building mask so only building contributes to metrics as per NeRF-OSR eval"""
     render_ambient_light: bool = False
@@ -260,8 +267,6 @@ class NeuSkyFactoModel(NeuSFactoModel):
                 num_eval_data=None,
             )
             # use local latents as illumination field is just for decoder
-            self.eval_rotation = Parameter(torch.ones(self.num_eval_data))
-
             self.train_illumination_latents = Parameter(
                 torch.zeros((self.num_train_data, self.illumination_field.latent_dim, 3))
             )
@@ -1515,13 +1520,24 @@ class NeuSkyFactoModel(NeuSFactoModel):
         # Make sure we are using eval RENI inside self.forward()
         self.fitting_eval_latents = True
 
-        if not self.config.eval_latent_optimise_method == "nerf_osr_envmap":
-            if self.eval_scale is not None:
-                param_group = {"eval_latents": [self.eval_illumination_latents, self.eval_scale]}
-            else:
-                param_group = {"eval_latents": [self.eval_illumination_latents]}
+        # Deterministic relighting eval: the fits below sample random pixels
+        # per step (Adam lr 1e-1 -> 1e-7, 250 steps via eval_latent_optimizer).
+        # getattr as configs saved with older checkpoints predate the field.
+        seed = getattr(self.config, "eval_latent_optimisation_seed", 42)
+        random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+
+        if self.config.eval_latent_optimise_method == "nerf_osr_envmap":
+            # GT-envmap protocol: fit the latents to the session envmaps with
+            # the KNOWN panorama-to-world rotations, then only the per-session
+            # exposure scale on the compare views below.
+            self._fit_eval_latents_to_envmaps(datamanager)
+            param_group = {"eval_latents": [self.eval_scale]}
+        elif self.eval_scale is not None:
+            param_group = {"eval_latents": [self.eval_illumination_latents, self.eval_scale]}
         else:
-            param_group = {"eval_latents": [self.eval_scale, self.eval_rotation]}
+            param_group = {"eval_latents": [self.eval_illumination_latents]}
 
         optimizer = Optimizers(self.config.eval_latent_optimizer, param_group)
         steps = optimizer.config["eval_latents"]["scheduler"].max_steps
@@ -1546,7 +1562,6 @@ class NeuSkyFactoModel(NeuSFactoModel):
                     self.eval_scale.data = torch.ones_like(self.eval_scale.data)
 
                 for _ in range(steps):
-                    rotation_matrices = None
                     if self.config.eval_latent_optimise_method == "per_image":
                         ray_bundle, batch = datamanager.get_eval_image_half_bundle(
                             sample_region=self.config.eval_latent_sample_region
@@ -1555,24 +1570,10 @@ class NeuSkyFactoModel(NeuSFactoModel):
                         ray_bundle, batch = datamanager.get_nerfosr_lighting_eval_bundle("optimise")
                     elif self.config.eval_latent_optimise_method == "nerf_osr_envmap":
                         ray_bundle, batch = datamanager.get_nerfosr_lighting_eval_bundle("compare")
-                        gamma = torch.sigmoid(self.eval_rotation) * 2 * np.pi
-                        cos_gamma = torch.cos(gamma)
-                        sin_gamma = torch.sin(gamma)
-                        
-                        # Initialize a zero tensor for the batch of rotation matrices
-                        batch_size = gamma.size(0)
-                        rotation_matrices = torch.zeros(batch_size, 3, 3, dtype=gamma.dtype, device=gamma.device)
-
-                        # Assign values to each rotation matrix in the batch
-                        rotation_matrices[:, 0, 0] = cos_gamma
-                        rotation_matrices[:, 0, 1] = -sin_gamma
-                        rotation_matrices[:, 1, 0] = sin_gamma
-                        rotation_matrices[:, 1, 1] = cos_gamma
-                        rotation_matrices[:, 2, 2] = 1
                     else:
                         raise NotImplementedError
 
-                    model_outputs = self.forward(ray_bundle=ray_bundle, step=global_step, rotation=rotation_matrices)
+                    model_outputs = self.forward(ray_bundle=ray_bundle, step=global_step)
                     loss_dict = self.get_loss_dict(model_outputs, batch)
                     loss = functools.reduce(torch.add, loss_dict.values())
                     optimizer.zero_grad_all()
@@ -1589,6 +1590,90 @@ class NeuSkyFactoModel(NeuSFactoModel):
 
         # No longer using eval RENI
         self.fitting_eval_latents = False
+
+    def _fit_eval_latents_to_envmaps(self, datamanager: NeuSkyDataManager):
+        """Fit the eval RENI latents to the GT session envmaps (NeRF-OSR protocol).
+
+        The per-session panorama-to-world rotations are KNOWN (loaded by the
+        datamanager from envmap_rotations.json and composed with the
+        dataparser's auto-orientation transform), so the rotation is baked
+        into the sample directions and only the latents are optimised. The
+        loss is sine-weighted log-domain MSE + cosine similarity, mirroring
+        RENI++ inversion against (pseudo-)HDR environment maps.
+        """
+        assert self.eval_scale is not None, "nerf_osr_envmap protocol requires a RENI illumination field"
+
+        envmap_bundle = datamanager.get_nerfosr_envmap_lighting_optimisation_bundle(
+            saturation_scale=getattr(self.config, "envmap_saturation_scale", 10.0),
+            saturation_threshold=getattr(self.config, "envmap_saturation_threshold", 0.95),
+        )
+        session_idxs = sorted(envmap_bundle.keys())
+        directions = torch.cat([envmap_bundle[i]["directions"] for i in session_idxs]).to(self.device)
+        rgb = torch.cat([envmap_bundle[i]["rgb"] for i in session_idxs]).to(self.device)
+        sineweight = torch.cat([envmap_bundle[i]["sineweight"] for i in session_idxs]).to(self.device)
+        camera_indices = torch.cat(
+            [
+                torch.full((envmap_bundle[i]["rgb"].shape[0],), i, dtype=torch.long)
+                for i in session_idxs
+            ]
+        ).to(self.device)
+
+        ray_samples = RaySamples(
+            frustums=Frustums(
+                origins=torch.zeros_like(directions),
+                directions=directions,
+                starts=torch.zeros_like(directions[..., :1]),
+                ends=torch.zeros_like(directions[..., :1]),
+                pixel_area=torch.ones_like(directions[..., :1]),
+            ),
+            camera_indices=camera_indices[:, None],
+        )
+
+        optimizer = Optimizers(
+            self.config.eval_latent_optimizer, {"eval_latents": [self.eval_illumination_latents]}
+        )
+        steps = optimizer.config["eval_latents"]["scheduler"].max_steps
+
+        # Latents from scratch; scale stays at its reset value during this fit
+        # (the compare-view exposure fit afterwards owns it).
+        self.eval_illumination_latents.data = torch.zeros_like(self.eval_illumination_latents.data)
+        self.eval_scale.data = torch.ones_like(self.eval_scale.data)
+        cosine_similarity = torch.nn.CosineSimilarity(dim=1, eps=1e-20)
+
+        with Progress(
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+            TimeRemainingColumn(),
+            TextColumn("[blue]Loss: {task.fields[loss]}"),
+            TextColumn("[green]LR: {task.fields[lr]}"),
+        ) as progress:
+            task = progress.add_task("[green]Fitting eval latents to GT envmaps... ", total=steps, loss="", lr="")
+
+            with self.illumination_field.hold_decoder_fixed():
+                for _ in range(steps):
+                    outputs = self.illumination_field.forward(
+                        ray_samples=ray_samples,
+                        latent_codes=self.eval_illumination_latents[camera_indices],
+                        scale=self.eval_scale[camera_indices].detach(),
+                    )
+                    pred_hdr = self.illumination_field.unnormalise(outputs[RENIFieldHeadNames.RGB])
+                    log_mse = torch.mean(
+                        sineweight * (torch.log(pred_hdr + 1e-8) - torch.log(rgb + 1e-8)) ** 2
+                    )
+                    cosine_loss = torch.mean(sineweight * (1 - cosine_similarity(pred_hdr, rgb)).unsqueeze(-1))
+                    loss = log_mse + cosine_loss
+                    optimizer.zero_grad_all()
+                    loss.backward()
+                    optimizer.optimizer_step("eval_latents")
+                    optimizer.scheduler_step("eval_latents")
+
+                    progress.update(
+                        task,
+                        advance=1,
+                        loss=f"{loss.item():.4f}",
+                        lr=f"{optimizer.schedulers['eval_latents'].get_last_lr()[0]:.8f}",
+                    )
 
     def ray_sphere_intersection(self, positions, directions, radius):
         """Ray sphere intersection"""
