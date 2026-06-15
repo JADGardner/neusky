@@ -75,6 +75,10 @@ class SDFAlbedoFieldConfig(SDFFieldConfig):
     _target: Type = field(default_factory=lambda: SDFAlbedoField)
     predict_shininess: bool = False
     """Whether to predict specular."""
+    analytic_sphere_init: bool = False
+    """Initialize the SDF as an analytic sphere plus a learned residual."""
+    analytic_sphere_radius: float = 0.1
+    """Radius of the analytic sphere used when analytic_sphere_init is enabled."""
 
 
 class SDFAlbedoField(SDFField):
@@ -140,6 +144,8 @@ class SDFAlbedoField(SDFField):
 
         # initialize geometric network
         self.initialize_geo_layers()
+        if self.config.analytic_sphere_init:
+            self._zero_sdf_residual_head()
 
         # deviation_network to compute alpha from sdf from NeuS
         self.deviation_network = LearnedVariance(init_val=self.config.beta_init)
@@ -165,6 +171,27 @@ class SDFAlbedoField(SDFField):
         self.sigmoid = torch.nn.Sigmoid()
 
         self._cos_anneal_ratio = 1.0
+
+    def _zero_sdf_residual_head(self) -> None:
+        """Make the learned SDF channel start as a zero-valued residual."""
+        final_layer = getattr(self, "glin" + str(self.num_layers - 2))
+        with torch.no_grad():
+            if hasattr(final_layer, "weight_g"):
+                final_layer.weight_g[0].zero_()
+            else:
+                final_layer.weight[0].zero_()
+            if final_layer.bias is not None:
+                final_layer.bias[0].zero_()
+
+    def forward_geonetwork(self, inputs):
+        outputs = super().forward_geonetwork(inputs)
+        if not self.config.analytic_sphere_init:
+            return outputs
+
+        sphere_sdf = torch.linalg.norm(inputs, dim=-1, keepdim=True) - self.config.analytic_sphere_radius
+        if self.config.inside_outside:
+            sphere_sdf = -sphere_sdf
+        return torch.cat((outputs[..., :1] + sphere_sdf, outputs[..., 1:]), dim=-1)
 
     def get_sdf_at_pos(self, positions):
         """get sdf at provided positions"""

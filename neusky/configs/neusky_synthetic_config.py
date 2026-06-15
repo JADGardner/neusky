@@ -72,6 +72,8 @@ NeuSkySynthetic = MethodSpecification(
                     use_appearance_embedding=False,
                     inside_outside=False,
                     predict_shininess=False,
+                    analytic_sphere_init=True,
+                    analytic_sphere_radius=0.1,
                 ),
                 illumination_field=RENIFieldConfig(
                     conditioning="Attention",

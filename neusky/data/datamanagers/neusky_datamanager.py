@@ -258,12 +258,14 @@ class NeuSkyDataManager(VanillaDataManager):  # pylint: disable=abstract-method
             camera_ray_bundle.camera_indices = torch.ones_like(camera_ray_bundle.camera_indices) * image_idx
             return image_idx, camera_ray_bundle, batch
         else:
-            for camera, batch in self.eval_dataloader:
-                camera_ray_bundle = camera.generate_rays(camera_indices=0, keep_shape=True)
-                image_idx = batch["image_idx"]
-                camera_ray_bundle.camera_indices = torch.ones_like(camera_ray_bundle.camera_indices) * image_idx
-                return image_idx, camera_ray_bundle, batch
-            raise ValueError("No more eval images")
+            eval_idx = int(step) % len(self.eval_dataset)
+            camera, batch = self.eval_dataloader.get_camera(eval_idx)
+            camera_ray_bundle = camera.generate_rays(camera_indices=0, keep_shape=True)
+            image_idx_value = batch["image_idx"]
+            image_idx = int(image_idx_value.item()) if torch.is_tensor(image_idx_value) else int(image_idx_value)
+            batch["image_idx"] = image_idx
+            camera_ray_bundle.camera_indices = torch.ones_like(camera_ray_bundle.camera_indices) * image_idx
+            return image_idx, camera_ray_bundle, batch
     
     def next_holdout_image(self, step: int):
         if self.holdout_eval_dataloader.count >= len(self.holdout_eval_dataloader.image_indices):
