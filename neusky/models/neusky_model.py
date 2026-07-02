@@ -966,12 +966,25 @@ class NeuSkyFactoModel(NeuSFactoModel):
                 weights_sum = outputs["weights"].sum(dim=1).clip(1e-3, 1.0 - 1e-3)  # [num_rays, 1]
                 weights_sum = torch.nan_to_num(weights_sum, nan=0.5)  # guard against NaN from SDF
                 fg_label = fg_mask.float().unsqueeze(1)  # [num_rays, 1]
+                # Boundary confidence (mask channel 4, when the dataparser
+                # enables it): silhouette pixels carry mixed sky/building
+                # content, so their binary labels give contradictory
+                # cross-view density supervision and seed SDF boundary
+                # floaters. Down-weight the BCE there instead of trusting
+                # the label. An all-ones channel (or its absence) reproduces
+                # the original unweighted loss exactly.
+                if batch["mask"].shape[-1] > 4:
+                    boundary_conf = batch["mask"][..., 4].to(self.device).unsqueeze(1)  # [num_rays, 1]
+                else:
+                    boundary_conf = torch.ones_like(fg_label)
                 # weights_sum is a probability (not a logit), so BCE must run
                 # in fp32 outside autocast (BCE is unsafe under AMP)
                 with torch.autocast(device_type="cuda", enabled=False):
-                    loss_dict["fg_mask_loss"] = F.binary_cross_entropy(
-                        weights_sum.float(), fg_label
+                    per_ray_bce = F.binary_cross_entropy(
+                        weights_sum.float(), fg_label, reduction="none"
                     )
+                    conf = boundary_conf.float()
+                    loss_dict["fg_mask_loss"] = (per_ray_bce * conf).sum() / conf.sum().clamp_min(1e-6)
 
             # monocular normal loss
             if self.config.loss_inclusions["normal_loss"]:

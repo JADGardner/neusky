@@ -188,6 +188,11 @@ class NeRFOSRCityScapesDataParserConfig(NeRFOSRDataParserConfig):
     """Segmentation model to use for inference"""
     mask_vegetation: bool = False
     """Include vegetation in transient masks"""
+    fg_boundary_erode_pixels: int = 0
+    """Half-width (px) of the ignore band around foreground-mask transitions used to
+    down-weight the fg-mask density loss at unreliable silhouette pixels; 0 disables."""
+    fg_boundary_soften_kernel: int = 0
+    """Odd gaussian kernel size softening the boundary-confidence falloff; 0 keeps a hard band."""
     session_holdout_indices: List[int] = field(default_factory=lambda: [0, 0, 0, 0, 0])
     """Indices of images within sessions (idx are relative to session) to use for evaluation"""
     session_env_map_scaling: float = 1.0
@@ -541,6 +546,8 @@ class NeRFOSRCityScapes(DataParser):
             "pad_to_equal_size": self.config.pad_to_equal_size,
             "width_height": self.width_height,
             "mask_vegetation": self.config.mask_vegetation,
+            "fg_boundary_erode_pixels": self.config.fg_boundary_erode_pixels,
+            "fg_boundary_soften_kernel": self.config.fg_boundary_soften_kernel,
             "test_eval_mask_dict": test_eval_mask_dict,
             "out_of_view_frustum_objects_masks": out_of_view_frustum_objects_masks,
             "include_sidewalk_in_ground_mask": self.config.include_sidewalk_in_ground_mask,

@@ -31,6 +31,11 @@ def parse_args() -> argparse.Namespace:
                         help="Override illumination_field_ckpt_path")
     parser.add_argument("--no-sfm", action="store_true",
                         help="Disable SfM point-cloud rescaling (camera auto-scale instead)")
+    parser.add_argument("--fg-boundary-erode-pixels", type=int, default=0,
+                        help="Ignore-band half-width (px) around fg-mask transitions for the "
+                             "fg-mask density loss (boundary-floater mitigation); 0 disables.")
+    parser.add_argument("--fg-boundary-soften-kernel", type=int, default=0,
+                        help="Odd gaussian kernel softening the boundary-confidence falloff.")
     return parser.parse_args()
 
 
@@ -46,6 +51,8 @@ def main() -> None:
     dp.data = args.data.expanduser()
     if args.no_sfm:
         dp.center_method_sfm = False
+    dp.fg_boundary_erode_pixels = args.fg_boundary_erode_pixels
+    dp.fg_boundary_soften_kernel = args.fg_boundary_soften_kernel
 
     scene_label = {"site1": "lk2", "site2": "st", "site3": "lwp"}.get(args.scene, args.scene)
     config.experiment_name = args.experiment_name or f"{scene_label}_refit_sfm"

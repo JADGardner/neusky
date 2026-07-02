@@ -148,6 +148,11 @@ class CustomNeuskyDataparserConfig(DataParserConfig):
     """Include vegetation in transient masks"""
     include_sidewalk_in_ground_mask: bool = True
     """Include sidewalk in ground mask"""
+    fg_boundary_erode_pixels: int = 0
+    """Half-width (px) of the ignore band around foreground-mask transitions used to
+    down-weight the fg-mask density loss at unreliable silhouette pixels; 0 disables."""
+    fg_boundary_soften_kernel: int = 0
+    """Odd gaussian kernel size softening the boundary-confidence falloff; 0 keeps a hard band."""
     center_method_sfm: bool = False
     """Use SfM point cloud for scene centering instead of camera positions."""
     sfm_outlier_percentile: float = 95.0
@@ -511,10 +516,13 @@ class CustomNeuskyDataparser(DataParser):
             "pad_to_equal_size": False,
             "width_height": [],
             "mask_vegetation": self.config.mask_vegetation,
+            "fg_boundary_erode_pixels": self.config.fg_boundary_erode_pixels,
+            "fg_boundary_soften_kernel": self.config.fg_boundary_soften_kernel,
             "test_eval_mask_dict": {},
             "out_of_view_frustum_objects_masks": [None] * len(image_filenames),
             "include_sidewalk_in_ground_mask": self.config.include_sidewalk_in_ground_mask,
             "orientation_rotation": orientation_rotation,  # 3x3 rotation from auto_orient_and_center_poses
+            "metric_depth_scale": pose_scale_factor,  # multiply metric GT z-depth into model coordinates
             "gt_envmap_info": gt_envmap_info,  # per-frame HDRI path + rotation
         }
         metadata.update(gt_layers)

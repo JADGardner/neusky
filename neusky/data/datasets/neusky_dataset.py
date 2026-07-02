@@ -23,6 +23,7 @@ from typing import Dict, List, Optional
 import numpy as np
 import numpy.typing as npt
 import torch
+import torch.nn.functional as F
 from PIL import Image
 
 
@@ -36,6 +37,41 @@ from nerfstudio.data.dataparsers.base_dataparser import (
 )
 
 GT_LAYER_NAMES = ["albedo", "normal", "depth", "roughness", "metallic", "ior", "transmission"]
+
+
+def fg_boundary_confidence(fg_mask: torch.Tensor, erode_pixels: int, soften_kernel: int) -> torch.Tensor:
+    """Per-pixel confidence for mask-based density supervision.
+
+    Semantic masks are unreliable at silhouette boundaries: a pixel labelled
+    foreground there may partially cover sky, so binary cross-view density
+    supervision is contradictory and produces SDF boundary floaters. Returns
+    1 far from any foreground/background transition, ~0 within
+    ``erode_pixels`` of one, optionally gaussian-softened for a smooth
+    falloff (IDS fixed the same failure on NeRF-OSR with erode 30 /
+    kernel 51 at full resolution).
+
+    Args:
+        fg_mask: (H, W, 1) float tensor, 1 = foreground.
+        erode_pixels: half-width of the ignore band; <=0 returns all ones.
+        soften_kernel: odd gaussian kernel size; <=1 keeps the hard band.
+    """
+    if erode_pixels <= 0:
+        return torch.ones_like(fg_mask)
+    m = fg_mask.permute(2, 0, 1).unsqueeze(0)  # (1, 1, H, W)
+    k = 2 * erode_pixels + 1
+    dilated_fg = F.max_pool2d(m, kernel_size=k, stride=1, padding=erode_pixels)
+    dilated_bg = F.max_pool2d(1.0 - m, kernel_size=k, stride=1, padding=erode_pixels)
+    confidence = 1.0 - dilated_fg * dilated_bg  # 0 within the transition band
+    if soften_kernel and soften_kernel > 1:
+        ks = soften_kernel + 1 if soften_kernel % 2 == 0 else soften_kernel
+        sigma = ks / 6.0
+        x = torch.arange(ks, dtype=confidence.dtype) - (ks - 1) / 2.0
+        g = torch.exp(-0.5 * (x / sigma) ** 2)
+        g = (g / g.sum()).to(confidence)
+        pad = ks // 2
+        confidence = F.conv2d(F.pad(confidence, (pad, pad, 0, 0), mode="replicate"), g.view(1, 1, 1, ks))
+        confidence = F.conv2d(F.pad(confidence, (0, 0, pad, pad), mode="replicate"), g.view(1, 1, ks, 1))
+    return confidence.squeeze(0).permute(1, 2, 0).clamp(0.0, 1.0)
 
 # Number of channels per GT layer
 GT_LAYER_CHANNELS = {
@@ -286,8 +322,19 @@ class NeuSkyDataset(InputDataset):
             mask = mask * object_mask
             fg_mask = fg_mask * object_mask
 
-        # stack masks to shape H, W, 3
-        mask = torch.cat([mask, fg_mask, ground_mask, sky_mask], dim=-1)
+        # Boundary confidence for the fg-mask density loss (channel 4): 1 far
+        # from foreground/background transitions, ->0 within the configured
+        # band, so mixed silhouette pixels stop injecting contradictory
+        # cross-view density supervision (SDF boundary floaters). All ones
+        # when disabled (erode 0), which keeps the loss identical.
+        fg_boundary_conf = fg_boundary_confidence(
+            fg_mask,
+            int(self.metadata.get("fg_boundary_erode_pixels", 0) or 0),
+            int(self.metadata.get("fg_boundary_soften_kernel", 0) or 0),
+        )
+
+        # stack masks to shape H, W, 5: [static, fg, ground, sky, fg_boundary_conf]
+        mask = torch.cat([mask, fg_mask, ground_mask, sky_mask, fg_boundary_conf], dim=-1)
 
         if self.crop_to_equal_size:
             height, width = mask.shape[:2]
