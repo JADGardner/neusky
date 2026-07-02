@@ -75,6 +75,37 @@ from reni.field_components.field_heads import RENIFieldHeadNames
 from reni.utils.colourspace import linear_to_sRGB
 from neusky.utils.utils import find_nerfstudio_project_root, rot_z
 
+
+def fg_boundary_band_at(step: Union[int, None], anneal_start: int, anneal_end: int, band_px: float) -> float:
+    """Annealed fg-boundary ignore-band half-width (px) at a training step.
+
+    band_px before ``anneal_start``, linearly decreasing to 0 at
+    ``anneal_end``, 0 afterwards. ``step=None`` (eval / no step available)
+    returns 0, which maps to confidence 1 everywhere, i.e. the original loss.
+    """
+    if step is None or step >= anneal_end:
+        return 0.0
+    if step < anneal_start:
+        return float(band_px)
+    return float(band_px) * (anneal_end - step) / max(anneal_end - anneal_start, 1)
+
+
+def fg_boundary_confidence_from_distance(
+    distance: torch.Tensor, band: float, band_px: float, ramp_px: float
+) -> torch.Tensor:
+    """Boundary confidence from a transition-distance map with a collapsing ramp.
+
+    conf = clamp((distance - band) / ramp_eff, 0, 1) with
+    ramp_eff = ramp_px * band / band_px, so the ramp shrinks proportionally
+    with the band and band == 0 returns confidence identically 1 — exactly
+    recovering the original hard fg-mask BCE for the final training steps.
+    """
+    if band <= 0.0:
+        return torch.ones_like(distance)
+    ramp_eff = max(float(ramp_px) * band / max(float(band_px), 1e-6), 1e-6)
+    return ((distance - band) / ramp_eff).clamp(0.0, 1.0)
+
+
 CONSOLE = Console(width=120)
 
 
@@ -154,6 +185,19 @@ class NeuSkyFactoModelConfig(NeuSFactoModelConfig):
         }
     )
     """Which losses to include in the training"""
+    fg_boundary_anneal_start: int = 0
+    """Training step at which the fg-mask boundary ignore band starts shrinking (annealed mode)."""
+    fg_boundary_anneal_end: int = 0
+    """Training step at which the band reaches zero; 0 disables annealing entirely (mask
+    channel 4 is then used directly as a static confidence, the pre-anneal behaviour).
+    Annealed mode requires the dataparser's fg_boundary_distance_channel so channel 4
+    carries the distance to the nearest fg/background transition."""
+    fg_boundary_band_px: float = 10.0
+    """Initial ignore-band half-width in pixels (erode-pixels semantics of the static band)."""
+    fg_boundary_ramp_px: float = 10.0
+    """Confidence ramp width in pixels just outside the band (~soften-kernel/2 of the static
+    band). The ramp shrinks proportionally with the band during annealing, so band 0 yields
+    confidence identically 1 (exactly the original unweighted fg-mask BCE)."""
     eval_latent_optimizer: Dict[str, Any] = to_immutable_dict(
         {
             "eval_latents": {
@@ -210,6 +254,11 @@ class NeuSkyFactoModel(NeuSFactoModel):
         self.train_metadata = kwargs.get("train_metadata", None)
         self.eval_metadata = kwargs.get("eval_metadata", None)
         self.viewing_training_image = False # DEBGUG for viewing training images
+        # Last training step threaded through forward() by the pipeline (the
+        # same plumbing that drives the visibility-threshold decay). Used to
+        # anneal the fg-boundary ignore band; None (e.g. eval) means band 0,
+        # i.e. the original unweighted fg-mask BCE.
+        self._fg_boundary_train_step: Union[int, None] = None
         super().__init__(config, scene_box, num_train_data, **kwargs)
         self.visibility_field = visibility_field
 
@@ -445,6 +494,11 @@ class NeuSkyFactoModel(NeuSFactoModel):
             ray_bundle: containing all the information needed to render that ray latents included
             batch: batch needed for DDF: masks, etc.
         """
+        if step is not None:
+            # Cache the trainer's global step (already threaded here for the
+            # visibility-threshold decay) so get_loss_dict can anneal the
+            # fg-boundary band without a parallel step counter.
+            self._fg_boundary_train_step = step
 
         if self.collider is not None:
             ray_bundle = self.collider(ray_bundle)
@@ -974,7 +1028,30 @@ class NeuSkyFactoModel(NeuSFactoModel):
                 # the label. An all-ones channel (or its absence) reproduces
                 # the original unweighted loss exactly.
                 if batch["mask"].shape[-1] > 4:
-                    boundary_conf = batch["mask"][..., 4].to(self.device).unsqueeze(1)  # [num_rays, 1]
+                    boundary_channel = batch["mask"][..., 4].to(self.device).unsqueeze(1)  # [num_rays, 1]
+                    if self.config.fg_boundary_anneal_end > 0:
+                        # Annealed band: channel 4 is the distance (px) to the
+                        # nearest fg/background transition (dataparser
+                        # fg_boundary_distance_channel). The static band
+                        # suppresses boundary floaters but leaves silhouettes
+                        # noisy/blurry, so shrink it to zero over training;
+                        # once the band (and its proportionally collapsing
+                        # ramp) hits zero the confidence is identically 1 and
+                        # this is exactly the original hard BCE again.
+                        band = fg_boundary_band_at(
+                            self._fg_boundary_train_step,
+                            self.config.fg_boundary_anneal_start,
+                            self.config.fg_boundary_anneal_end,
+                            self.config.fg_boundary_band_px,
+                        )
+                        boundary_conf = fg_boundary_confidence_from_distance(
+                            boundary_channel,
+                            band,
+                            self.config.fg_boundary_band_px,
+                            self.config.fg_boundary_ramp_px,
+                        )
+                    else:
+                        boundary_conf = boundary_channel
                 else:
                     boundary_conf = torch.ones_like(fg_label)
                 # weights_sum is a probability (not a logit), so BCE must run

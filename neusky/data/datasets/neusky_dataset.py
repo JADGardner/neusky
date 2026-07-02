@@ -73,6 +73,74 @@ def fg_boundary_confidence(fg_mask: torch.Tensor, erode_pixels: int, soften_kern
         confidence = F.conv2d(F.pad(confidence, (0, 0, pad, pad), mode="replicate"), g.view(1, 1, ks, 1))
     return confidence.squeeze(0).permute(1, 2, 0).clamp(0.0, 1.0)
 
+
+def _fg_transition_mask(fg_mask: torch.Tensor) -> torch.Tensor:
+    """(H, W) bool mask of pixels whose 3x3 neighbourhood contains both
+    foreground and background (both sides of every fg/background transition)."""
+    m = fg_mask.permute(2, 0, 1).unsqueeze(0)  # (1, 1, H, W)
+    dilated_fg = F.max_pool2d(m, kernel_size=3, stride=1, padding=1)
+    dilated_bg = F.max_pool2d(1.0 - m, kernel_size=3, stride=1, padding=1)
+    return (dilated_fg * dilated_bg)[0, 0] > 0.5
+
+
+def _distance_to_transition_cv2(transition: torch.Tensor, clamp_px: float) -> torch.Tensor:
+    """Chebyshev distance to the nearest transition pixel via cv2.distanceTransform.
+
+    DIST_C with a 3x3 mask is exact for the Chebyshev metric, matching both the
+    max-pool band geometry of ``fg_boundary_confidence`` and the iterative
+    torch fallback.
+    """
+    import cv2
+
+    src = (~transition).numpy().astype(np.uint8)  # 0 at transitions, 1 elsewhere
+    dist = cv2.distanceTransform(src, cv2.DIST_C, 3)
+    return torch.from_numpy(dist.astype(np.float32)).clamp(max=clamp_px)
+
+
+def _distance_to_transition_torch(transition: torch.Tensor, clamp_px: float) -> torch.Tensor:
+    """Pure-torch fallback: iterative 3x3 max-pool dilation of the transition
+    mask. The first iteration at which a pixel is covered is exactly its
+    Chebyshev distance, so this agrees with the cv2 DIST_C path."""
+    dist = torch.full(transition.shape, float(clamp_px), dtype=torch.float32)
+    dist[transition] = 0.0
+    covered = transition.float().unsqueeze(0).unsqueeze(0)  # (1, 1, H, W)
+    for i in range(1, int(clamp_px)):
+        if bool((covered > 0.5).all()):
+            break
+        new_covered = F.max_pool2d(covered, kernel_size=3, stride=1, padding=1)
+        newly = (new_covered[0, 0] > 0.5) & (covered[0, 0] <= 0.5)
+        dist[newly] = float(i)
+        covered = new_covered
+    return dist
+
+
+def fg_boundary_distance(fg_mask: torch.Tensor, clamp_px: float = 255.0) -> torch.Tensor:
+    """Distance (px) from each pixel to the nearest fg/background transition.
+
+    Written as mask channel 4 instead of the static confidence when the
+    dataparser sets ``fg_boundary_distance_channel``. The model converts it to
+    a boundary confidence whose ignore-band width is annealed to zero over
+    training, so silhouettes re-sharpen once geometry has settled (the static
+    band suppresses boundary floaters but leaves edges noisy/blurry).
+
+    Chebyshev (L-inf) metric, matching the max-pool band of
+    ``fg_boundary_confidence`` so a band of ``erode_pixels`` reproduces the
+    static ignore band. Uses cv2.distanceTransform when available with a
+    pure-torch iterative fallback; distances are clamped at ``clamp_px``.
+
+    Args:
+        fg_mask: (H, W, 1) float tensor, 1 = foreground.
+        clamp_px: maximum distance value stored in the channel.
+    """
+    transition = _fg_transition_mask(fg_mask)
+    if not bool(transition.any()):
+        return torch.full_like(fg_mask, clamp_px)
+    try:
+        dist = _distance_to_transition_cv2(transition, clamp_px)
+    except Exception:
+        dist = _distance_to_transition_torch(transition, clamp_px)
+    return dist.unsqueeze(-1)
+
 # Number of channels per GT layer
 GT_LAYER_CHANNELS = {
     "albedo": 3,
@@ -322,16 +390,24 @@ class NeuSkyDataset(InputDataset):
             mask = mask * object_mask
             fg_mask = fg_mask * object_mask
 
-        # Boundary confidence for the fg-mask density loss (channel 4): 1 far
-        # from foreground/background transitions, ->0 within the configured
-        # band, so mixed silhouette pixels stop injecting contradictory
-        # cross-view density supervision (SDF boundary floaters). All ones
-        # when disabled (erode 0), which keeps the loss identical.
-        fg_boundary_conf = fg_boundary_confidence(
-            fg_mask,
-            int(self.metadata.get("fg_boundary_erode_pixels", 0) or 0),
-            int(self.metadata.get("fg_boundary_soften_kernel", 0) or 0),
-        )
+        # Boundary channel for the fg-mask density loss (channel 4). Two modes:
+        # - static confidence (default): 1 far from foreground/background
+        #   transitions, ->0 within the configured band, so mixed silhouette
+        #   pixels stop injecting contradictory cross-view density supervision
+        #   (SDF boundary floaters). All ones when disabled (erode 0), which
+        #   keeps the loss identical.
+        # - distance map (fg_boundary_distance_channel): distance in pixels to
+        #   the nearest transition; the model derives an annealed confidence
+        #   from it, shrinking the ignore band to zero over training so
+        #   silhouettes re-sharpen after geometry settles.
+        if self.metadata.get("fg_boundary_distance_channel", False):
+            fg_boundary_conf = fg_boundary_distance(fg_mask)
+        else:
+            fg_boundary_conf = fg_boundary_confidence(
+                fg_mask,
+                int(self.metadata.get("fg_boundary_erode_pixels", 0) or 0),
+                int(self.metadata.get("fg_boundary_soften_kernel", 0) or 0),
+            )
 
         # stack masks to shape H, W, 5: [static, fg, ground, sky, fg_boundary_conf]
         mask = torch.cat([mask, fg_mask, ground_mask, sky_mask, fg_boundary_conf], dim=-1)

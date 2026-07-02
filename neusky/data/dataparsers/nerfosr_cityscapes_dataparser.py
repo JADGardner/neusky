@@ -193,6 +193,9 @@ class NeRFOSRCityScapesDataParserConfig(NeRFOSRDataParserConfig):
     down-weight the fg-mask density loss at unreliable silhouette pixels; 0 disables."""
     fg_boundary_soften_kernel: int = 0
     """Odd gaussian kernel size softening the boundary-confidence falloff; 0 keeps a hard band."""
+    fg_boundary_distance_channel: bool = False
+    """Write mask channel 4 as the distance (px) to the nearest fg-mask transition instead of
+    the static confidence; required by the model's annealed boundary band (fg_boundary_anneal_*)."""
     session_holdout_indices: List[int] = field(default_factory=lambda: [0, 0, 0, 0, 0])
     """Indices of images within sessions (idx are relative to session) to use for evaluation"""
     session_env_map_scaling: float = 1.0
@@ -548,6 +551,7 @@ class NeRFOSRCityScapes(DataParser):
             "mask_vegetation": self.config.mask_vegetation,
             "fg_boundary_erode_pixels": self.config.fg_boundary_erode_pixels,
             "fg_boundary_soften_kernel": self.config.fg_boundary_soften_kernel,
+            "fg_boundary_distance_channel": self.config.fg_boundary_distance_channel,
             "test_eval_mask_dict": test_eval_mask_dict,
             "out_of_view_frustum_objects_masks": out_of_view_frustum_objects_masks,
             "include_sidewalk_in_ground_mask": self.config.include_sidewalk_in_ground_mask,

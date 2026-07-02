@@ -36,6 +36,13 @@ def parse_args() -> argparse.Namespace:
                              "fg-mask density loss (boundary-floater mitigation); 0 disables.")
     parser.add_argument("--fg-boundary-soften-kernel", type=int, default=0,
                         help="Odd gaussian kernel softening the boundary-confidence falloff.")
+    parser.add_argument("--fg-boundary-anneal", default=None, metavar="START:END",
+                        help="Anneal the fg-boundary ignore band to zero between steps START and "
+                             "END so silhouettes re-sharpen after geometry settles. Switches mask "
+                             "channel 4 to distance-map mode; --fg-boundary-erode-pixels sets the "
+                             "initial band width in px (fg_boundary_band_px) and "
+                             "--fg-boundary-soften-kernel/2 the confidence ramp in px "
+                             "(fg_boundary_ramp_px).")
     return parser.parse_args()
 
 
@@ -53,6 +60,22 @@ def main() -> None:
         dp.center_method_sfm = False
     dp.fg_boundary_erode_pixels = args.fg_boundary_erode_pixels
     dp.fg_boundary_soften_kernel = args.fg_boundary_soften_kernel
+    if args.fg_boundary_anneal is not None:
+        start_str, sep, end_str = args.fg_boundary_anneal.partition(":")
+        if not sep:
+            raise SystemExit("--fg-boundary-anneal expects START:END (e.g. 60000:85000)")
+        anneal_start, anneal_end = int(start_str), int(end_str)
+        if not 0 <= anneal_start < anneal_end:
+            raise SystemExit("--fg-boundary-anneal requires 0 <= START < END")
+        if args.fg_boundary_erode_pixels <= 0:
+            raise SystemExit("--fg-boundary-anneal needs --fg-boundary-erode-pixels > 0 "
+                             "(it sets the initial band width)")
+        dp.fg_boundary_distance_channel = True
+        model = config.pipeline.model
+        model.fg_boundary_anneal_start = anneal_start
+        model.fg_boundary_anneal_end = anneal_end
+        model.fg_boundary_band_px = float(args.fg_boundary_erode_pixels)
+        model.fg_boundary_ramp_px = args.fg_boundary_soften_kernel / 2.0
 
     scene_label = {"site1": "lk2", "site2": "st", "site3": "lwp"}.get(args.scene, args.scene)
     config.experiment_name = args.experiment_name or f"{scene_label}_refit_sfm"
