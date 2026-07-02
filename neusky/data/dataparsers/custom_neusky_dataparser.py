@@ -522,7 +522,6 @@ class CustomNeuskyDataparser(DataParser):
             "out_of_view_frustum_objects_masks": [None] * len(image_filenames),
             "include_sidewalk_in_ground_mask": self.config.include_sidewalk_in_ground_mask,
             "orientation_rotation": orientation_rotation,  # 3x3 rotation from auto_orient_and_center_poses
-            "metric_depth_scale": pose_scale_factor,  # multiply metric GT z-depth into model coordinates
             "gt_envmap_info": gt_envmap_info,  # per-frame HDRI path + rotation
         }
         metadata.update(gt_layers)
