@@ -5,9 +5,10 @@
   the NeuSky row is computed by evaluating each site's checkpoint with the
   benchmark protocol (eval_latent_optimise_method="nerf_osr_holdout" with the
   per-session holdout indices, masked metrics via the provided test masks).
-- synthetic: novel view + intrinsic decomposition on the five synthetic
-  scenes (PSNR / SSIM / LPIPS / Albedo PSNR / Normal MAE; roughness and
-  metallic are not predicted by NeuSky and emit ---).
+- synthetic: formal synthetic benchmark aggregation from
+  outputs/synthetic_benchmark/<method>/*_{gt,estimated}/metrics.json, covering
+  known-illumination NVS, left-half illumination fitting, and decomposition
+  (albedo / normals / depth).
 - protocol_sensitivity: NeuSky under the three relighting eval protocols
   (holdout-view latent fit; GT envmap with x10 / x30 saturation scaling and
   KNOWN rotations from <scene>/final/envmap_rotations.json). --protocols
@@ -29,9 +30,9 @@ Both emit .tex and .csv next to a JSON metrics cache; pass --scenes to run a
 partial set (e.g. only lk2 while st/lwp refits are pending) — missing scenes
 render as --- and can be filled in by re-running once their runs exist.
 
-Checkpoint-dependent (GPU):
+Examples:
 
-    PYTHONPATH=. python scripts/figures/make_tables.py
+    PYTHONPATH=. python scripts/figures/make_tables.py --tables synthetic
     PYTHONPATH=. python scripts/figures/make_tables.py --tables nerf_osr --scenes lk2
 """
 
@@ -40,8 +41,9 @@ import csv
 import json
 from pathlib import Path
 
-from _common import (SCENE_TO_SITE, SESSION_HOLDOUT_INDICES, SYNTHETIC_SCENES,
-                     TABLES_DIR, canonical_scene, load_model, resolve_run_dir)
+from _common import (OUTPUTS_ROOT, SCENE_TO_SITE, SESSION_HOLDOUT_INDICES,
+                     SYNTHETIC_SCENES, TABLES_DIR, canonical_scene, load_model,
+                     resolve_run_dir)
 
 NERF_OSR_SCENES = ("lk2", "st", "lwp")  # site1, site2, site3
 
@@ -55,7 +57,26 @@ NERF_OSR_BASELINES = {
         "lk2": (21.23, 0.0084), "st": (18.18, 0.019), "lwp": (17.58, 0.028)},
 }
 
-SYNTHETIC_METRICS = ("psnr", "ssim", "lpips", "albedo_psnr", "normal_mae")
+SYNTHETIC_METRICS = (
+    "known_psnr", "known_ssim", "known_lpips",
+    "estimated_psnr", "estimated_ssim", "estimated_lpips",
+    "albedo_psnr", "normal_mae", "depth_rmse",
+)
+
+# Extra CSV-only columns (not rendered in the .tex table). known_psnr is the
+# masked, exposure-aligned PSNR (nvs/psnr_masked_ea): the GT PNGs carry a
+# per-image q98 exposure gauge no method can know under GT illumination, and
+# raw PSNR systematically undersells every method (THESIS_PLAN F8). The raw
+# value is preserved here. The left-half-fit track keeps RAW psnr as its
+# headline because methods observe the gauged left half, so recovering the
+# gauge is part of the task; its exposure-aligned variant is also kept here.
+SYNTHETIC_EXTRA_CSV_METRICS = ("known_psnr_raw", "estimated_psnr_ea")
+
+SYNTHETIC_METHODS = {
+    "neusky": "NeuSky (Ours)",
+    "nerf_osr": "NeRF-OSR",
+    "gs_ir": "GS-IR",
+}
 
 # Relighting protocol-sensitivity rows: latent-fit source and, for the GT
 # envmap protocol, the NeRF-OSR pseudo-HDR saturation scaling.
@@ -273,16 +294,69 @@ def write_holdout_sensitivity_csv(stats, scene: str, output: Path):
           f"scene PSNR {stats['psnr_mean']:.2f} +/- {stats['psnr_std']:.2f})")
 
 
-def evaluate_synthetic(scene: str, device: str):
-    """NeuSky synthetic-benchmark metrics for one scene."""
-    import torch
+def _as_float(value):
+    if value is None:
+        return None
+    return float(value)
 
-    _, pipeline, _, step = load_model(scene, device=device)
-    metrics = pipeline.get_average_eval_image_metrics(step=step)
-    result = {m: float(metrics[m]) for m in SYNTHETIC_METRICS if m in metrics}
-    del pipeline
-    torch.cuda.empty_cache()
-    return result
+
+def _aggregate(metrics: dict, key: str):
+    return _as_float(metrics.get("aggregate", {}).get(key))
+
+
+def _synthetic_benchmark_metrics_path(scene: str, suffix: str, method: str = "neusky") -> Path:
+    stem = canonical_scene(scene).removesuffix("_prepared")
+    return OUTPUTS_ROOT / "synthetic_benchmark" / method / f"{stem}_{suffix}" / "metrics.json"
+
+
+def evaluate_synthetic(scene: str, device: str = None, method: str = "neusky"):
+    """Read formal synthetic benchmark metrics for one method/scene.
+
+    These metrics come from scripts/synthetic_benchmark/evaluate.py. The GT
+    illumination track supplies known-illumination NVS and decomposition; the
+    estimated track supplies the left-half illumination-estimation RGB scores
+    when a method implements that track.
+    """
+    del device  # kept for the collect/evaluator signature used elsewhere
+    result = {}
+    gt_path = _synthetic_benchmark_metrics_path(scene, "gt", method)
+    if gt_path.exists():
+        metrics = json.loads(gt_path.read_text())
+        mapping = {
+            "known_psnr": "nvs/psnr_masked_ea",
+            "known_psnr_raw": "nvs/psnr",
+            "known_ssim": "nvs/ssim",
+            "known_lpips": "nvs/lpips",
+            "albedo_psnr": "decomposition/albedo_psnr_masked",
+            "normal_mae": "decomposition/normal_mae_deg",
+            "depth_rmse": "decomposition/depth_rmse",
+        }
+        for out_key, metric_key in mapping.items():
+            value = _aggregate(metrics, metric_key)
+            if value is not None:
+                result[out_key] = value
+        result["known_n_frames"] = metrics.get("n_frames")
+    else:
+        print(f"[missing] {gt_path}")
+
+    estimated_path = _synthetic_benchmark_metrics_path(scene, "estimated", method)
+    if estimated_path.exists():
+        metrics = json.loads(estimated_path.read_text())
+        mapping = {
+            "estimated_psnr": "estimation/psnr",
+            "estimated_psnr_ea": "estimation/psnr_masked_ea",
+            "estimated_ssim": "estimation/ssim",
+            "estimated_lpips": "estimation/lpips",
+        }
+        for out_key, metric_key in mapping.items():
+            value = _aggregate(metrics, metric_key)
+            if value is not None:
+                result[out_key] = value
+        result["estimated_n_frames"] = metrics.get("n_frames")
+    else:
+        print(f"[missing] {estimated_path}")
+
+    return result or None
 
 
 def collect(scenes, evaluator, cache_path: Path, device: str, prefix: str):
@@ -410,44 +484,90 @@ def write_protocol_sensitivity_table(results, protocols, output: Path):
     print("\n".join(lines))
 
 
-def write_synthetic_table(results, output: Path):
-    decimals = {"psnr": 2, "ssim": 3, "lpips": 3, "albedo_psnr": 2, "normal_mae": 2}
+def _synthetic_metric_best(method_rows: dict, metric: str):
+    vals = [row[metric] for row in method_rows.values() if row and metric in row]
+    if not vals:
+        return None
+    lower_better = metric in {"known_lpips", "estimated_lpips", "normal_mae", "depth_rmse"}
+    return min(vals) if lower_better else max(vals)
+
+
+def write_synthetic_table(results, output: Path, methods):
+    decimals = {
+        "known_psnr": 2, "known_ssim": 3, "known_lpips": 3,
+        "estimated_psnr": 2, "estimated_ssim": 3, "estimated_lpips": 3,
+        "albedo_psnr": 2, "normal_mae": 2, "depth_rmse": 2,
+    }
+    lower_better = {"known_lpips", "estimated_lpips", "normal_mae", "depth_rmse"}
+    row_end = r" \\" 
     lines = [
         "% Generated by scripts/figures/make_tables.py -- do not edit by hand",
-        "\\begin{tabular}{@{}lcccccccc@{}}",
+        "% Known-illum PSNR_EA is masked + exposure-aligned (nvs/psnr_masked_ea):",
+        "% the GT PNG gauge (per-image q98 exposure) is unknowable to methods under",
+        "% GT illumination. Left-half-fit PSNR stays raw: methods observe the gauged",
+        "% left half, so gauge recovery is part of that task. Raw/EA counterparts",
+        "% are in the CSV.",
+        "\\begin{tabular}{@{}lccccccccc@{}}",
         "\\toprule",
-        " & \\multicolumn{3}{c}{Novel View} & \\multicolumn{4}{c}{Intrinsic Decomposition} \\\\",
-        "\\cmidrule(lr){2-4} \\cmidrule(lr){5-8}",
-        "Scene & PSNR $\\uparrow$ & SSIM $\\uparrow$ & LPIPS $\\downarrow$ & "
-        "Albedo PSNR $\\uparrow$ & Normal MAE $\\downarrow$ & "
-        "Rough. PSNR $\\uparrow$ & Metal. PSNR $\\uparrow$ \\\\",
+        " & \\multicolumn{3}{c}{Known Illum. NVS} & "
+        "\\multicolumn{3}{c}{Left-Half Fit} & "
+        "\\multicolumn{3}{c}{Decomposition}" + row_end,
+        "\\cmidrule(lr){2-4} \\cmidrule(lr){5-7} \\cmidrule(lr){8-10}",
+        "Method & PSNR\\textsubscript{EA} $\\uparrow$ & SSIM $\\uparrow$ & LPIPS $\\downarrow$ & "
+        "PSNR $\\uparrow$ & SSIM $\\uparrow$ & LPIPS $\\downarrow$ & "
+        "Albedo PSNR $\\uparrow$ & Normal MAE $\\downarrow$ & Depth RMSE $\\downarrow$" + row_end,
         "\\midrule",
     ]
-    csv_rows = [("scene", *SYNTHETIC_METRICS)]
-    collected = {m: [] for m in SYNTHETIC_METRICS}
-    for scene, label in SYNTHETIC_SCENES.items():
-        r = results.get(f"synthetic/{scene}")
-        if r is None:
-            lines.append(f"{label} & " + " & ".join(["---"] * 7) + " \\\\")
-            csv_rows.append((scene, "", "", "", "", ""))
-            continue
-        cells = [f"{r[m]:.{decimals[m]}f}" if m in r else "---"
-                 for m in SYNTHETIC_METRICS]
-        for m in SYNTHETIC_METRICS:
-            if m in r:
-                collected[m].append(r[m])
-        lines.append(f"{label} & " + " & ".join(cells) + " & --- & --- \\\\")
-        csv_rows.append((scene, *(f"{r.get(m, float('nan')):.4f}" for m in SYNTHETIC_METRICS)))
+    all_csv_metrics = SYNTHETIC_METRICS + SYNTHETIC_EXTRA_CSV_METRICS
+    csv_rows = [("method", "scene", *all_csv_metrics, "known_n_frames", "estimated_n_frames")]
 
-    lines.append("\\midrule")
-    if any(collected[m] for m in SYNTHETIC_METRICS):
-        mean_cells = [
-            f"\\textbf{{{sum(v) / len(v):.{decimals[m]}f}}}" if (v := collected[m]) else "---"
-            for m in SYNTHETIC_METRICS
-        ]
-        lines.append("\\textbf{Mean} & " + " & ".join(mean_cells) + " & --- & --- \\\\")
-        csv_rows.append(("mean", *(
-            f"{sum(v) / len(v):.4f}" if (v := collected[m]) else "" for m in SYNTHETIC_METRICS)))
+    method_rows = {}
+    for method in methods:
+        collected = {m: [] for m in all_csv_metrics}
+        known_frames = []
+        estimated_frames = []
+        for scene in SYNTHETIC_SCENES:
+            r = results.get(f"synthetic/{method}/{scene}")
+            if r is None:
+                csv_rows.append((method, scene, *("" for _ in all_csv_metrics), "", ""))
+                continue
+            csv_cells = []
+            for m in all_csv_metrics:
+                if m in r:
+                    collected[m].append(r[m])
+                    csv_cells.append(f"{r[m]:.6f}")
+                else:
+                    csv_cells.append("")
+            known_frames.append(r.get("known_n_frames"))
+            estimated_frames.append(r.get("estimated_n_frames"))
+            csv_rows.append((method, scene, *csv_cells, r.get("known_n_frames", ""), r.get("estimated_n_frames", "")))
+        row = {m: (sum(v) / len(v)) for m, v in collected.items() if v}
+        row["known_n_scenes"] = len(collected["known_psnr"])
+        row["estimated_n_scenes"] = len(collected["estimated_psnr"])
+        method_rows[method] = row or None
+        csv_rows.append((method, "mean", *(f"{row[m]:.6f}" if row and m in row else "" for m in all_csv_metrics), "", ""))
+
+    best = {m: _synthetic_metric_best(method_rows, m) for m in SYNTHETIC_METRICS}
+    for method in methods:
+        label = SYNTHETIC_METHODS.get(method, method)
+        row = method_rows.get(method)
+        if row is None:
+            lines.append(f"{label} & " + " & ".join(["---"] * len(SYNTHETIC_METRICS)) + row_end)
+            continue
+        cells = []
+        for m in SYNTHETIC_METRICS:
+            if m not in row:
+                cells.append("---")
+                continue
+            value = row[m]
+            cell = f"{value:.{decimals[m]}f}"
+            if best[m] is not None:
+                is_best = value <= best[m] if m in lower_better else value >= best[m]
+                if is_best:
+                    cell = f"\\textbf{{{cell}}}"
+            cells.append(cell)
+        lines.append(f"{label} & " + " & ".join(cells) + row_end)
+
     lines += ["\\bottomrule", "\\end{tabular}"]
 
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -473,6 +593,9 @@ def main():
                         default=list(PROTOCOLS),
                         help="Restrict protocol_sensitivity rows (envmap rows need "
                              "<scene>/final/envmap_rotations.json).")
+    parser.add_argument("--synthetic-methods", nargs="+", default=list(SYNTHETIC_METHODS),
+                        help="Synthetic benchmark methods to include. Metrics are read from "
+                             "outputs/synthetic_benchmark/<method>.")
     parser.add_argument("--output-dir", type=Path, default=TABLES_DIR)
     parser.add_argument("--cache", type=Path, default=None,
                         help="JSON metrics cache (default <output-dir>/neusky_metrics.json)")
@@ -489,9 +612,13 @@ def main():
 
     if "synthetic" in args.tables:
         scenes = [s for s in SYNTHETIC_SCENES if wanted is None or s in wanted]
-        results = collect(scenes, evaluate_synthetic, cache_path,
-                          args.device, "synthetic")
-        write_synthetic_table(results, args.output_dir / "synthetic")
+        methods = args.synthetic_methods
+        results = {}
+        for method in methods:
+            for scene in scenes:
+                print(f"[read] synthetic/{method}/{scene}")
+                results[f"synthetic/{method}/{scene}"] = evaluate_synthetic(scene, args.device, method=method)
+        write_synthetic_table(results, args.output_dir / "synthetic", methods)
 
     if "holdout_sensitivity" in args.tables:
         scenes = [s for s in NERF_OSR_SCENES if wanted is None or s in wanted]

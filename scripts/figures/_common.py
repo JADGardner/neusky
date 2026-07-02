@@ -142,6 +142,10 @@ def resolve_run_dir(scene: str) -> Path:
             return sorted(runs, key=lambda p: p.name)[-1]
         raise FileNotFoundError(f"NEUSKY_RUNS pin for {scene} has no checkpoints: {pinned}")
 
+    search_names = [scene]
+    if scene.endswith("_prepared"):
+        search_names.append(scene.removesuffix("_prepared"))
+
     candidates = []
     for root in (OUTPUTS_ROOT, OUTPUTS_ROOT / "synthetic"):
         if not root.is_dir():
@@ -149,7 +153,10 @@ def resolve_run_dir(scene: str) -> Path:
         for exp_dir in sorted(root.iterdir()):
             if not exp_dir.is_dir():
                 continue
-            if exp_dir.name == scene or exp_dir.name.startswith(scene + "_"):
+            if any(
+                exp_dir.name == name or exp_dir.name.startswith(name + "_")
+                for name in search_names
+            ):
                 for method_dir in sorted(exp_dir.iterdir()):
                     candidates.extend(_timestamp_runs(method_dir))
     if not candidates:
