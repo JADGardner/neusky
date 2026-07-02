@@ -135,7 +135,7 @@ def compute_metric_scale(scene_data_dir: Path, image_filenames, cameras) -> floa
 # Track 1: fit eval latents to GT HDRIs at known rotations
 # ---------------------------------------------------------------------------
 
-def fit_eval_latents_to_gt_hdris(model, gt_envmap_info, frame_indices):
+def fit_eval_latents_to_gt_hdris(model, gt_envmap_info, frame_indices, rays_per_chunk: int = 262144):
     """Fit per-frame RENI eval latents to the GT HDRIs (known yaw).
 
     Mirrors neusky_model._fit_eval_latents_to_envmaps (the NeRF-OSR
@@ -197,17 +197,6 @@ def fit_eval_latents_to_gt_hdris(model, gt_envmap_info, frame_indices):
     weights = torch.cat(weight_chunks)
     camera_indices = torch.cat(cam_idx_chunks)
 
-    ray_samples = RaySamples(
-        frustums=Frustums(
-            origins=torch.zeros_like(dirs),
-            directions=dirs,
-            starts=torch.zeros_like(dirs[..., :1]),
-            ends=torch.zeros_like(dirs[..., :1]),
-            pixel_area=torch.ones_like(dirs[..., :1]),
-        ),
-        camera_indices=camera_indices[:, None],
-    )
-
     assert model.eval_scale is not None, "--illumination gt requires a RENI illumination field"
     model.eval_illumination_latents.data.zero_()
     model.eval_scale.data.fill_(1.0)
@@ -218,24 +207,49 @@ def fit_eval_latents_to_gt_hdris(model, gt_envmap_info, frame_indices):
     )
     steps = optimizer.config["eval_latents"]["scheduler"].max_steps
     cosine = torch.nn.CosineSimilarity(dim=1, eps=1e-20)
+    total_rays = int(rgb.shape[0])
+    chunk_size = max(1, min(int(rays_per_chunk), total_rays))
+    print(f"[render] fitting {len(frame_indices)} HDRIs with {total_rays} rays in chunks of {chunk_size}")
 
     with model.illumination_field.hold_decoder_fixed():
         for step in range(steps):
-            outputs = model.illumination_field.forward(
-                ray_samples=ray_samples,
-                latent_codes=model.eval_illumination_latents[camera_indices],
-                scale=model.eval_scale[camera_indices].detach(),
-            )
-            pred_hdr = model.illumination_field.unnormalise(outputs[RENIFieldHeadNames.RGB])
-            log_mse = torch.mean(weights * (torch.log(pred_hdr + 1e-8) - torch.log(rgb + 1e-8)) ** 2)
-            cosine_loss = torch.mean(weights * (1 - cosine(pred_hdr, rgb)).unsqueeze(-1))
-            loss = log_mse + cosine_loss
             optimizer.zero_grad_all()
-            loss.backward()
+            loss_value = 0.0
+            for start in range(0, total_rays, chunk_size):
+                end = min(start + chunk_size, total_rays)
+                chunk_dirs = dirs[start:end]
+                chunk_rgb = rgb[start:end]
+                chunk_weights = weights[start:end]
+                chunk_camera_indices = camera_indices[start:end]
+                ray_samples = RaySamples(
+                    frustums=Frustums(
+                        origins=torch.zeros_like(chunk_dirs),
+                        directions=chunk_dirs,
+                        starts=torch.zeros_like(chunk_dirs[..., :1]),
+                        ends=torch.zeros_like(chunk_dirs[..., :1]),
+                        pixel_area=torch.ones_like(chunk_dirs[..., :1]),
+                    ),
+                    camera_indices=chunk_camera_indices[:, None],
+                )
+                outputs = model.illumination_field.forward(
+                    ray_samples=ray_samples,
+                    latent_codes=model.eval_illumination_latents[chunk_camera_indices],
+                    scale=model.eval_scale[chunk_camera_indices].detach(),
+                )
+                pred_hdr = model.illumination_field.unnormalise(outputs[RENIFieldHeadNames.RGB])
+                log_mse = torch.sum(
+                    chunk_weights * (torch.log(pred_hdr + 1e-8) - torch.log(chunk_rgb + 1e-8)) ** 2
+                ) / (total_rays * 3)
+                cosine_loss = torch.sum(
+                    chunk_weights * (1 - cosine(pred_hdr, chunk_rgb)).unsqueeze(-1)
+                ) / total_rays
+                loss = log_mse + cosine_loss
+                loss.backward()
+                loss_value += float(loss.detach().cpu())
             optimizer.optimizer_step("eval_latents")
             optimizer.scheduler_step("eval_latents")
             if step % 50 == 0 or step == steps - 1:
-                print(f"[render] HDRI latent fit step {step+1}/{steps} loss {loss.item():.4f}")
+                print(f"[render] HDRI latent fit step {step+1}/{steps} loss {loss_value:.4f}")
 
 
 # ---------------------------------------------------------------------------
@@ -250,6 +264,7 @@ def render_frames(args):
     _common = _import_common()
 
     def config_hook(config):
+        config.pipeline.datamanager.camera_res_scale_factor = args.render_scale
         m = config.pipeline.model
         if args.illumination == "estimated":
             m.eval_latent_optimise_method = "per_image"
@@ -282,7 +297,9 @@ def render_frames(args):
     R = (torch.eye(3) if orientation is None else torch.as_tensor(orientation).float()).to(args.device)
 
     if args.illumination == "gt":
-        fit_eval_latents_to_gt_hdris(model, metadata.get("gt_envmap_info") or [], frame_indices)
+        fit_eval_latents_to_gt_hdris(
+            model, metadata.get("gt_envmap_info") or [], frame_indices, args.hdri_fit_rays_per_chunk
+        )
     else:
         # Existing per-image machinery (left half / full image per config_hook).
         model.fit_latent_codes_for_eval(datamanager=datamanager, global_step=step)
@@ -353,6 +370,10 @@ def main(argv=None):
     ap.add_argument("--step", type=int, default=None, help="checkpoint step (default: latest)")
     ap.add_argument("--device", default="cuda:0")
     ap.add_argument("--eval-num-rays-per-chunk", type=int, default=None)
+    ap.add_argument("--hdri-fit-rays-per-chunk", type=int, default=262144,
+                    help="Number of HDRI rays per optimiser sub-batch for --illumination gt.")
+    ap.add_argument("--render-scale", type=float, default=1.0,
+                    help="Eval image scale for predictions. Public benchmark scoring requires 1.0; use 0.25 only for previews.")
     args = ap.parse_args(argv)
     render_frames(args)
 
