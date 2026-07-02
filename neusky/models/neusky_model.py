@@ -1102,7 +1102,12 @@ class NeuSkyFactoModel(NeuSFactoModel):
         """Compute image metrics and images, including the proposal depth for each iteration."""
         image = batch["image"].to(self.device)
         # image = self.renderer_rgb.blend_background(image)
-        rgb = outputs["rgb"]
+        # Guard the eval path against stray NaNs in rendered outputs: a single
+        # degenerate eval ray batch otherwise crashes torchmetrics (observed on
+        # apartment_building at the first eval image, step 5000, twice). The
+        # training losses already nan_to_num; do the same here rather than
+        # killing a multi-hour run on one bad eval pixel.
+        rgb = torch.nan_to_num(outputs["rgb"], nan=0.0, posinf=1.0, neginf=0.0)
         acc = colormaps.apply_colormap(outputs["accumulation"])
         gt_acc = colormaps.apply_colormap(batch["mask"][..., 1:2]).to(self.device)  # fg_mask 
 
