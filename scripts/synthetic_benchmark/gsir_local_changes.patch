@@ -1,0 +1,224 @@
+# Local modifications to upstream GS-IR (git@github.com:lzhnb/GS-IR.git @ e5a030b)
+# Apply with: git apply gsir_local_changes.patch (from the gs-ir clone root)
+# Includes: benchmark render exports (CUDA rasterizer + pbr_utils) and
+# per-frame intrinsics support in scene/dataset_readers.py (THESIS_PLAN F6).
+diff --git a/gs-ir/src/pbr_utils.cuh b/gs-ir/src/pbr_utils.cuh
+index 9dfd726..9b087d6 100644
+--- a/gs-ir/src/pbr_utils.cuh
++++ b/gs-ir/src/pbr_utils.cuh
+@@ -1,3 +1,4 @@
++#include <cstdint>
+ #pragma once
+ #include <curand.h>
+ #include <curand_kernel.h>
+diff --git a/gs-ir/src/utils.h b/gs-ir/src/utils.h
+index 74639d8..eb9e7c3 100644
+--- a/gs-ir/src/utils.h
++++ b/gs-ir/src/utils.h
+@@ -1,3 +1,4 @@
++#include <cstdint>
+ #pragma once
+ #include <math.h>
+ #include <vector_functions.h>
+diff --git a/scene/dataset_readers.py b/scene/dataset_readers.py
+index 635022d..d9e1ad5 100644
+--- a/scene/dataset_readers.py
++++ b/scene/dataset_readers.py
+@@ -229,7 +229,7 @@ def readCamerasFromTransforms(
+     with open(os.path.join(path, transformsfile)) as json_file:
+         contents = json.load(json_file)
+ 
+-    fovx = contents["camera_angle_x"]
++    fovx = contents.get("camera_angle_x")
+     frames = contents["frames"]
+     for idx, frame in enumerate(frames):
+         cam_name = os.path.join(path, frame["file_path"] + extension)
+@@ -256,9 +256,25 @@ def readCamerasFromTransforms(
+         # arr = norm_data[:, :, :3] * norm_data[:, :, 3:4] + bg * (1 - norm_data[:, :, 3:4])
+         # image = Image.fromarray(np.array(arr * 255.0, dtype=np.byte), "RGB")
+ 
+-        fovy = focal2fov(fov2focal(fovx, image.size[0]), image.size[1])
+-        FovY = fovy
+-        FovX = fovx
++        # Per-frame intrinsics take precedence over the file-level value:
++        # NeuSky synthetic scenes vary focal length per frame (train fl_x
++        # spans ~1871-3732 px), and a single global camera_angle_x silently
++        # corrupts every camera (up to ~40% focal error).
++        if "camera_angle_x" in frame:
++            FovX = frame["camera_angle_x"]
++        elif "fl_x" in frame:
++            FovX = focal2fov(float(frame["fl_x"]), image.size[0])
++        elif fovx is not None:
++            FovX = fovx
++        else:
++            raise ValueError(
++                f"{transformsfile}: frame {idx} has no camera_angle_x/fl_x and "
++                "no file-level camera_angle_x fallback"
++            )
++        if "fl_y" in frame:
++            FovY = focal2fov(float(frame["fl_y"]), image.size[1])
++        else:
++            FovY = focal2fov(fov2focal(FovX, image.size[0]), image.size[1])
+ 
+         cam_infos.append(
+             CameraInfo(
+diff --git a/submodules/diff-gaussian-rasterization/cuda_rasterizer/backward.cu b/submodules/diff-gaussian-rasterization/cuda_rasterizer/backward.cu
+index da5511d..19773e0 100644
+--- a/submodules/diff-gaussian-rasterization/cuda_rasterizer/backward.cu
++++ b/submodules/diff-gaussian-rasterization/cuda_rasterizer/backward.cu
+@@ -1,3 +1,4 @@
++#include <cstdint>
+ /*
+  * Copyright (C) 2023, Inria
+  * GRAPHDECO research group, https://team.inria.fr/graphdeco
+diff --git a/submodules/diff-gaussian-rasterization/cuda_rasterizer/backward.h b/submodules/diff-gaussian-rasterization/cuda_rasterizer/backward.h
+index 6a0a1c3..af2f92c 100644
+--- a/submodules/diff-gaussian-rasterization/cuda_rasterizer/backward.h
++++ b/submodules/diff-gaussian-rasterization/cuda_rasterizer/backward.h
+@@ -1,3 +1,4 @@
++#include <cstdint>
+ /*
+  * Copyright (C) 2023, Inria
+  * GRAPHDECO research group, https://team.inria.fr/graphdeco
+diff --git a/submodules/diff-gaussian-rasterization/cuda_rasterizer/forward.cu b/submodules/diff-gaussian-rasterization/cuda_rasterizer/forward.cu
+index 1b087bc..63c31aa 100644
+--- a/submodules/diff-gaussian-rasterization/cuda_rasterizer/forward.cu
++++ b/submodules/diff-gaussian-rasterization/cuda_rasterizer/forward.cu
+@@ -1,3 +1,4 @@
++#include <cstdint>
+ /*
+  * Copyright (C) 2023, Inria
+  * GRAPHDECO research group, https://team.inria.fr/graphdeco
+diff --git a/submodules/diff-gaussian-rasterization/cuda_rasterizer/forward.h b/submodules/diff-gaussian-rasterization/cuda_rasterizer/forward.h
+index 8318771..c8ba1a0 100644
+--- a/submodules/diff-gaussian-rasterization/cuda_rasterizer/forward.h
++++ b/submodules/diff-gaussian-rasterization/cuda_rasterizer/forward.h
+@@ -1,3 +1,4 @@
++#include <cstdint>
+ /*
+  * Copyright (C) 2023, Inria
+  * GRAPHDECO research group, https://team.inria.fr/graphdeco
+diff --git a/submodules/diff-gaussian-rasterization/cuda_rasterizer/rasterizer_impl.cu b/submodules/diff-gaussian-rasterization/cuda_rasterizer/rasterizer_impl.cu
+index fcd9e67..8cd28a5 100644
+--- a/submodules/diff-gaussian-rasterization/cuda_rasterizer/rasterizer_impl.cu
++++ b/submodules/diff-gaussian-rasterization/cuda_rasterizer/rasterizer_impl.cu
+@@ -1,3 +1,4 @@
++#include <cstdint>
+ /*
+  * Copyright (C) 2023, Inria
+  * GRAPHDECO research group, https://team.inria.fr/graphdeco
+diff --git a/submodules/diff-gaussian-rasterization/cuda_rasterizer/rasterizer_impl.h b/submodules/diff-gaussian-rasterization/cuda_rasterizer/rasterizer_impl.h
+index bc3f0ec..c86772f 100644
+--- a/submodules/diff-gaussian-rasterization/cuda_rasterizer/rasterizer_impl.h
++++ b/submodules/diff-gaussian-rasterization/cuda_rasterizer/rasterizer_impl.h
+@@ -1,3 +1,4 @@
++#include <cstdint>
+ /*
+  * Copyright (C) 2023, Inria
+  * GRAPHDECO research group, https://team.inria.fr/graphdeco
+diff --git a/submodules/simple-knn/simple_knn.cu b/submodules/simple-knn/simple_knn.cu
+index 4782809..d5d33ec 100644
+--- a/submodules/simple-knn/simple_knn.cu
++++ b/submodules/simple-knn/simple_knn.cu
+@@ -17,6 +17,7 @@
+ #include <cub/cub.cuh>
+ #include <cub/device/device_radix_sort.cuh>
+ #include <cuda_runtime_api.h>
++#include <cfloat>
+ #include <thrust/device_vector.h>
+ #include <thrust/sequence.h>
+ #include <vector>
+diff --git a/train.py b/train.py
+index 5074534..050b332 100644
+--- a/train.py
++++ b/train.py
+@@ -136,12 +136,22 @@ def training(
+     env_tv_weight: float = 0.01,
+     bound: float = 1.5,
+     indirect: bool = False,
++    wandb_project: str = "",
++    wandb_entity: str = "",
++    wandb_name: str = "",
++    wandb_group: str = "",
+ ) -> None:
+     first_iter = 0
+     gaussians = GaussianModel(dataset.sh_degree)
+     scene = Scene(dataset, gaussians)
+     gaussians.training_setup(opt)
+-    tb_writer = prepare_output_and_logger(dataset)
++    tb_writer = prepare_output_and_logger(
++        dataset,
++        wandb_project=wandb_project,
++        wandb_entity=wandb_entity,
++        wandb_name=wandb_name,
++        wandb_group=wandb_group,
++    )
+ 
+     bg_color = [1, 1, 1] if dataset.white_background else [0, 0, 0]
+     background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
+@@ -450,7 +460,13 @@ def training(
+                 )
+ 
+ 
+-def prepare_output_and_logger(args: GroupParams) -> Optional[SummaryWriter]:
++def prepare_output_and_logger(
++    args: GroupParams,
++    wandb_project: str = "",
++    wandb_entity: str = "",
++    wandb_name: str = "",
++    wandb_group: str = "",
++) -> Optional[SummaryWriter]:
+     if not args.model_path:
+         if os.getenv("OAR_JOB_ID"):
+             unique_str = os.getenv("OAR_JOB_ID")
+@@ -464,6 +480,28 @@ def prepare_output_and_logger(args: GroupParams) -> Optional[SummaryWriter]:
+     with open(os.path.join(args.model_path, "cfg_args"), "w") as cfg_log_f:
+         cfg_log_f.write(str(Namespace(**vars(args))))
+ 
++    if wandb_project:
++        try:
++            import atexit
++            import wandb
++
++            wandb.tensorboard.patch(root_logdir=args.model_path)
++            init_kwargs = {
++                "project": wandb_project,
++                "name": wandb_name or os.path.basename(args.model_path.rstrip(os.sep)),
++                "dir": args.model_path,
++                "sync_tensorboard": True,
++                "config": vars(args),
++            }
++            if wandb_entity:
++                init_kwargs["entity"] = wandb_entity
++            if wandb_group:
++                init_kwargs["group"] = wandb_group
++            wandb.init(**init_kwargs)
++            atexit.register(wandb.finish)
++        except Exception as exc:
++            print(f"W&B unavailable: {exc}")
++
+     # Create Tensorboard writer
+     tb_writer = None
+     if TENSORBOARD_FOUND:
+@@ -757,6 +795,10 @@ if __name__ == "__main__":
+     parser.add_argument("--gamma", action="store_true", help="Enable linear_to_sRGB for gamma correction.")
+     parser.add_argument("--metallic", action="store_true", help="Enable metallic material reconstruction.")
+     parser.add_argument("--indirect", action="store_true", help="Enable indirect diffuse modeling.")
++    parser.add_argument("--wandb_project", type=str, default="", help="W&B project for TensorBoard sync.")
++    parser.add_argument("--wandb_entity", type=str, default="", help="Optional W&B entity.")
++    parser.add_argument("--wandb_name", type=str, default="", help="Optional W&B run name.")
++    parser.add_argument("--wandb_group", type=str, default="", help="Optional W&B group.")
+     args = parser.parse_args(sys.argv[1:])
+     args.test_iterations.append(args.iterations)
+     args.save_iterations.append(args.iterations)
+@@ -787,6 +829,10 @@ if __name__ == "__main__":
+         env_tv_weight=args.env_tv,
+         bound=args.bound,
+         indirect=args.indirect,
++        wandb_project=args.wandb_project,
++        wandb_entity=args.wandb_entity,
++        wandb_name=args.wandb_name,
++        wandb_group=args.wandb_group,
+     )
+ 
+     # All done

@@ -115,6 +115,7 @@ def prepare_scene(args: argparse.Namespace, scene_dir: Path) -> Path:
         "validation": "transforms_val.json",
         "test": "transforms_test.json",
     }
+    width = float(root["w"])
     counts = {}
     link_counts: dict[str, int] = {}
     for split, filename in split_map.items():
@@ -129,14 +130,28 @@ def prepare_scene(args: argparse.Namespace, scene_dir: Path) -> Path:
             link_counts[copied] = link_counts.get(copied, 0) + 1
             new_frame = dict(frame)
             new_frame["file_path"] = rel_no_ext
+            # Per-frame horizontal FoV from the per-frame focal, so any
+            # Blender-style reader that honours per-frame camera_angle_x (or
+            # our patched GS-IR reader's fl_x path) gets correct intrinsics.
+            # Focal length varies per frame in the NeuSky synthetic train
+            # splits; do NOT rely on a single file-level value.
+            new_frame["camera_angle_x"] = 2.0 * np.arctan(width / (2.0 * float(frame["fl_x"])))
             frames.append(new_frame)
         if split == "validation" and not args.write_validation:
             continue
+        if not frames:
+            counts[split] = 0
+            continue
+        # File-level fallback intrinsics: use the split's MEDIAN focal, not
+        # the source file's top-level camera_angle_x (which is a stale
+        # NeRF-synthetic default matching no actual frame; see THESIS_PLAN
+        # F6). Test/val splits use a fixed focal so the median is exact.
+        med_fl = float(np.median([float(f["fl_x"]) for f in frames]))
         payload = {
-            "camera_angle_x": root["camera_angle_x"],
-            "camera_angle_y": root.get("camera_angle_y"),
-            "fl_x": root.get("fl_x"),
-            "fl_y": root.get("fl_y"),
+            "camera_angle_x": 2.0 * np.arctan(width / (2.0 * med_fl)),
+            "camera_angle_y": 2.0 * np.arctan(float(root["h"]) / (2.0 * med_fl)),
+            "fl_x": med_fl,
+            "fl_y": med_fl,
             "cx": root.get("cx"),
             "cy": root.get("cy"),
             "w": root.get("w"),
@@ -153,7 +168,7 @@ def prepare_scene(args: argparse.Namespace, scene_dir: Path) -> Path:
         "scene_name": scene_name,
         "splits": counts,
         "link_counts": link_counts,
-        "note": "GS-IR's Blender reader uses one camera_angle_x for all frames; per-frame focal metadata is preserved only in this manifest/transform payload.",
+        "note": "Per-frame camera_angle_x/fl_x are written for every frame and the patched GS-IR Blender reader honours them; file-level intrinsics are the split-median focal as a fallback only.",
     }
     (out_dir / "neusky_synthetic_manifest.json").write_text(json.dumps(manifest, indent=2))
     print(f"[prepared] {scene_name}: {counts} -> {out_dir}")
