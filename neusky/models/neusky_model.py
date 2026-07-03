@@ -1715,7 +1715,11 @@ class NeuSkyFactoModel(NeuSFactoModel):
                 if not self.config.eval_latent_optimise_method == "nerf_osr_envmap":
                     self.eval_illumination_latents.data = torch.zeros_like(self.eval_illumination_latents.data)
                 if self.eval_scale is not None:
-                    self.eval_scale.data = torch.ones_like(self.eval_scale.data)
+                    # Neutral exposure under the field's exp(scale) semantics is ZERO
+                    # (exp(0)=1). Resetting to ones started every fit ~2.72x
+                    # over-bright, saturating the sky at step 0 - with the
+                    # clamped sky loss the fit could never recover blue.
+                    self.eval_scale.data = torch.zeros_like(self.eval_scale.data)
 
                 for _ in range(steps):
                     if self.config.eval_latent_optimise_method == "per_image":
@@ -1802,7 +1806,7 @@ class NeuSkyFactoModel(NeuSFactoModel):
         # Latents from scratch; scale stays at its reset value during this fit
         # (the compare-view exposure fit afterwards owns it).
         self.eval_illumination_latents.data = torch.zeros_like(self.eval_illumination_latents.data)
-        self.eval_scale.data = torch.ones_like(self.eval_scale.data)
+        self.eval_scale.data = torch.zeros_like(self.eval_scale.data)  # exp-neutral (see fit_latent_codes_for_eval)
         cosine_similarity = torch.nn.CosineSimilarity(dim=1, eps=1e-20)
 
         with Progress(

@@ -29,6 +29,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-num-iterations", type=int, default=None)
     parser.add_argument("--reni-ckpt", type=Path, default=None,
                         help="Override illumination_field_ckpt_path")
+    parser.add_argument("--no-amp", action="store_true",
+                        help="Disable mixed-precision training (fp32 everywhere). "
+                             "Speckle diagnostic: AMP amplifies sensitivity to "
+                             "kernel/library drift between container builds.")
     parser.add_argument("--no-sfm", action="store_true",
                         help="Disable SfM point-cloud rescaling (camera auto-scale instead)")
     parser.add_argument("--fg-boundary-erode-pixels", type=int, default=0,
@@ -56,6 +60,8 @@ def main() -> None:
     dp = config.pipeline.datamanager.dataparser
     dp.scene = args.scene
     dp.data = args.data.expanduser()
+    if args.no_amp:
+        config.mixed_precision = False
     if args.no_sfm:
         dp.center_method_sfm = False
     dp.fg_boundary_erode_pixels = args.fg_boundary_erode_pixels
