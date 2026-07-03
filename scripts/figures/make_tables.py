@@ -99,6 +99,11 @@ PROTOCOL_FIT_NOTE = "Latent fit: Adam lr 1e-1 -> 1e-7, 250 steps, seed 42."
 EVAL_FITS = {
     "eccv": None,
     "hardened": {"lr": 1e-2, "lr_final": 1e-4, "steps": 600, "prior_weight": 1e-4},
+    # v2 additionally removes the sRGB clamp from the sky-pixel loss during the
+    # fit: with clamp=True an over-bright (saturated white) sky fit receives no
+    # gradient toward the blue/LDR target and stays stuck.
+    "hardened_v2": {"lr": 1e-2, "lr_final": 1e-4, "steps": 600, "prior_weight": 1e-4,
+                    "sky_unclamped": True},
 }
 
 
@@ -110,6 +115,7 @@ def apply_eval_fit(config, fit: str):
     from nerfstudio.engine.schedulers import ExponentialDecaySchedulerConfig
 
     config.pipeline.model.eval_latent_prior_weight = spec["prior_weight"]
+    config.pipeline.model.eval_sky_loss_unclamped = spec.get("sky_unclamped", False)
     config.pipeline.model.eval_latent_optimizer = {
         "eval_latents": {
             "optimizer": AdamOptimizerConfig(lr=spec["lr"], eps=1e-15),

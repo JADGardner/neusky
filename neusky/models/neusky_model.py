@@ -216,6 +216,9 @@ class NeuSkyFactoModelConfig(NeuSFactoModelConfig):
     loss). 0 keeps the original unregularised ECCV fit. The RENI++ outpainting fit uses
     1e-4; without it a single-holdout fit can push latents far off the prior manifold,
     giving implausible sky reconstructions."""
+    eval_sky_loss_unclamped: bool = False
+    """Use unclamped sRGB in the sky-pixel loss while fitting eval latents, so an
+    over-bright (saturated) sky fit still receives gradient toward the LDR target."""
     eval_latent_optimisation_seed: int = 42
     """Seed set before eval latent optimisation so relighting evals are deterministic"""
     envmap_saturation_scale: float = 10.0
@@ -1152,10 +1155,16 @@ class NeuSkyFactoModel(NeuSFactoModel):
             # SKY PIXEL LOSS TEST
             if self.config.eval_latent_optimise_method != 'nerf_osr_envmap':
                 if self.config.loss_inclusions["sky_pixel_loss"]["enabled"]:
-                    sky_colours = linear_to_sRGB(outputs["hdr_background_colours"])  # as GT images as LDR
+                    # The default clamp=True kills gradients above 1.0: once the
+                    # fitted envmap saturates, MSE against the LDR sky cannot pull
+                    # it back down (white sky stays white). During eval-latent
+                    # fitting the unclamped sRGB keeps that gradient alive.
+                    clamp_sky = not (self.fitting_eval_latents
+                                     and getattr(self.config, "eval_sky_loss_unclamped", False))
+                    sky_colours = linear_to_sRGB(outputs["hdr_background_colours"], clamp=clamp_sky)
                     sky_mask = sky_mask.float().unsqueeze(1).expand_as(sky_colours)
                     loss_dict["sky_pixel_loss"] = self.sky_pixel_loss(
-                        inputs=linear_to_sRGB(outputs["hdr_background_colours"]),
+                        inputs=sky_colours,
                         targets=batch["image"].type_as(sky_mask),
                         mask=sky_mask,
                     )

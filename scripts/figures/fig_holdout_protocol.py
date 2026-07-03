@@ -59,9 +59,17 @@ def load_photo(path, max_width: int = 640):
     return np.asarray(img, dtype="float32") / 255.0
 
 
-def render_view(model, dm, image_idx: int, session_idx: int, step, scale: float = 0.5):
-    """Render an eval view under the fitted session illumination [H, W, 3]."""
+def render_view(model, dm, image_idx: int, session_idx: int, step, scale: float = 0.5,
+                components: bool = False):
+    """Render an eval view under the fitted session illumination [H, W, 3].
+
+    With components=True, returns a dict decomposing the render: the composite
+    rgb, the RENI-only sky decode (sRGB of hdr_background_colours, i.e. what the
+    illumination fit produced along these rays with no geometry in front), and
+    the accumulation map (geometry opacity: where floaters/fog occlude the sky).
+    """
     import torch
+    from reni.utils.colourspace import linear_to_sRGB
 
     camera, _ = dm.eval_dataloader.get_camera(image_idx)
     camera = deepcopy(camera)
@@ -70,7 +78,16 @@ def render_view(model, dm, image_idx: int, session_idx: int, step, scale: float 
     ray_bundle.camera_indices = torch.ones_like(ray_bundle.camera_indices) * session_idx
     with torch.no_grad():
         outputs = model.get_outputs_for_camera_ray_bundle(ray_bundle, step=step)
-    return outputs["rgb"].clamp(0, 1).cpu().numpy()
+    rgb = outputs["rgb"].clamp(0, 1).cpu().numpy()
+    if not components:
+        return rgb
+    sky_srgb_raw = linear_to_sRGB(outputs["hdr_background_colours"], clamp=False)
+    return {
+        "rgb": rgb,
+        "sky_srgb": sky_srgb_raw.clamp(0, 1).cpu().numpy(),
+        "sky_saturated_frac": float((sky_srgb_raw.max(dim=-1).values >= 1.0).float().mean()),
+        "accumulation": outputs["accumulation"].clamp(0, 1).cpu().numpy(),
+    }
 
 
 def render_fitted_envmap(model, session_idx: int):
@@ -198,6 +215,11 @@ def main():
                         help="Eval-latent fit recipe (F11: 'hardened' adds the latent "
                              "prior + gentler lr schedule). Pass a distinct --output "
                              "so the default figure is not overwritten.")
+    parser.add_argument("--components", type=Path, default=None,
+                        help="Also write per-session holdout decomposition strips "
+                             "(GT | fit render | RENI sky only | accumulation) to "
+                             "this directory — separates illumination-fit error "
+                             "from geometry/floater occlusion.")
     args = parser.parse_args()
     seed_all(args.seed)
 
@@ -263,6 +285,24 @@ def main():
         axs[r, 0].set_ylabel(session_label(name), fontsize=9)
         print(f"[row] {name}: holdout={Path(image_filenames[holdout_idx]).stem} "
               f"compare={Path(image_filenames[compare_idx]).stem}")
+
+        if args.components is not None:
+            comp = render_view(model, dm, holdout_idx, s, step, args.render_scale,
+                               components=True)
+            print(f"[components] {name}: sky sRGB saturated on "
+                  f"{100 * comp['sky_saturated_frac']:.1f}% of rays")
+            strip_cols = ["Holdout", "Fit render", "RENI sky only", "Accumulation"]
+            strip_imgs = [cells[0], comp["rgb"], comp["sky_srgb"],
+                          np.repeat(comp["accumulation"], 3, axis=-1)]
+            sfig, saxs = plt.subplots(1, 4, figsize=(3.2 * 4, 2.1),
+                                      constrained_layout=True)
+            for c, (title, img) in enumerate(zip(strip_cols, strip_imgs)):
+                saxs[c].imshow(np.clip(img, 0, 1))
+                saxs[c].set_xticks([]); saxs[c].set_yticks([])
+                saxs[c].set_title(title, fontsize=10)
+            args.components.mkdir(parents=True, exist_ok=True)
+            save_figure(sfig, args.components / f"holdout_components_{name}", svg=False)
+            plt.close(sfig)
 
     save_figure(fig, args.output, svg=args.svg)
 
