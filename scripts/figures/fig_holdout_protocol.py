@@ -108,12 +108,18 @@ def render_fitted_envmap(model, session_idx: int):
             torch.ones_like(ray_samples.camera_indices) * session_idx
         )
         latents, scales = model.get_illumination_field()
+        env_scales = scales[ray_samples.camera_indices[:, 0]]
+        two_bracket = getattr(model.illumination_hdr_decode, "two_bracket", False)
         outputs = model.illumination_field(
             ray_samples=ray_samples,
             latent_codes=latents[ray_samples.camera_indices[:, 0]],
-            scale=scales[ray_samples.camera_indices[:, 0]],
+            # two-bracket priors take exposure post-blend (zeros = exp-neutral in-field)
+            scale=torch.zeros_like(env_scales) if two_bracket else env_scales,
         )
-        hdr = model.illumination_field.unnormalise(outputs[RENIFieldHeadNames.RGB])
+        hdr = model.illumination_hdr_decode.to_linear_hdr(
+            model.illumination_field, outputs[RENIFieldHeadNames.RGB],
+            scale=env_scales if two_bracket else None,
+        )
         ldr = linear_to_sRGB(hdr).clamp(0, 1)
     height = model.equirectangular_sampler.height
     width = model.equirectangular_sampler.width
