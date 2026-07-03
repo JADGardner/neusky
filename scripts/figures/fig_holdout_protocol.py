@@ -193,6 +193,11 @@ def main():
     parser.add_argument("--scene", default="lk2")
     parser.add_argument("--render-scale", type=float, default=0.5,
                         help="Resolution scale for the view renders")
+    from make_tables import EVAL_FITS, apply_eval_fit
+    parser.add_argument("--eval-fit", choices=list(EVAL_FITS), default="eccv",
+                        help="Eval-latent fit recipe (F11: 'hardened' adds the latent "
+                             "prior + gentler lr schedule). Pass a distinct --output "
+                             "so the default figure is not overwritten.")
     args = parser.parse_args()
     seed_all(args.seed)
 
@@ -201,6 +206,7 @@ def main():
 
     def hook(config):
         config.pipeline.model.eval_latent_optimise_method = "nerf_osr_holdout"
+        apply_eval_fit(config, args.eval_fit)
         config.pipeline.datamanager.dataparser.session_holdout_indices = \
             SESSION_HOLDOUT_INDICES[args.scene]
 
