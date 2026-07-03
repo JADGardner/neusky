@@ -60,6 +60,7 @@ from neusky.model_components.renderers import (
     RGBBlinnPhongRendererWithVisibility,
 )
 from neusky.model_components.losses import RENISkyPixelLoss
+from neusky.model_components.illumination_hdr import IlluminationHDRDecode
 from neusky.field_components.neusky_fieldheadnames import NeuSkyFieldHeadNames
 from neusky.models.ddf_model import DDFModelConfig, DDFModel
 from neusky.model_components.ddf_sampler import DDFSamplerConfig
@@ -321,8 +322,35 @@ class NeuSkyFactoModel(NeuSFactoModel):
         """Instantiate modules and fields, including proposal networks."""
         super().populate_modules()
 
+        # How to turn illumination-field RGB outputs into linear HDR. Defaults to
+        # the standard (3-channel) RENIField.unnormalise path; overridden below
+        # for a two-bracket RENI++ prior once its config.yml has been read.
+        self.illumination_hdr_decode = IlluminationHDRDecode()
+
         # if self.illumination_field_train is of type RENIFieldConfig
         if isinstance(self.config.illumination_field, RENIFieldConfig):
+            # Resolve the RENI run directory (holds config.yml + nerfstudio_models)
+            # so the prior's HDR parameterisation can be detected before the field
+            # is built (a two-bracket prior needs a 6-channel sigmoid field).
+            reni_run_dir = self.config.illumination_field_ckpt_path
+            if not reni_run_dir.is_absolute():
+                reni_run_dir = find_nerfstudio_project_root(Path(__file__)) / reni_run_dir
+            self.illumination_hdr_decode = IlluminationHDRDecode.from_reni_run_config(
+                reni_run_dir / "config.yml"
+            )
+            if self.illumination_hdr_decode.two_bracket:
+                # Match the checkpoint architecture: two-bracket priors emit six
+                # sigmoid channels rather than the default 3-channel output.
+                self.config.illumination_field.out_features = self.illumination_hdr_decode.out_features
+                self.config.illumination_field.output_activation = self.illumination_hdr_decode.output_activation
+                CONSOLE.print(
+                    "[bold green]Two-bracket RENI++ illumination prior detected"
+                    f"[/bold green] (out_features={self.illumination_hdr_decode.out_features}, "
+                    f"output_activation={self.illumination_hdr_decode.output_activation}, "
+                    f"m_ldr={self.illumination_hdr_decode.m_ldr}, m_log={self.illumination_hdr_decode.m_log}, "
+                    f"fixed_gauge={self.illumination_hdr_decode.fixed_gauge})"
+                )
+
             self.illumination_field = self.config.illumination_field.setup(
                 num_train_data=None,
                 num_eval_data=None,
@@ -576,8 +604,8 @@ class NeuSkyFactoModel(NeuSFactoModel):
         hdr_illumination_colours = illumination_field_outputs[
             RENIFieldHeadNames.RGB
         ]  # [num_unique_camera_indices * num_illumination_directions, 3]
-        hdr_illumination_colours = self.illumination_field.unnormalise(
-            hdr_illumination_colours
+        hdr_illumination_colours = self.illumination_hdr_decode.to_linear_hdr(
+            self.illumination_field, hdr_illumination_colours
         )  # [num_unique_camera_indices * num_illumination_directions, 3]
         # so now we reshape back to [num_unique_camera_indices, num_illumination_directions, 3]
         hdr_illumination_colours = hdr_illumination_colours.reshape(
@@ -614,7 +642,9 @@ class NeuSkyFactoModel(NeuSFactoModel):
             )
 
         hdr_background_colours = illumination_field_outputs[RENIFieldHeadNames.RGB]
-        hdr_background_colours = self.illumination_field.unnormalise(hdr_background_colours)
+        hdr_background_colours = self.illumination_hdr_decode.to_linear_hdr(
+            self.illumination_field, hdr_background_colours
+        )
 
         return hdr_illumination_colours, illumination_directions, hdr_background_colours
 
@@ -1403,7 +1433,7 @@ class NeuSkyFactoModel(NeuSFactoModel):
             )
             
             hdr_envmap = illumination_field_outputs[RENIFieldHeadNames.RGB]
-            hdr_envmap = self.illumination_field.unnormalise(hdr_envmap)  # N, 3
+            hdr_envmap = self.illumination_hdr_decode.to_linear_hdr(self.illumination_field, hdr_envmap)  # N, 3
             ldr_envmap = linear_to_sRGB(hdr_envmap)  # N, 3
             # reshape to H, W, 3
             height = self.equirectangular_sampler.height
@@ -1792,7 +1822,9 @@ class NeuSkyFactoModel(NeuSFactoModel):
                         latent_codes=self.eval_illumination_latents[camera_indices],
                         scale=self.eval_scale[camera_indices].detach(),
                     )
-                    pred_hdr = self.illumination_field.unnormalise(outputs[RENIFieldHeadNames.RGB])
+                    pred_hdr = self.illumination_hdr_decode.to_linear_hdr(
+                        self.illumination_field, outputs[RENIFieldHeadNames.RGB]
+                    )
                     log_mse = torch.mean(
                         sineweight * (torch.log(pred_hdr + 1e-8) - torch.log(rgb + 1e-8)) ** 2
                     )
