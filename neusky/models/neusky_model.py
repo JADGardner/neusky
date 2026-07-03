@@ -211,6 +211,11 @@ class NeuSkyFactoModelConfig(NeuSFactoModelConfig):
     """Sample region of images for eval latent optimisation if method is per image"""
     eval_latent_optimise_method: Literal["per_image", "nerf_osr_holdout", "nerf_osr_envmap"] = "per_image"
     """Method for optimising eval latents"""
+    eval_latent_prior_weight: float = 0.0
+    """L2 prior weight on the eval latents during fitting (adds w * mean(z^2) to the fit
+    loss). 0 keeps the original unregularised ECCV fit. The RENI++ outpainting fit uses
+    1e-4; without it a single-holdout fit can push latents far off the prior manifold,
+    giving implausible sky reconstructions."""
     eval_latent_optimisation_seed: int = 42
     """Seed set before eval latent optimisation so relighting evals are deterministic"""
     envmap_saturation_scale: float = 10.0
@@ -1671,6 +1676,10 @@ class NeuSkyFactoModel(NeuSFactoModel):
                     model_outputs = self.forward(ray_bundle=ray_bundle, step=global_step)
                     loss_dict = self.get_loss_dict(model_outputs, batch)
                     loss = functools.reduce(torch.add, loss_dict.values())
+                    # getattr as configs saved with older checkpoints predate the field.
+                    prior_weight = getattr(self.config, "eval_latent_prior_weight", 0.0)
+                    if prior_weight > 0 and self.config.eval_latent_optimise_method != "nerf_osr_envmap":
+                        loss = loss + prior_weight * self.eval_illumination_latents.pow(2).mean()
                     optimizer.zero_grad_all()
                     loss.backward()
                     optimizer.optimizer_step("eval_latents")

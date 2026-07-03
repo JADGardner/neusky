@@ -92,6 +92,32 @@ PROTOCOLS = {
 # eval_latent_optimisation_seed pinned in fit_latent_codes_for_eval.
 PROTOCOL_FIT_NOTE = "Latent fit: Adam lr 1e-1 -> 1e-7, 250 steps, seed 42."
 
+# Eval-latent fit recipes. "eccv" is the checkpoint default above. "hardened"
+# mirrors the RENI++ outpainting fit (scripts/figures/fig_outpainting.py in
+# ns_reni): gentler lr, more steps, and an L2 latent prior, so a single-holdout
+# fit stays near the prior manifold instead of producing implausible skies.
+EVAL_FITS = {
+    "eccv": None,
+    "hardened": {"lr": 1e-2, "lr_final": 1e-4, "steps": 600, "prior_weight": 1e-4},
+}
+
+
+def apply_eval_fit(config, fit: str):
+    spec = EVAL_FITS[fit]
+    if spec is None:
+        return
+    from nerfstudio.engine.optimizers import AdamOptimizerConfig
+    from nerfstudio.engine.schedulers import ExponentialDecaySchedulerConfig
+
+    config.pipeline.model.eval_latent_prior_weight = spec["prior_weight"]
+    config.pipeline.model.eval_latent_optimizer = {
+        "eval_latents": {
+            "optimizer": AdamOptimizerConfig(lr=spec["lr"], eps=1e-15),
+            "scheduler": ExponentialDecaySchedulerConfig(
+                lr_final=spec["lr_final"], max_steps=spec["steps"]),
+        },
+    }
+
 
 def has_run(scene: str) -> bool:
     try:
@@ -101,7 +127,8 @@ def has_run(scene: str) -> bool:
         return False
 
 
-def evaluate_nerfosr_relighting(scene: str, device: str, protocol: str = "holdout"):
+def evaluate_nerfosr_relighting(scene: str, device: str, protocol: str = "holdout",
+                                eval_fit: str = "eccv"):
     """NeuSky relighting metrics for one NeRF-OSR site (psnr, mse)."""
     import torch
 
@@ -111,6 +138,7 @@ def evaluate_nerfosr_relighting(scene: str, device: str, protocol: str = "holdou
         config.pipeline.model.eval_latent_optimise_method = spec["method"]
         if "saturation_scale" in spec:
             config.pipeline.model.envmap_saturation_scale = spec["saturation_scale"]
+        apply_eval_fit(config, eval_fit)
         config.pipeline.datamanager.dataparser.session_holdout_indices = \
             SESSION_HOLDOUT_INDICES[scene]
 
@@ -599,15 +627,25 @@ def main():
     parser.add_argument("--output-dir", type=Path, default=TABLES_DIR)
     parser.add_argument("--cache", type=Path, default=None,
                         help="JSON metrics cache (default <output-dir>/neusky_metrics.json)")
+    parser.add_argument("--eval-fit", choices=list(EVAL_FITS), default="eccv",
+                        help="Eval-latent fit recipe for relighting tables. 'hardened' "
+                             "(F11) needs its own --cache/--output-dir: cache keys do "
+                             "not encode the fit recipe.")
     args = parser.parse_args()
 
     wanted = {canonical_scene(s) for s in args.scenes} if args.scenes else None
     cache_path = args.cache or args.output_dir / "neusky_metrics.json"
+    if args.eval_fit != "eccv" and args.cache is None and args.output_dir == TABLES_DIR:
+        parser.error("--eval-fit hardened would pollute the default metrics cache; "
+                     "pass a dedicated --cache or --output-dir.")
 
     if "nerf_osr" in args.tables:
         scenes = [s for s in NERF_OSR_SCENES if wanted is None or s in wanted]
-        results = collect(scenes, evaluate_nerfosr_relighting, cache_path,
-                          args.device, "nerf_osr")
+        results = collect(
+            scenes,
+            lambda scene, device: evaluate_nerfosr_relighting(
+                scene, device, eval_fit=args.eval_fit),
+            cache_path, args.device, "nerf_osr")
         write_nerf_osr_table(results, args.output_dir / "nerf_osr")
 
     if "synthetic" in args.tables:
@@ -639,7 +677,8 @@ def main():
             # Cache key includes protocol (and thereby saturation scale).
             results.update(collect(
                 scenes,
-                lambda scene, device, p=protocol: evaluate_nerfosr_relighting(scene, device, protocol=p),
+                lambda scene, device, p=protocol: evaluate_nerfosr_relighting(
+                    scene, device, protocol=p, eval_fit=args.eval_fit),
                 cache_path, args.device, f"protocol/{protocol}"))
         write_protocol_sensitivity_table(
             results, args.protocols, args.output_dir / "protocol_sensitivity")
