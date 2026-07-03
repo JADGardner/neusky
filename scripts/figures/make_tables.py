@@ -104,6 +104,11 @@ EVAL_FITS = {
     # gradient toward the blue/LDR target and stays stuck.
     "hardened_v2": {"lr": 1e-2, "lr_final": 1e-4, "steps": 600, "prior_weight": 1e-4,
                     "sky_unclamped": True},
+    # Sky-only diagnostic: additionally drop the building rgb losses from the
+    # fit and gate the sky loss on accumulation < 0.5, so the latent is fitted
+    # purely from visible-sky evidence (James, 2026-07-03).
+    "sky_only": {"lr": 1e-2, "lr_final": 1e-4, "steps": 600, "prior_weight": 1e-4,
+                 "sky_unclamped": True, "sky_only": True},
 }
 
 
@@ -116,6 +121,7 @@ def apply_eval_fit(config, fit: str):
 
     config.pipeline.model.eval_latent_prior_weight = spec["prior_weight"]
     config.pipeline.model.eval_sky_loss_unclamped = spec.get("sky_unclamped", False)
+    config.pipeline.model.eval_fit_sky_only = spec.get("sky_only", False)
     config.pipeline.model.eval_latent_optimizer = {
         "eval_latents": {
             "optimizer": AdamOptimizerConfig(lr=spec["lr"], eps=1e-15),
