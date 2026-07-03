@@ -109,6 +109,17 @@ EVAL_FITS = {
     # purely from visible-sky evidence (James, 2026-07-03).
     "sky_only": {"lr": 1e-2, "lr_final": 1e-4, "steps": 600, "prior_weight": 1e-4,
                  "sky_unclamped": True, "sky_only": True},
+    # Hue-convergence diagnostics: near-saturation sRGB gradients are tiny, so
+    # 600 decaying steps may equilibrate against the prior at the dataset-mean
+    # (khaki) sky. Longer + hotter, with and without the latent prior.
+    "sky_only_long": {"lr": 1e-2, "lr_final": 1e-3, "steps": 2000, "prior_weight": 1e-4,
+                      "sky_unclamped": True, "sky_only": True},
+    "sky_only_noprior": {"lr": 1e-2, "lr_final": 1e-3, "steps": 2000, "prior_weight": 0.0,
+                         "sky_unclamped": True, "sky_only": True},
+    # No-prior hardened fit: the z^2 prior was calibrated for the OLD RENI++
+    # latent space and never ablated; latent-reset manifolds may not need it.
+    "hardened_v2_noprior": {"lr": 1e-2, "lr_final": 1e-4, "steps": 600, "prior_weight": 0.0,
+                            "sky_unclamped": True},
 }
 
 
