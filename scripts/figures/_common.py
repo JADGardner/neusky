@@ -69,8 +69,15 @@ SCENE_TO_SITE = {v: k for k, v in SITE_TO_SCENE.items()}
 
 # Per-session eval holdout indices used for the NeRF-OSR relighting protocol
 # (from publication/figures_and_tables.ipynb / render_animation.py).
+# Selection criterion: the holdout camera must sit INSIDE the training-camera
+# envelope (nearest-train-camera distance ~<0.05 in the normalised frame) with
+# the building fully visible. lk2 session 29-07_12_00 previously used rel 0
+# (IMG_5384), whose camera sits at radius 0.950 - beyond the outermost training
+# camera (0.936, nearest train cam 0.103): its rays cross density no training
+# ray ever constrained and render as mush. Replaced 2026-07-03 with rel 11
+# (IMG_5464, radius 0.748, nearest train cam 0.012).
 SESSION_HOLDOUT_INDICES = {
-    "lk2": [0, 0, 0, 0, 0],
+    "lk2": [0, 0, 0, 11, 0],
     "st": [1, 2, 2, 7, 9],
     "lwp": [0, 6, 6, 2, 11],
     "stjacob": [0, 0, 0],
