@@ -216,6 +216,12 @@ class NeRFOSRCityScapesDataParserConfig(NeRFOSRDataParserConfig):
     """Target normalized radius for the sfm_scale_percentile distance."""
     sfm_max_camera_radius: float = 0.95
     sfm_max_point_radius: float = 0.98
+    sfm_containment_percentile: float = 98.0
+    """Percentile of centred point distances that must fit inside
+    sfm_max_point_radius. Deliberately higher than sfm_outlier_percentile (the
+    centring filter): on lk2 the clock tower occupies right up to the 98th
+    percentile, so 95 would exclude the very geometry the cap exists to
+    contain, while >98.5 starts chasing SfM noise and over-shrinks the scene."""
     """Cap the SfM scale so the (outlier-filtered) scene point cloud stays inside
     this radius. The unit DDF/sky sphere assumes ALL geometry is inside it; on
     lk2 the clock tower protruded to r~1.05 under the camera-only cap, putting
@@ -341,7 +347,7 @@ class NeRFOSRCityScapes(DataParser):
                 # Keep the whole (outlier-filtered) point cloud inside the unit
                 # sphere too, not just the cameras.
                 point_dists = np.linalg.norm(sfm_points - center, axis=-1)
-                point_inliers = point_dists <= np.percentile(point_dists, self.config.sfm_outlier_percentile)
+                point_inliers = point_dists <= np.percentile(point_dists, self.config.sfm_containment_percentile)
                 max_point_dist = float(point_dists[point_inliers].max())
                 point_cap = self.config.sfm_max_point_radius / max(max_point_dist, 1e-6)
                 if scale > point_cap:

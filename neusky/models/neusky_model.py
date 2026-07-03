@@ -595,7 +595,7 @@ class NeuSkyFactoModel(NeuSFactoModel):
                 # Two-bracket priors take exposure AFTER the bracket blend (in
                 # linear HDR, inside to_linear_hdr); in-field exp(scale) would
                 # multiply the bounded brackets.
-                scale=None if self.illumination_hdr_decode.two_bracket else sample_scales,
+                scale=torch.zeros_like(sample_scales) if self.illumination_hdr_decode.two_bracket else sample_scales,
                 rotation=rotation 
             )  # [num_unique_camera_indices * num_illumination_directions, 3]
         else:
@@ -637,7 +637,7 @@ class NeuSkyFactoModel(NeuSFactoModel):
             illumination_field_outputs = self.illumination_field.forward(
                 ray_samples=ray_samples[:, 0],
                 latent_codes=illumination_latents[ray_samples.camera_indices[:, 0, 0]],
-                scale=None if self.illumination_hdr_decode.two_bracket else ray_scales,
+                scale=torch.zeros_like(ray_scales) if self.illumination_hdr_decode.two_bracket else ray_scales,
                 rotation=rotation
             )  # [num_unique_camera_indices * num_illumination_directions, 3]
         else:
@@ -1437,7 +1437,7 @@ class NeuSkyFactoModel(NeuSFactoModel):
             viz_scales = scales[ray_samples.camera_indices[:, 0]]
             illumination_field_outputs = self.illumination_field(ray_samples=ray_samples,
                                                                  latent_codes=illumination_latents[ray_samples.camera_indices[:, 0]],
-                                                                 scale=None if self.illumination_hdr_decode.two_bracket else viz_scales,
+                                                                 scale=torch.zeros_like(viz_scales) if self.illumination_hdr_decode.two_bracket else viz_scales,
             )
             
             hdr_envmap = illumination_field_outputs[RENIFieldHeadNames.RGB]
@@ -1836,7 +1836,7 @@ class NeuSkyFactoModel(NeuSFactoModel):
                     outputs = self.illumination_field.forward(
                         ray_samples=ray_samples,
                         latent_codes=self.eval_illumination_latents[camera_indices],
-                        scale=None if self.illumination_hdr_decode.two_bracket else fit_scales,
+                        scale=torch.zeros_like(fit_scales) if self.illumination_hdr_decode.two_bracket else fit_scales,
                     )
                     pred_hdr = self.illumination_hdr_decode.to_linear_hdr(
                         self.illumination_field, outputs[RENIFieldHeadNames.RGB],
