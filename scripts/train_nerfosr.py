@@ -29,6 +29,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-num-iterations", type=int, default=None)
     parser.add_argument("--reni-ckpt", type=Path, default=None,
                         help="Override illumination_field_ckpt_path")
+    parser.add_argument("--log2-hashmap-size", type=int, default=None,
+                        help="Override the SDF hash-grid table size (default 19). "
+                             "21 = 4x table, quadratically fewer collisions - "
+                             "targets far-field speckle from under-supervised cells.")
     parser.add_argument("--no-amp", action="store_true",
                         help="Disable mixed-precision training (fp32 everywhere). "
                              "Speckle diagnostic: AMP amplifies sensitivity to "
@@ -62,6 +66,8 @@ def main() -> None:
     dp.data = args.data.expanduser()
     if args.no_amp:
         config.mixed_precision = False
+    if args.log2_hashmap_size is not None:
+        config.pipeline.model.sdf_field.log2_hashmap_size = args.log2_hashmap_size
     if args.no_sfm:
         dp.center_method_sfm = False
     dp.fg_boundary_erode_pixels = args.fg_boundary_erode_pixels
