@@ -212,6 +212,13 @@ class NeuSkyDataManager(VanillaDataManager):  # pylint: disable=abstract-method
                 device=self.device,
                 num_workers=self.world_size * 4,
             )
+            # Rays for the holdout/compare fits must come from the EVAL cameras:
+            # the indices sampled below index the eval dataset, and train camera
+            # i is a different pose than eval camera i. (Previously these fits
+            # used train_ray_generator, silently supervising the illumination
+            # along wrong directions - smooth skies still converged, but sun
+            # position and sky colour landed wherever the train poses pointed.)
+            self.eval_ray_generator = RayGenerator(self.eval_dataset.cameras.to(self.device))
             self.iter_holdout_eval_dataloader = iter(self.holdout_eval_dataloader)
             # image_idxs_eval = [x for x in range(len(self.eval_dataset))]
             # image_idxs_eval = [idx for idx in image_idxs_eval if idx not in image_idxs_holdout]
@@ -328,7 +335,7 @@ class NeuSkyDataManager(VanillaDataManager):  # pylint: disable=abstract-method
         assert isinstance(image_batch, dict)
         batch = self.train_pixel_sampler.sample(image_batch)
         ray_indices = batch["indices"]
-        ray_bundle = self.train_ray_generator(ray_indices)
+        ray_bundle = self.eval_ray_generator(ray_indices)
         # we need to update the image indices to be the session indices so as to use the same RENI illumination for all images from a session
         batch["indices"][:, 0] = torch.tensor(
             [self.indices_to_session[i.item()] for i in batch["indices"][:, 0]]
