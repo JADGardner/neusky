@@ -104,7 +104,8 @@ class IlluminationHDRDecode:
     out_features: int = 3
     output_activation: str = "None"
 
-    def to_linear_hdr(self, illumination_field, x: torch.Tensor) -> torch.Tensor:
+    def to_linear_hdr(self, illumination_field, x: torch.Tensor,
+                      scale: Optional[torch.Tensor] = None) -> torch.Tensor:
         """Convert a RENI field RGB output ``x`` to linear HDR radiance.
 
         For the two-bracket case this exactly mirrors
@@ -114,7 +115,13 @@ class IlluminationHDRDecode:
         standard RENI/RENI++ path is byte-for-byte unchanged.
         """
         if self.two_bracket:
-            return two_bracket_to_linear(x, m_ldr=self.m_ldr, m_log=self.m_log)
+            hdr = two_bracket_to_linear(x, m_ldr=self.m_ldr, m_log=self.m_log)
+            if scale is not None:
+                # Exposure belongs in LINEAR HDR: exp(scale) on the blended
+                # radiance, never on the bounded brackets (a bracket-space
+                # multiply leaves the domain where the inversions are exact).
+                hdr = hdr * torch.exp(scale).reshape(-1, *([1] * (hdr.dim() - 1)))
+            return hdr
         return illumination_field.unnormalise(x)
 
     @classmethod

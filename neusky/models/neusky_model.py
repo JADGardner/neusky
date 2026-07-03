@@ -359,12 +359,12 @@ class NeuSkyFactoModel(NeuSFactoModel):
             self.train_illumination_latents = Parameter(
                 torch.zeros((self.num_train_data, self.illumination_field.latent_dim, 3))
             )
-            self.train_scale = Parameter(torch.ones(self.num_train_data))
+            self.train_scale = Parameter(torch.zeros(self.num_train_data) if self.illumination_hdr_decode.two_bracket else torch.ones(self.num_train_data))  # exp-neutral start under fixed gauge
 
             self.eval_illumination_latents = Parameter(
                 torch.zeros((self.num_eval_data, self.illumination_field.latent_dim, 3))
             )
-            self.eval_scale = Parameter(torch.ones(self.num_eval_data))
+            self.eval_scale = Parameter(torch.zeros(self.num_eval_data) if self.illumination_hdr_decode.two_bracket else torch.ones(self.num_eval_data))  # exp-neutral start under fixed gauge
 
             # Construct checkpoint path
             ckpt_subpath = (
@@ -588,10 +588,14 @@ class NeuSkyFactoModel(NeuSFactoModel):
                     rotation = rotation
                 elif len(rotation.shape) == 3:
                     rotation = rotation[illumination_ray_samples.camera_indices] # [num_unique_camera_indices * num_illumination_directions, 3, 3]
+            sample_scales = scales[illumination_ray_samples.camera_indices]  # [num_unique_camera_indices * num_illumination_directions]
             illumination_field_outputs = self.illumination_field.forward(
                 ray_samples=illumination_ray_samples,
                 latent_codes=illumination_latents[illumination_ray_samples.camera_indices], # [num_unique_camera_indices * num_illumination_directions, 3]
-                scale=scales[illumination_ray_samples.camera_indices], # [num_unique_camera_indices * num_illumination_directions]
+                # Two-bracket priors take exposure AFTER the bracket blend (in
+                # linear HDR, inside to_linear_hdr); in-field exp(scale) would
+                # multiply the bounded brackets.
+                scale=None if self.illumination_hdr_decode.two_bracket else sample_scales,
                 rotation=rotation 
             )  # [num_unique_camera_indices * num_illumination_directions, 3]
         else:
@@ -605,7 +609,8 @@ class NeuSkyFactoModel(NeuSFactoModel):
             RENIFieldHeadNames.RGB
         ]  # [num_unique_camera_indices * num_illumination_directions, 3]
         hdr_illumination_colours = self.illumination_hdr_decode.to_linear_hdr(
-            self.illumination_field, hdr_illumination_colours
+            self.illumination_field, hdr_illumination_colours,
+            scale=sample_scales if self.illumination_hdr_decode.two_bracket else None,
         )  # [num_unique_camera_indices * num_illumination_directions, 3]
         # so now we reshape back to [num_unique_camera_indices, num_illumination_directions, 3]
         hdr_illumination_colours = hdr_illumination_colours.reshape(
@@ -628,10 +633,11 @@ class NeuSkyFactoModel(NeuSFactoModel):
                     rotation = rotation
                 elif len(rotation.shape) == 3:
                     rotation = rotation[ray_samples.camera_indices[:, 0, 0]]
+            ray_scales = scales[ray_samples.camera_indices[:, 0, 0]]
             illumination_field_outputs = self.illumination_field.forward(
                 ray_samples=ray_samples[:, 0],
                 latent_codes=illumination_latents[ray_samples.camera_indices[:, 0, 0]],
-                scale=scales[ray_samples.camera_indices[:, 0, 0]],
+                scale=None if self.illumination_hdr_decode.two_bracket else ray_scales,
                 rotation=rotation
             )  # [num_unique_camera_indices * num_illumination_directions, 3]
         else:
@@ -643,7 +649,8 @@ class NeuSkyFactoModel(NeuSFactoModel):
 
         hdr_background_colours = illumination_field_outputs[RENIFieldHeadNames.RGB]
         hdr_background_colours = self.illumination_hdr_decode.to_linear_hdr(
-            self.illumination_field, hdr_background_colours
+            self.illumination_field, hdr_background_colours,
+            scale=ray_scales if self.illumination_hdr_decode.two_bracket else None,
         )
 
         return hdr_illumination_colours, illumination_directions, hdr_background_colours
@@ -1427,13 +1434,17 @@ class NeuSkyFactoModel(NeuSFactoModel):
             ray_samples = self.equirectangular_sampler.generate_direction_samples()
             ray_samples = ray_samples.to(self.device)
             ray_samples.camera_indices = torch.ones_like(ray_samples.camera_indices) * batch["image_idx"]
+            viz_scales = scales[ray_samples.camera_indices[:, 0]]
             illumination_field_outputs = self.illumination_field(ray_samples=ray_samples,
                                                                  latent_codes=illumination_latents[ray_samples.camera_indices[:, 0]],
-                                                                 scale=scales[ray_samples.camera_indices[:, 0]],
+                                                                 scale=None if self.illumination_hdr_decode.two_bracket else viz_scales,
             )
             
             hdr_envmap = illumination_field_outputs[RENIFieldHeadNames.RGB]
-            hdr_envmap = self.illumination_hdr_decode.to_linear_hdr(self.illumination_field, hdr_envmap)  # N, 3
+            hdr_envmap = self.illumination_hdr_decode.to_linear_hdr(
+                self.illumination_field, hdr_envmap,
+                scale=viz_scales if self.illumination_hdr_decode.two_bracket else None,
+            )  # N, 3
             ldr_envmap = linear_to_sRGB(hdr_envmap)  # N, 3
             # reshape to H, W, 3
             height = self.equirectangular_sampler.height
@@ -1821,13 +1832,15 @@ class NeuSkyFactoModel(NeuSFactoModel):
 
             with self.illumination_field.hold_decoder_fixed():
                 for _ in range(steps):
+                    fit_scales = self.eval_scale[camera_indices].detach()
                     outputs = self.illumination_field.forward(
                         ray_samples=ray_samples,
                         latent_codes=self.eval_illumination_latents[camera_indices],
-                        scale=self.eval_scale[camera_indices].detach(),
+                        scale=None if self.illumination_hdr_decode.two_bracket else fit_scales,
                     )
                     pred_hdr = self.illumination_hdr_decode.to_linear_hdr(
-                        self.illumination_field, outputs[RENIFieldHeadNames.RGB]
+                        self.illumination_field, outputs[RENIFieldHeadNames.RGB],
+                        scale=fit_scales if self.illumination_hdr_decode.two_bracket else None,
                     )
                     log_mse = torch.mean(
                         sineweight * (torch.log(pred_hdr + 1e-8) - torch.log(rgb + 1e-8)) ** 2

@@ -215,6 +215,11 @@ class NeRFOSRCityScapesDataParserConfig(NeRFOSRDataParserConfig):
     sfm_target_radius: float = 0.5
     """Target normalized radius for the sfm_scale_percentile distance."""
     sfm_max_camera_radius: float = 0.95
+    sfm_max_point_radius: float = 0.98
+    """Cap the SfM scale so the (outlier-filtered) scene point cloud stays inside
+    this radius. The unit DDF/sky sphere assumes ALL geometry is inside it; on
+    lk2 the clock tower protruded to r~1.05 under the camera-only cap, putting
+    SDF geometry where the sky/visibility model assumes free space."""
     """Cap the SfM scale so all cameras stay within this radius. NeuSky's DDF/sky
     sphere has radius 1; cameras outside it produce rays that miss the sphere
     entirely and render NaN."""
@@ -333,6 +338,19 @@ class NeRFOSRCityScapes(DataParser):
                 # Cap the scale so cameras stay inside the unit DDF/sky sphere:
                 # rays from origins outside it can miss the sphere and NaN.
                 max_cam_dist = camera_to_worlds[:, :3, 3].norm(dim=-1).max().item()
+                # Keep the whole (outlier-filtered) point cloud inside the unit
+                # sphere too, not just the cameras.
+                point_dists = np.linalg.norm(sfm_points - center, axis=-1)
+                point_inliers = point_dists <= np.percentile(point_dists, self.config.sfm_outlier_percentile)
+                max_point_dist = float(point_dists[point_inliers].max())
+                point_cap = self.config.sfm_max_point_radius / max(max_point_dist, 1e-6)
+                if scale > point_cap:
+                    CONSOLE.log(
+                        f"[yellow]SfM scale {scale:.4f} would put scene points at radius "
+                        f"{scale * max_point_dist:.2f}; capping to {point_cap:.4f} "
+                        f"(max point radius {self.config.sfm_max_point_radius})"
+                    )
+                    scale = point_cap
                 cap = self.config.sfm_max_camera_radius / max(max_cam_dist, 1e-6)
                 if scale > cap:
                     CONSOLE.log(
