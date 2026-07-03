@@ -219,6 +219,10 @@ class NeuSkyFactoModelConfig(NeuSFactoModelConfig):
     eval_sky_loss_unclamped: bool = False
     """Use unclamped sRGB in the sky-pixel loss while fitting eval latents, so an
     over-bright (saturated) sky fit still receives gradient toward the LDR target."""
+    eval_fit_sky_only: bool = False
+    """Fit eval latents from sky pixels only: disable the building rgb losses during
+    the fit and gate the sky loss on rendered accumulation < 0.5, so shading on the
+    building cannot drag the illumination latent."""
     eval_latent_optimisation_seed: int = 42
     """Seed set before eval latent optimisation so relighting evals are deterministic"""
     envmap_saturation_scale: float = 10.0
@@ -1141,16 +1145,23 @@ class NeuSkyFactoModel(NeuSFactoModel):
         else:
             image = batch["image"].to(self.device)
             pred_image = outputs["rgb"]
+            # Sky-only eval fit: the building rgb losses (on ~3x more pixels
+            # than the sky sees) can drag the illumination latent toward
+            # whatever makes the SHADING match, at the cost of the visible-sky
+            # colour. This diagnostic fits latents from sky evidence alone.
+            sky_only_fit = (self.fitting_eval_latents
+                            and getattr(self.config, "eval_fit_sky_only", False))
             # apply inverse of sky mask to image and pred_image as we only apply sky losses to reni directly
             image = image * (1 - sky_mask.float()).unsqueeze(1).expand_as(image)
             pred_image = pred_image * (1 - sky_mask.float()).unsqueeze(1).expand_as(pred_image)
-            if self.config.loss_inclusions["rgb_l1_loss"]:
-                loss_dict["rgb_l1_loss"] = self.rgb_l1_loss(image, pred_image)
-            if self.config.loss_inclusions["rgb_l2_loss"]:
-                loss_dict["rgb_l2_loss"] = self.rgb_l2_loss(image, pred_image)
-            if self.config.loss_inclusions["cosine_colour_loss"]:
-                similarity = self.cosine_colour_loss(image, pred_image)
-                loss_dict["cosine_colour_loss"] = torch.mean(1 - similarity)
+            if not sky_only_fit:
+                if self.config.loss_inclusions["rgb_l1_loss"]:
+                    loss_dict["rgb_l1_loss"] = self.rgb_l1_loss(image, pred_image)
+                if self.config.loss_inclusions["rgb_l2_loss"]:
+                    loss_dict["rgb_l2_loss"] = self.rgb_l2_loss(image, pred_image)
+                if self.config.loss_inclusions["cosine_colour_loss"]:
+                    similarity = self.cosine_colour_loss(image, pred_image)
+                    loss_dict["cosine_colour_loss"] = torch.mean(1 - similarity)
                 
             # SKY PIXEL LOSS TEST
             if self.config.eval_latent_optimise_method != 'nerf_osr_envmap':
@@ -1163,6 +1174,12 @@ class NeuSkyFactoModel(NeuSFactoModel):
                                      and getattr(self.config, "eval_sky_loss_unclamped", False))
                     sky_colours = linear_to_sRGB(outputs["hdr_background_colours"], clamp=clamp_sky)
                     sky_mask = sky_mask.float().unsqueeze(1).expand_as(sky_colours)
+                    if sky_only_fit:
+                        # Trust only rays the model itself renders as clear sky:
+                        # excludes silhouette pixels where a mask error would
+                        # teach RENI the building colour.
+                        clear = (outputs["accumulation"].detach() < 0.5).float()
+                        sky_mask = sky_mask * clear.expand_as(sky_mask)
                     loss_dict["sky_pixel_loss"] = self.sky_pixel_loss(
                         inputs=sky_colours,
                         targets=batch["image"].type_as(sky_mask),
@@ -1700,6 +1717,11 @@ class NeuSkyFactoModel(NeuSFactoModel):
                         loss=f"{loss.item():.4f}",
                         lr=f"{optimizer.schedulers['eval_latents'].get_last_lr()[0]:.8f}",
                     )
+                    # Free the forward graph before the next step's forward
+                    # doubles peak memory: backward() only frees the subgraph it
+                    # traverses, and sky-only fits leave the whole shading render
+                    # untraversed (observed 22 GB OOM at fit step 2).
+                    del model_outputs, loss_dict, loss
 
         # No longer using eval RENI
         self.fitting_eval_latents = False
