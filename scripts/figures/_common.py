@@ -75,11 +75,14 @@ SCENE_TO_SITE = {v: k for k, v in SITE_TO_SCENE.items()}
 # (IMG_5384), whose camera sits at radius 0.950 - beyond the outermost training
 # camera (0.936, nearest train cam 0.103): its rays cross density no training
 # ray ever constrained and render as mush. Replaced 2026-07-03 with rel 11
-# (IMG_5464, radius 0.748, nearest train cam 0.012).
+# (IMG_5464, radius 0.748, nearest train cam 0.012). lwp session 25-08_19_30
+# previously used rel 2 (nearest train cam 0.180 - OOD by the same criterion);
+# replaced 2026-07-04 with rel 15 (IMG_0446, radius 0.792, nearest train cam
+# 0.006, full facade visible). st holdouts all verified in-envelope.
 SESSION_HOLDOUT_INDICES = {
     "lk2": [0, 0, 0, 11, 0],
     "st": [1, 2, 2, 7, 9],
-    "lwp": [0, 6, 6, 2, 11],
+    "lwp": [0, 6, 6, 15, 11],
     "stjacob": [0, 0, 0],
 }
 
