@@ -12,6 +12,13 @@
 #   OUTPUTS_PATH       — path to training outputs (default: ./outputs)
 #   MODEL_STORAGE_PATH — path to pretrained models (default: ./model-storage)
 
+# Two-level container design: this standalone compose mounts the neusky repo
+# at /workspace so it is clone-alone-runnable (project name `neusky`). The phd
+# umbrella compose is separate (project name `phd`), mounting the whole tree at
+# /workspace/phd. The explicit name below keeps the two projects from colliding
+# and makes wrong-cwd invocations visible (containers are named neusky-*).
+name: neusky
+
 services:
   research:
     build:

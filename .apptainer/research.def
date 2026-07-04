@@ -52,15 +52,35 @@ From: nvidia/cuda:12.8.1-cudnn-devel-ubuntu24.04
     conda run -n research conda install -c conda-forge colmap sqlite ffmpeg ninja -y
 
     # -- PyTorch + CUDA 12.8 ------------------------------------------------------
-    # Pinned to 2.8.0: prebuilt tinycudann/gsplat wheels exist for pt2.8.0cu128.
+    # x86_64 pins 2.8.0: prebuilt tinycudann/gsplat wheels exist for pt2.8.0cu128.
+    # aarch64 (Isambard GH200) has no 2.8.0 cu128 wheel; 2.7.1 is the closest
+    # release and keeps the pinned nerfstudio's API assumptions intact.
+    ARCH="$(uname -m)"
+    if [ "${ARCH}" = "aarch64" ]; then
+        TORCH_PKGS="torch==2.7.1 torchvision==0.22.1 torchaudio==2.7.1"
+    else
+        TORCH_PKGS="torch==2.8.0 torchvision==0.23.0 torchaudio==2.8.0"
+    fi
     conda run -n research pip install --no-cache-dir \
-        torch==2.8.0 torchvision==0.23.0 torchaudio==2.8.0 \
+        ${TORCH_PKGS} \
         --index-url https://download.pytorch.org/whl/cu128
 
     # -- tiny-cuda-nn --------------------------------------------------------------
-    conda run -n research pip install --no-cache-dir \
-        --extra-index-url https://miropsota.github.io/torch_packages_builder \
-        "tinycudann==2.0+pt2.8.0cu128"
+    # x86_64: prebuilt wheel (miropsota torch_packages_builder) avoids the fragile
+    # source compile. aarch64: no prebuilt wheel exists; compile the torch bindings
+    # from source (no GPU needed at build time - arch pinned to sm_90 for GH200).
+    if [ "${ARCH}" = "aarch64" ]; then
+        # tcnn's setup.py imports pkg_resources, removed in setuptools>=81.
+        conda run -n research pip install --no-cache-dir "setuptools<81"
+        conda run -n research bash -c " \
+            export TCNN_CUDA_ARCHITECTURES=90 && export FORCE_CUDA=1 && \
+            pip install --no-cache-dir --no-build-isolation \
+            'git+https://github.com/NVlabs/tiny-cuda-nn/#subdirectory=bindings/torch'"
+    else
+        conda run -n research pip install --no-cache-dir \
+            --extra-index-url https://miropsota.github.io/torch_packages_builder \
+            "tinycudann==2.0+pt2.8.0cu128"
+    fi
 
     # -- nvdiffrast (from source, with triton linking patch) ----------------------
     conda run -n research bash -c " \
@@ -69,9 +89,15 @@ From: nvidia/cuda:12.8.1-cudnn-devel-ubuntu24.04
         pip install --no-cache-dir --no-build-isolation git+https://github.com/NVlabs/nvdiffrast.git"
 
     # -- nerfstudio (mainline) -----------------------------------------------------
+    # open3d ships no aarch64 wheels; nerfstudio only uses it for exporter
+    # utilities NeuSky never touches, so drop it from the dep list on ARM.
+    # TORCH_CUDA_ARCH_LIST lets nerfstudio's transitive gsplat build from source
+    # when no matching wheel exists (aarch64).
     conda run -n research bash -c " \
+        export TORCH_CUDA_ARCH_LIST='8.0;8.6;8.9;9.0+PTX' && \
         git clone --depth 1 https://github.com/nerfstudio-project/nerfstudio.git /opt/nerfstudio && \
         cd /opt/nerfstudio && \
+        if [ \"${ARCH}\" = aarch64 ]; then sed -i 's/\"open3d[^\"]*\",//' pyproject.toml; fi && \
         pip install --no-cache-dir -e ."
 
     # -- Scientific Python stack + NeuSky deps ------------------------------------
@@ -83,8 +109,15 @@ From: nvidia/cuda:12.8.1-cudnn-devel-ubuntu24.04
         jupyterlab ipywidgets
 
     # -- 3D / NeRF packages -------------------------------------------------------
-    conda run -n research pip install --no-cache-dir \
-        open3d trimesh plyfile pycolmap
+    # aarch64: open3d and pycolmap ship no ARM wheels. COLMAP itself comes from
+    # conda above; pycolmap python bindings are only used by nerfstudio's data
+    # processing utilities, not NeuSky's training/eval paths.
+    if [ "${ARCH}" = "aarch64" ]; then
+        conda run -n research pip install --no-cache-dir trimesh plyfile
+    else
+        conda run -n research pip install --no-cache-dir \
+            open3d trimesh plyfile pycolmap
+    fi
 
     # -- Shared nerfstudio deps ---------------------------------------------------
     conda run -n research pip install --no-cache-dir \
