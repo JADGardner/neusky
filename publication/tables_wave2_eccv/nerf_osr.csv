@@ -1,0 +1,5 @@
+method,site1_psnr,site1_mse,site2_psnr,site2_mse,site3_psnr,site3_mse
+NeRF-OSR~\cite{rudnev_nerf_2022},19.3400,0.0120,16.3500,0.0270,15.6600,0.0290
+FEGR~\cite{wang_neural_2023},21.5300,0.0070,17.0000,0.0230,17.5700,0.0180
+SOL-NeRF~\cite{sunSOLNeRFSunlightModeling2023},21.2300,0.0084,18.1800,0.0190,17.5800,0.0280
+NeuSky (Ours),20.7572,0.0089,17.5320,0.0185,19.9338,0.0108
