@@ -59,3 +59,24 @@ def test_rng_streams_continue_across_seeded_fit():
 def test_restore_is_noop_without_snapshot():
     model = NeuSkyModel.__new__(NeuSkyModel)
     model._restore_rng_after_eval_fit()  # must not raise
+
+
+def test_all_fit_paths_restore_rng():
+    """Every return path of fit_latent_codes_for_eval must restore the RNG.
+
+    Regression for the synthetic_gt_envmap early-return, which skipped the
+    restore and reintroduced the speckle mechanism for --fit-gt-envmap-latents
+    runs. Static check: each `return` inside the function body (and its end)
+    must be preceded by a _restore_rng_after_eval_fit() call within the
+    preceding lines of the same branch.
+    """
+    import inspect
+    import textwrap
+    src = textwrap.dedent(inspect.getsource(NeuSkyModel.fit_latent_codes_for_eval))
+    lines = src.splitlines()
+    returns = [i for i, l in enumerate(lines) if l.strip() == "return"]
+    for i in returns:
+        window = "\n".join(lines[max(0, i - 3):i])
+        assert "_restore_rng_after_eval_fit()" in window, (
+            f"return at source line {i} not preceded by RNG restore:\n{window}")
+    assert "_restore_rng_after_eval_fit()" in "\n".join(lines[-6:]), "final path must restore"
