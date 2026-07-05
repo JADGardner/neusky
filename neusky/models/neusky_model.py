@@ -195,6 +195,14 @@ class NeuSkyFactoModelConfig(NeuSFactoModelConfig):
     carries the distance to the nearest fg/background transition."""
     fg_boundary_band_px: float = 10.0
     """Initial ignore-band half-width in pixels (erode-pixels semantics of the static band)."""
+    fg_boundary_static_band_px: float = 0.0
+    """Hard-trimap mode: full-strength fg-mask BCE outside a fixed ignore band of this
+    half-width (px, from the dataparser's fg_boundary_distance_channel), ZERO supervision
+    inside it, no ramp, no anneal — the silhouette inside the band is owned by the RGB
+    loss against the sky composite. Down-weighting mixed boundary pixels only weakens
+    the wrong labels without correcting them; ignoring them outright and keeping hard
+    supervision either side pins the SDF sharply. 0 disables (use annealed/static-conf
+    modes instead). Mutually exclusive with fg_boundary_anneal_end > 0."""
     fg_boundary_ramp_px: float = 10.0
     """Confidence ramp width in pixels just outside the band (~soften-kernel/2 of the static
     band). The ramp shrinks proportionally with the band during annealing, so band 0 yields
@@ -1098,6 +1106,15 @@ class NeuSkyFactoModel(NeuSFactoModel):
                             band,
                             self.config.fg_boundary_band_px,
                             self.config.fg_boundary_ramp_px,
+                        )
+                    elif self.config.fg_boundary_static_band_px > 0.0:
+                        # Hard trimap: step confidence at the band edge
+                        # (ramp 0), never annealed.
+                        boundary_conf = fg_boundary_confidence_from_distance(
+                            boundary_channel,
+                            self.config.fg_boundary_static_band_px,
+                            self.config.fg_boundary_static_band_px,
+                            0.0,
                         )
                     else:
                         boundary_conf = boundary_channel

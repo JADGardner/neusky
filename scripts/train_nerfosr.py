@@ -44,6 +44,10 @@ def parse_args() -> argparse.Namespace:
                              "fg-mask density loss (boundary-floater mitigation); 0 disables.")
     parser.add_argument("--fg-boundary-soften-kernel", type=int, default=0,
                         help="Odd gaussian kernel softening the boundary-confidence falloff.")
+    parser.add_argument("--fg-boundary-static-band", type=float, default=0.0,
+                        help="Hard-trimap fg-mask loss: ignore band half-width in px "
+                             "(enables the dataparser distance channel; full-strength "
+                             "BCE outside the band, none inside, no anneal).")
     parser.add_argument("--fg-boundary-anneal", default=None, metavar="START:END",
                         help="Anneal the fg-boundary ignore band to zero between steps START and "
                              "END so silhouettes re-sharpen after geometry settles. Switches mask "
@@ -100,6 +104,10 @@ def main() -> None:
     if args.reni_ckpt is not None:
         config.pipeline.model.illumination_field_ckpt_path = args.reni_ckpt.expanduser()
 
+
+    if args.fg_boundary_static_band > 0.0:
+        dp.fg_boundary_distance_channel = True
+        config.pipeline.model.fg_boundary_static_band_px = args.fg_boundary_static_band
     ns_train_main(config)
 
 
