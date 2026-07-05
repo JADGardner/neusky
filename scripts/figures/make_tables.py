@@ -230,7 +230,11 @@ def evaluate_holdout_sensitivity(scene: str, device: str, cache_path: Path):
                 assignment[s] = cands[rank]
                 fresh.append(s)
             else:
-                assignment[s] = canonical[s]
+                # canonical entry may be list-form (two-view holdout); the
+                # single-holdout sensitivity sweep just needs a fixed fallback
+                # for the un-varied sessions, so take the first canonical view.
+                fallback = canonical[s]
+                assignment[s] = fallback[0] if isinstance(fallback, (list, tuple)) else fallback
         if not fresh:
             continue
 

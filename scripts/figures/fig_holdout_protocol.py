@@ -262,7 +262,11 @@ def main():
 
     for r, s in enumerate(sessions):
         name = session_names[s]
-        holdout_idx = session_to_indices[s][canonical[s]]
+        # canonical[s] may be list-form (two-view holdout); the protocol figure
+        # shows one holdout column, so display the primary (first) holdout view.
+        first_holdout = canonical[s]
+        first_holdout = first_holdout[0] if isinstance(first_holdout, (list, tuple)) else first_holdout
+        holdout_idx = session_to_indices[s][first_holdout]
         compare_idx = compare_of[s]
 
         fitted_ldr, fitted_hdr, directions = render_fitted_envmap(model, s)

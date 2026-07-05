@@ -79,8 +79,25 @@ SCENE_TO_SITE = {v: k for k, v in SITE_TO_SCENE.items()}
 # previously used rel 2 (nearest train cam 0.180 - OOD by the same criterion);
 # replaced 2026-07-04 with rel 15 (IMG_0446, radius 0.792, nearest train cam
 # 0.006, full facade visible). st holdouts all verified in-envelope.
+#
+# TWO-VIEW HOLDOUT (lk2, 2026-07-05): each entry may be a single session-relative
+# index (one-view holdout) OR a list of them (fit the session's illumination on
+# several held-out views, better constraining the sun position). The dataparser +
+# datamanager flatten both forms (resolve_session_holdout_indices). lk2 moved to
+# two views/session; the second view is the most in-envelope candidate (smallest
+# nearest-train-camera distance) excluding the canonical first holdout and the
+# compare view, chosen and documented by scripts/figures/probe_holdout_envelope.py
+# against outputs/lk2_rngfix_w32cyc_hash21/neusky/2026-07-05_082759 (train envelope
+# radius max 0.873). Second views [rel: name, radius, d_train]:
+#   01-08_07_30  rel  4  IMG_6665  r 0.361  d_train 0.006
+#   08-08_16_00  rel 10  IMG_7890  r 0.541  d_train 0.006
+#   28-07_10_00  rel 16  IMG_5232  r 0.633  d_train 0.001
+#   29-07_12_00  rel 17  IMG_5492  r 0.527  d_train 0.008
+#   29-07_20_30  rel 10  IMG_5597  r 0.630  d_train 0.010
+# st / lwp / stjacob remain single-view pending James's approval of the protocol
+# change; the code supports both forms so switching them is a one-line edit here.
 SESSION_HOLDOUT_INDICES = {
-    "lk2": [0, 0, 0, 11, 0],
+    "lk2": [[0, 4], [0, 10], [0, 16], [11, 17], [0, 10]],
     "st": [1, 2, 2, 7, 9],
     "lwp": [0, 6, 6, 15, 11],
     "stjacob": [0, 0, 0],
