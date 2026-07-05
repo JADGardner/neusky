@@ -1681,6 +1681,26 @@ class NeuSkyFactoModel(NeuSFactoModel):
 
         return outputs
 
+    def _restore_rng_after_eval_fit(self):
+        """Restore global RNG streams snapshotted before the seeded eval fit.
+
+        fit_latent_codes_for_eval seeds python/numpy/torch RNGs for
+        deterministic relighting fits; without restoring, every in-training
+        eval reset the training ray-sampling stream to the same sequence
+        (same batches repeated between evals), overfitting those pixels and
+        baking speckle into geometry and the DDF.
+        """
+        states = getattr(self, "_pre_fit_rng_states", None)
+        if states is None:
+            return
+        py_state, np_state, torch_state, cuda_states = states
+        random.setstate(py_state)
+        np.random.set_state(np_state)
+        torch.set_rng_state(torch_state)
+        if cuda_states is not None:
+            torch.cuda.set_rng_state_all(cuda_states)
+        self._pre_fit_rng_states = None
+
     def fit_latent_codes_for_eval(self, datamanager: NeuSkyDataManager, global_step: int):
         """Fit evaluation latent codes to session envmaps so that illumination is correct."""
 
@@ -1690,6 +1710,16 @@ class NeuSkyFactoModel(NeuSFactoModel):
         # Deterministic relighting eval: the fits below sample random pixels
         # per step (Adam lr 1e-1 -> 1e-7, 250 steps via eval_latent_optimizer).
         # getattr as configs saved with older checkpoints predate the field.
+        # The global RNG states are snapshotted and restored in
+        # _restore_rng_after_eval_fit: seeding without restoring made every
+        # in-training eval reset the training ray-sampling stream to the same
+        # sequence, which baked speckle into geometry (root-caused 2026-07-05).
+        self._pre_fit_rng_states = (
+            random.getstate(),
+            np.random.get_state(),
+            torch.get_rng_state(),
+            torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None,
+        )
         seed = getattr(self.config, "eval_latent_optimisation_seed", 42)
         random.seed(seed)
         np.random.seed(seed)
@@ -1770,6 +1800,7 @@ class NeuSkyFactoModel(NeuSFactoModel):
 
         # No longer using eval RENI
         self.fitting_eval_latents = False
+        self._restore_rng_after_eval_fit()
 
     def _fit_eval_latents_to_envmaps(self, datamanager: NeuSkyDataManager):
         """Fit the eval RENI latents to the GT session envmaps (NeRF-OSR protocol).
