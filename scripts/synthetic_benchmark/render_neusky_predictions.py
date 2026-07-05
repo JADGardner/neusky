@@ -199,7 +199,7 @@ def fit_eval_latents_to_gt_hdris(model, gt_envmap_info, frame_indices, rays_per_
 
     assert model.eval_scale is not None, "--illumination gt requires a RENI illumination field"
     model.eval_illumination_latents.data.zero_()
-    model.eval_scale.data.fill_(1.0)
+    model.eval_scale.data.fill_(0.0)  # exp(scale) semantics: 0 = neutral; 1.0 was ~2.72x over-bright
 
     optimizer = Optimizers(
         model.config.eval_latent_optimizer,
