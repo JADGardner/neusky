@@ -417,16 +417,18 @@ def collect(scenes, evaluator, cache_path: Path, device: str, prefix: str):
         print(f"[cache] loaded {len(results)} entries from {cache_path}")
     for scene in scenes:
         key = f"{prefix}/{scene}"
-        if key in results:
+        if results.get(key) is not None:
             continue
         if not has_run(scene):
+            # do NOT cache the null: a bad pin or transient failure would
+            # otherwise poison every later invocation sharing this cache
             print(f"[skip] {key}: no run with checkpoints (cells will show ---)")
             results[key] = None
-        else:
-            print(f"[eval] {key}")
-            results[key] = evaluator(scene, device)
+            continue
+        print(f"[eval] {key}")
+        results[key] = evaluator(scene, device)
         cache_path.parent.mkdir(parents=True, exist_ok=True)
-        cache_path.write_text(json.dumps(results, indent=2))
+        cache_path.write_text(json.dumps({k: v for k, v in results.items() if v is not None}, indent=2))
     return results
 
 
