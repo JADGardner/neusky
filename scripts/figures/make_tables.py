@@ -120,6 +120,9 @@ EVAL_FITS = {
     # latent space and never ablated; latent-reset manifolds may not need it.
     "hardened_v2_noprior": {"lr": 1e-2, "lr_final": 1e-4, "steps": 600, "prior_weight": 0.0,
                             "sky_unclamped": True},
+    # convergence check: same recipe, doubled budget with a gentler tail
+    "hardened_v2_noprior_long": {"lr": 1e-2, "lr_final": 1e-5, "steps": 1200, "prior_weight": 0.0,
+                                 "sky_unclamped": True},
 }
 
 
