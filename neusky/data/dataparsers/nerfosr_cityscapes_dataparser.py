@@ -24,7 +24,7 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from collections import defaultdict
-from typing import List, Tuple, Type
+from typing import List, Tuple, Type, Union
 from torchvision.transforms import InterpolationMode, Resize, ToTensor
 from PIL import Image
 import numpy as np
@@ -131,6 +131,42 @@ def _parse_osm_txt(filename: str):
     return np.array([float(x) for x in nums]).reshape([4, 4]).astype(np.float32)
 
 
+def resolve_session_holdout_indices(session_holdout_indices, session_to_indices) -> List[int]:
+    """Map per-session relative holdout index/indices to absolute dataset indices.
+
+    Each entry of ``session_holdout_indices`` corresponds to one session (aligned
+    with ``session_to_indices.keys()`` insertion order) and is either a single
+    relative index (``int``) for the classic one-view holdout, or a list/tuple of
+    relative indices for two-view / multi-view holdout fits (better-constrained
+    illumination). Returns the flat list of absolute image indices across all
+    sessions; the RENI++ latent is per-session, so multiple holdout images for a
+    session all supervise the same latent (see NeuSkyDataManager.setup_eval and
+    the model's fit_latent_codes_for_eval).
+    """
+    abs_indices: List[int] = []
+    for key, rel in zip(session_to_indices.keys(), session_holdout_indices):
+        rels = list(rel) if isinstance(rel, (list, tuple)) else [rel]
+        for r in rels:
+            abs_indices.append(session_to_indices[key][r])
+    return abs_indices
+
+
+def assert_holdout_not_in_compare(image_idxs_holdout, test_eval_mask_dict) -> None:
+    """The holdout (fit) views must be disjoint from the compare/eval views.
+
+    Each session's illumination is fit on its holdout view(s) and scored on a
+    separate compare view (the test image carrying an eval mask, keyed in
+    ``test_eval_mask_dict``); fitting on the compare view would leak the answer.
+    Holds for one-view and multi-view holdout sets alike.
+    """
+    for image_idx in image_idxs_holdout:
+        if image_idx in test_eval_mask_dict:
+            raise ValueError(
+                f"Image {image_idx} is both a holdout image and an eval image, "
+                "update config holdout image indices"
+            )
+
+
 def get_camera_params(
     scene_dir: str, split: Literal["train", "validation", "test"]
 ) -> Tuple[torch.Tensor, torch.Tensor, int]:
@@ -196,8 +232,15 @@ class NeRFOSRCityScapesDataParserConfig(NeRFOSRDataParserConfig):
     fg_boundary_distance_channel: bool = False
     """Write mask channel 4 as the distance (px) to the nearest fg-mask transition instead of
     the static confidence; required by the model's annealed boundary band (fg_boundary_anneal_*)."""
-    session_holdout_indices: List[int] = field(default_factory=lambda: [0, 0, 0, 0, 0])
-    """Indices of images within sessions (idx are relative to session) to use for evaluation"""
+    session_holdout_indices: List[Union[int, List[int]]] = field(default_factory=lambda: [0, 0, 0, 0, 0])
+    """Per-session relative holdout indices used to fit each session's eval illumination.
+
+    One entry per session (aligned with the discovered session order). Each entry is
+    either a single relative index (``int``, classic one-view holdout) or a list of
+    relative indices for two-view / multi-view holdout fits, which better constrain the
+    illumination (especially sun position). All listed images of a session supervise the
+    same per-session RENI++ latent; the compare view must not appear among them (asserted
+    below). Only ever set programmatically for eval/scoring; training uses the default."""
     session_env_map_scaling: float = 1.0
     """Scaling factor for session environment maps as per NeRF-OSR relighting benchmark"""
     session_env_map_scaling_threshold: float = 0.0
@@ -541,14 +584,12 @@ class NeRFOSRCityScapes(DataParser):
                 if mask_name in image_name_to_index:
                     test_eval_mask_dict[image_name_to_index[mask_name]] = mask_path
 
-            image_idxs_holdout = [
-                session_to_indices[key][index] for key, index in zip(session_to_indices.keys(), self.config.session_holdout_indices)
-            ]
+            image_idxs_holdout = resolve_session_holdout_indices(
+                self.config.session_holdout_indices, session_to_indices
+            )
 
-            # we meed to make sure the holdout images aren't the eval images
-            for image_idx in image_idxs_holdout:
-                if image_idx in test_eval_mask_dict.keys():
-                    raise ValueError(f"Image {image_idx} is both a holdout image and an eval image, update config holdout image indices")
+            # the holdout (fit) views must not overlap the compare/eval views
+            assert_holdout_not_in_compare(image_idxs_holdout, test_eval_mask_dict)
 
             
 

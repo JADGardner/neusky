@@ -52,6 +52,7 @@ from nerfstudio.model_components.ray_generators import RayGenerator
 from neusky.data.neusky_pixel_sampler import NeuSkyPixelSampler
 from neusky.data.datasets.neusky_dataset import NeuSkyDataset
 from neusky.data.utils.dataloaders import SelectedIndicesCacheDataloader
+from neusky.data.dataparsers.nerfosr_cityscapes_dataparser import resolve_session_holdout_indices
 
 CONSOLE = Console(width=120)
 
@@ -189,11 +190,12 @@ class NeuSkyDataManager(VanillaDataManager):  # pylint: disable=abstract-method
             session_image_idxs = self.eval_dataset.metadata["session_holdout_indices"] # idx of holdout relative to session
             session_to_indices = self.eval_dataset.metadata["session_to_indices"] # maps session idx to image idxs
             self.indices_to_session = self.eval_dataset.metadata["indices_to_session"] # maps image idxs to session idxs
-            # currently session_image_idxs is the image idxs relative to session
-            # but we want it to be relative to the whole dataset
-            image_idxs_holdout = [
-                session_to_indices[key][index] for key, index in zip(session_to_indices.keys(), session_image_idxs)
-            ]
+            # session_image_idxs holds one entry per session, each a session-relative
+            # index (one-view holdout) OR a list of them (two-view / multi-view holdout);
+            # flatten to absolute dataset indices. Multiple holdout images per session
+            # all map back to the same session latent via indices_to_session below, so
+            # the joint fit's ray budget simply splits across the larger holdout set.
+            image_idxs_holdout = resolve_session_holdout_indices(session_image_idxs, session_to_indices)
             self.eval_session_holdout_dataloader = SelectedIndicesCacheDataloader(
                 self.eval_dataset,
                 num_images_to_sample_from=self.config.eval_num_images_to_sample_from,
