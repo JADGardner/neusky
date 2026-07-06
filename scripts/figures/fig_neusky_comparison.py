@@ -117,10 +117,10 @@ def main():
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     add_common_args(parser, "neusky_comparison")
-    parser.add_argument("--lk2-view", type=int,
-                        default=SCENE_DEFAULT_VIEWS.get("lk2", 143))
-    parser.add_argument("--lwp-view", type=int,
-                        default=SCENE_DEFAULT_VIEWS.get("lwp", 90))
+    # defaults match the original comparisons_full figure / paper crops:
+    # lk2 train 0 = 07-04_17_30_DSC_0049.jpg, lwp train 234 = 26-04_17_50_DSC_2355.jpg
+    parser.add_argument("--lk2-view", type=int, default=0)
+    parser.add_argument("--lwp-view", type=int, default=234)
     for scene in ("lk2", "lwp"):
         for kind in ("albedo", "normal"):
             parser.add_argument(f"--nerfosr-{scene}-{kind}", type=Path,
