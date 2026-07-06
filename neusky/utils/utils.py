@@ -115,9 +115,9 @@ def look_at_target(camera_positions, target_positions, up_vector=torch.tensor([0
 
     forward_vectors = -normalize(target_positions - camera_positions)
 
-    right_vectors = normalize(torch.cross(up_vector[None, :], forward_vectors))
+    right_vectors = normalize(torch.linalg.cross(up_vector[None, :].expand_as(forward_vectors), forward_vectors))
 
-    actual_up_vectors = normalize(torch.cross(forward_vectors, right_vectors))
+    actual_up_vectors = normalize(torch.linalg.cross(forward_vectors, right_vectors))
 
     c2w_matrices = torch.zeros(*camera_positions.shape[:-1], 4, 4).to(camera_positions.device)
     c2w_matrices[..., :3, 0] = right_vectors

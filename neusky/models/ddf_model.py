@@ -169,7 +169,7 @@ class DDFModel(Model):
         x_local = x_local / x_local.norm(dim=-1, keepdim=True)  # Normalize
 
         # Compute the local z-axis by crossing position and x_local
-        z_local = torch.cross(positions, x_local)
+        z_local = torch.linalg.cross(positions, x_local)
         z_local = z_local / z_local.norm(dim=-1, keepdim=True)  # Normalize
 
         # The y-axis is the position itself
