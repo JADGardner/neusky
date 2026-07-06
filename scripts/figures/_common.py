@@ -418,15 +418,24 @@ def render_envmap(model, illumination_idx: int, rotation=None):
             ray_samples.camera_indices = (
                 torch.ones_like(ray_samples.camera_indices) * illumination_idx
             )
+            sample_scales = scales[ray_samples.camera_indices[:, 0]]
+            two_bracket = getattr(
+                getattr(model, "illumination_hdr_decode", None), "two_bracket", False)
             outputs = model.illumination_field(
                 ray_samples=ray_samples,
                 latent_codes=illumination_latents[ray_samples.camera_indices[:, 0]],
-                scale=scales[ray_samples.camera_indices[:, 0]],
+                scale=torch.zeros_like(sample_scales) if two_bracket else sample_scales,
                 rotation=rotation,
             )
         finally:
             model.viewing_training_image = False
-        hdr = model.illumination_field.unnormalise(outputs[RENIFieldHeadNames.RGB])
+        if two_bracket:
+            # 6-channel brackets: blend to linear HDR, exposure post-blend
+            hdr = model.illumination_hdr_decode.to_linear_hdr(
+                model.illumination_field, outputs[RENIFieldHeadNames.RGB],
+                scale=sample_scales)
+        else:
+            hdr = model.illumination_field.unnormalise(outputs[RENIFieldHeadNames.RGB])
         ldr = linear_to_sRGB(hdr)
         H = model.equirectangular_sampler.height
         W = model.equirectangular_sampler.width
