@@ -98,8 +98,11 @@ SCENE_TO_SITE = {v: k for k, v in SITE_TO_SCENE.items()}
 # change; the code supports both forms so switching them is a one-line edit here.
 SESSION_HOLDOUT_INDICES = {
     "lk2": [[0, 4], [0, 10], [0, 16], [11, 17], [0, 10]],
-    "st": [1, 2, 2, 7, 9],
-    "lwp": [0, 6, 6, 15, 11],
+    # st/lwp second views chosen 2026-07-06 by the same criterion as lk2
+    # (most in-envelope candidate excluding canonical holdout + compare view;
+    # probe_holdout_envelope.py output recorded in the commit message).
+    "st": [[1, 4], [2, 14], [2, 3], [7, 2], [9, 1]],
+    "lwp": [[0, 7], [6, 11], [6, 8], [15, 5], [11, 4]],
     "stjacob": [0, 0, 0],
 }
 
