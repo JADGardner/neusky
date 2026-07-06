@@ -236,7 +236,10 @@ def fit_eval_latents_to_gt_hdris(model, gt_envmap_info, frame_indices, rays_per_
                     latent_codes=model.eval_illumination_latents[chunk_camera_indices],
                     scale=model.eval_scale[chunk_camera_indices].detach(),
                 )
-                pred_hdr = model.illumination_field.unnormalise(outputs[RENIFieldHeadNames.RGB])
+                # two-bracket priors emit 6ch brackets; decode to linear HDR
+                # (3ch path defers to unnormalise, byte-identical to before)
+                pred_hdr = model.illumination_hdr_decode.to_linear_hdr(
+                    model.illumination_field, outputs[RENIFieldHeadNames.RGB])
                 log_mse = torch.sum(
                     chunk_weights * (torch.log(pred_hdr + 1e-8) - torch.log(chunk_rgb + 1e-8)) ** 2
                 ) / (total_rays * 3)
