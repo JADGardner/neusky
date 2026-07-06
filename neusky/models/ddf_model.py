@@ -165,7 +165,7 @@ class DDFModel(Model):
         positions = -positions  # negate to ensure [0, 1, 0] direction is facing origin
 
         # Calculate the cross product between the position vector and the world up-vector to obtain the x-axis of the local coordinate system
-        x_local = torch.cross(up_vector, positions)
+        x_local = torch.linalg.cross(up_vector, positions)
         x_local = x_local / x_local.norm(dim=-1, keepdim=True)  # Normalize
 
         # Compute the local z-axis by crossing position and x_local

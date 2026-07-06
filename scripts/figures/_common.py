@@ -27,6 +27,19 @@ Heavy imports (torch / nerfstudio / neusky) are deferred into functions so
 this module — and the diagram-only scripts — import and run on CPU-only hosts.
 """
 
+import warnings
+
+# Silence known third-party noise (none of it actionable from here):
+# pynvml deprecation via torch.cuda, tinycudann sm_86-vs-89 build note,
+# nerfstudio's torch-2.9 indexing/custom_fwd deprecations, weight_norm,
+# icosphere docstring SyntaxWarnings.
+warnings.filterwarnings("ignore", message=".*pynvml package is deprecated.*")
+warnings.filterwarnings("ignore", message=".*tinycudann was built for lower compute capability.*")
+warnings.filterwarnings("ignore", message=".*non-tuple sequence for multidimensional indexing.*")
+warnings.filterwarnings("ignore", message=".*torch.cuda.amp.custom_(fwd|bwd).*")
+warnings.filterwarnings("ignore", message=".*torch.nn.utils.weight_norm.*")
+warnings.filterwarnings("ignore", category=SyntaxWarning, module="icosphere")
+
 import argparse
 import os
 from pathlib import Path

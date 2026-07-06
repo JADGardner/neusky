@@ -44,8 +44,14 @@ def ensure_dam_wall(path: Path):
     return path
 
 
+FALLBACK_PRIOR = Path("/workspace/phd/code/ns_reni/outputs/_neusky_prior_two_bracket_w3_2cyc")
+
+
 def default_prior_ckpt() -> Path | None:
     prior = os.environ.get("NEUSKY_RENI_PRIOR")
+    if not prior and FALLBACK_PRIOR.exists():
+        prior = FALLBACK_PRIOR
+        print(f"[prior] $NEUSKY_RENI_PRIOR unset; using {prior}")
     if not prior:
         return None
     ckpts = sorted((Path(prior) / "nerfstudio_models").glob("step-*.ckpt"))
@@ -90,14 +96,14 @@ def main():
     parser.add_argument("--scene", default="lk2")
     parser.add_argument("--view", type=int, default=None,
                         help="Train view index (default: per-scene notebook view)")
-    parser.add_argument("--reni-latents", type=int, nargs="*", default=[10, 25, 42],
+    parser.add_argument("--reni-latents", type=int, nargs="*", default=[10, 35, 42],
                         help="RENI++ PRIOR training-latent indices to relight "
                              "with (novel real-HDRI illuminations)")
-    parser.add_argument("--reni-rotations", type=float, nargs="*", default=[],
+    parser.add_argument("--reni-rotations", type=float, nargs="*", default=[45, 0, 0],
                         help="Yaw rotation (degrees, about the vertical axis) "
                              "applied to each --reni-latents illumination; "
                              "missing entries default to 0")
-    parser.add_argument("--reni-exposures", type=float, nargs="*", default=[],
+    parser.add_argument("--reni-exposures", type=float, nargs="*", default=[1.0, 1.0, 2.0],
                         help="Exposure multiplier for each --reni-latents "
                              "render, relative to the view's fitted exposure "
                              "(1.0 = as fitted; applied in exp-scale space); "
