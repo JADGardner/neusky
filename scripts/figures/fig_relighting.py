@@ -96,10 +96,10 @@ def main():
     parser.add_argument("--scene", default="lk2")
     parser.add_argument("--view", type=int, default=None,
                         help="Train view index (default: per-scene notebook view)")
-    parser.add_argument("--reni-latents", type=int, nargs="*", default=[10, 35, 42],
+    parser.add_argument("--reni-latents", type=int, nargs="*", default=[10, 55, 42],
                         help="RENI++ PRIOR training-latent indices to relight "
                              "with (novel real-HDRI illuminations)")
-    parser.add_argument("--reni-rotations", type=float, nargs="*", default=[45, 0, 0],
+    parser.add_argument("--reni-rotations", type=float, nargs="*", default=[-45, 0, 0],
                         help="Yaw rotation (degrees, about the vertical axis) "
                              "applied to each --reni-latents illumination; "
                              "missing entries default to 0")
@@ -153,7 +153,12 @@ def main():
             raise SystemExit("--reni-latents given but no prior checkpoint "
                              "(set --reni-prior-ckpt or $NEUSKY_RENI_PRIOR)")
         prior_mu = load_prior_train_latents(Path(ckpt))
-        from reni.utils.utils import rot_y
+        from reni.utils.utils import rot_y, rot_z
+        # Equivariant azimuth rotation: the current RENI implementation
+        # rotates latents about z (rot_y is only for old_implementation) -
+        # same convention as ns_reni's rotation_fn / the teaser figure.
+        rot = rot_y if getattr(model.illumination_field, "old_implementation",
+                               False) else rot_z
         rotations_deg = list(args.reni_rotations)
         rotations_deg += [0.0] * (len(args.reni_latents) - len(rotations_deg))
         exposures = list(args.reni_exposures)
@@ -171,7 +176,7 @@ def main():
                                      f"bank slot {tuple(saved.shape)}")
                 rotation = None
                 if rot_deg:
-                    rotation = rot_y(torch.deg2rad(
+                    rotation = rot(torch.deg2rad(
                         torch.tensor(rot_deg, dtype=torch.float32))).to(args.device)
                 with torch.no_grad():
                     bank.data[view_idx] = z
