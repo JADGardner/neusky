@@ -48,6 +48,15 @@ NORMAL_REMAPS = {
     # SOL-NeRF's convention already matches ours closely.
     "lwp": [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
 }
+# The official NeRF-OSR renders use the same y-up convention as FEGR.
+NERFOSR_REMAP = [[1, 0, 0], [0, 0, -1], [0, 1, 0]]
+# Sky masks for the exact figure views: the cityscapes semantic masks
+# (sky class = RGB 70,130,180). The plain mask/ dir is a validity mask.
+NERFOSR_VIEW_MASKS = {
+    "lk2": Path("/home/james/data/NeRF-OSR/Data/lk2/final/train/cityscapes_mask/07-04_17_30_DSC_0049.png"),
+    "lwp": Path("/home/james/data/NeRF-OSR/Data/lwp/final/train/cityscapes_mask/26-04_17_50_DSC_2355.png"),
+}
+CITYSCAPES_SKY = np.array([70, 130, 180]) / 255.0
 
 
 def remap_normal_image(img, M):
@@ -147,13 +156,29 @@ def main():
             paper_normal = apply_sky_mask(paper_normal, sky)
         grid[(scene, "albedo", 1)] = paper_albedo
         grid[(scene, "normal", 1)] = paper_normal
+        view_mask = None
+        mask_path = NERFOSR_VIEW_MASKS.get(scene)
+        if mask_path is not None and mask_path.exists():
+            seg = _load_image(mask_path)
+            view_mask = (np.abs(seg - CITYSCAPES_SKY) < 0.02).all(-1)  # True = sky
         for kind in ("albedo", "normal"):
             p = getattr(args, f"nerfosr_{scene}_{kind}")
             if p is None or not Path(p).exists():
                 print(f"[warn] NeRF-OSR {scene} {kind} render missing - grey placeholder")
                 grid[(scene, kind, 0)] = np.full((400, 600, 3), 0.85, dtype=np.float32)
-            else:
-                grid[(scene, kind, 0)] = _load_image(Path(p))
+                continue
+            img = _load_image(Path(p))
+            if kind == "normal":
+                img = remap_normal_image(img, NERFOSR_REMAP)
+            if view_mask is not None:
+                m = view_mask
+                if m.shape != img.shape[:2]:
+                    from PIL import Image as _Im
+                    m = np.asarray(_Im.fromarray(
+                        (m * 255).astype("uint8")).resize(
+                        (img.shape[1], img.shape[0]))) > 127
+                img = apply_sky_mask(img, m)
+            grid[(scene, kind, 0)] = img
 
     fig, axes = plt.subplots(4, 3, figsize=(13.5, 11.6),
                              gridspec_kw={"hspace": 0.14})
