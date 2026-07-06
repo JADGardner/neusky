@@ -144,6 +144,17 @@ def canonical_scene(name: str) -> str:
     return _SCENE_ALIASES.get(name, name)
 
 
+# Registered best checkpoints per scene: the DEFAULT when $NEUSKY_RUNS does
+# not pin a scene. Update when a new best run lands. This exists because
+# newest-timestamp resolution silently picks up experiments and in-progress
+# runs (the resolve_run_dir footgun in CLAUDE.md).
+SCENE_BEST_RUNS = {
+    "lk2": "outputs/lk2_rngfix_w32cyc_hash21/neusky/2026-07-05_082759",
+    "st": "outputs/st_rngfix_w32cyc_hash21/neusky/2026-07-05_082758",
+    "lwp": "outputs/lwp_rngfix_w32cyc_hash21/neusky/2026-07-05_082758",
+}
+
+
 def _runs_map() -> dict:
     """Parse $NEUSKY_RUNS ("scene=path;scene2=path2", ';' or ',' separated)."""
     raw = os.environ.get("NEUSKY_RUNS", "")
@@ -175,6 +186,10 @@ def resolve_run_dir(scene: str) -> Path:
     scene = canonical_scene(scene)
 
     pinned = _runs_map().get(scene)
+    if pinned is None and scene in SCENE_BEST_RUNS:
+        pinned = Path(SCENE_BEST_RUNS[scene])
+        print(f"[runs] {scene}: using registered best run {pinned} "
+              f"(override with $NEUSKY_RUNS)")
     if pinned is not None:
         pinned = pinned if pinned.is_absolute() else REPO_ROOT / pinned
         if (pinned / "nerfstudio_models").is_dir():
@@ -202,6 +217,9 @@ def resolve_run_dir(scene: str) -> Path:
             ):
                 for method_dir in sorted(exp_dir.iterdir()):
                     candidates.extend(_timestamp_runs(method_dir))
+    print(f"[runs] WARNING {scene}: no pin and no registered best run - "
+          f"falling back to the NEWEST run dir, which may be an experiment "
+          f"or in-progress run")
     if not candidates:
         raise FileNotFoundError(
             f"No runs with checkpoints for scene '{scene}' under {OUTPUTS_ROOT} "
