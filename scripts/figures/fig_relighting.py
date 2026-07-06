@@ -93,6 +93,15 @@ def main():
     parser.add_argument("--reni-latents", type=int, nargs="*", default=[10, 25, 42],
                         help="RENI++ PRIOR training-latent indices to relight "
                              "with (novel real-HDRI illuminations)")
+    parser.add_argument("--reni-rotations", type=float, nargs="*", default=[],
+                        help="Yaw rotation (degrees, about the vertical axis) "
+                             "applied to each --reni-latents illumination; "
+                             "missing entries default to 0")
+    parser.add_argument("--reni-exposures", type=float, nargs="*", default=[],
+                        help="Exposure multiplier for each --reni-latents "
+                             "render, relative to the view's fitted exposure "
+                             "(1.0 = as fitted; applied in exp-scale space); "
+                             "missing entries default to 1.0")
     parser.add_argument("--reni-prior-ckpt", type=Path, default=None,
                         help="RENI++ prior checkpoint holding field.train_mu "
                              "(default: from $NEUSKY_RENI_PRIOR)")
@@ -138,23 +147,45 @@ def main():
             raise SystemExit("--reni-latents given but no prior checkpoint "
                              "(set --reni-prior-ckpt or $NEUSKY_RENI_PRIOR)")
         prior_mu = load_prior_train_latents(Path(ckpt))
+        from reni.utils.utils import rot_y
+        rotations_deg = list(args.reni_rotations)
+        rotations_deg += [0.0] * (len(args.reni_latents) - len(rotations_deg))
+        exposures = list(args.reni_exposures)
+        exposures += [1.0] * (len(args.reni_latents) - len(exposures))
         bank = model.train_illumination_latents
+        scale_bank = model.train_scale
         saved = bank.data[view_idx].clone()
+        saved_scale = scale_bank.data[view_idx].clone()
         try:
-            for z_idx in args.reni_latents:
+            for z_idx, rot_deg, exposure in zip(args.reni_latents, rotations_deg,
+                                                exposures):
                 z = prior_mu[z_idx].to(bank.device, bank.dtype)
                 if z.shape != saved.shape:
                     raise SystemExit(f"latent {z_idx} shape {tuple(z.shape)} != "
                                      f"bank slot {tuple(saved.shape)}")
+                rotation = None
+                if rot_deg:
+                    rotation = rot_y(torch.deg2rad(
+                        torch.tensor(rot_deg, dtype=torch.float32))).to(args.device)
                 with torch.no_grad():
                     bank.data[view_idx] = z
-                outputs = render_view(model, cameras, view_idx, args.device)
+                    # exp(scale) semantics: multiplier m -> scale + ln(m)
+                    scale_bank.data[view_idx] = saved_scale + float(np.log(exposure))
+                outputs = render_view(model, cameras, view_idx, args.device,
+                                      rotation=rotation)
                 renders.append(outputs["rgb"].cpu().numpy())
-                envmaps.append(render_envmap(model, view_idx).numpy())
-                labels.append(f"RENI latent {z_idx}")
+                envmaps.append(render_envmap(model, view_idx,
+                                             rotation=rotation).numpy())
+                label = f"RENI latent {z_idx}"
+                if rot_deg:
+                    label += f" ({rot_deg:g}°)"
+                if exposure != 1.0:
+                    label += f" ×{exposure:g}"
+                labels.append(label)
         finally:
             with torch.no_grad():
                 bank.data[view_idx] = saved
+                scale_bank.data[view_idx] = saved_scale
 
     # Latent swaps: same camera, another session's fitted illumination.
     for illum_idx in args.illum_indices:
