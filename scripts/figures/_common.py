@@ -239,11 +239,22 @@ def latest_checkpoint_step(run_dir: Path) -> int:
     return steps[-1]
 
 
-def resolve_reni_prior() -> Path:
-    """RENI++ illumination prior checkpoint dir (latent_dim_100)."""
+def resolve_reni_prior(saved: Path | None = None) -> Path:
+    """RENI++ illumination prior checkpoint dir.
+
+    Priority: $NEUSKY_RENI_PRIOR > the run config's own recorded prior (as
+    saved, then looked up by basename under code/ns_reni/outputs so priors
+    recorded on other hosts resolve locally) > legacy fallbacks. Honouring
+    the recorded prior matters: a two-bracket run loaded against the
+    3-channel paper prior fails with an fc-shape mismatch.
+    """
     candidates = []
     if os.environ.get("NEUSKY_RENI_PRIOR"):
         candidates.append(Path(os.environ["NEUSKY_RENI_PRIOR"]).expanduser())
+    if saved is not None:
+        saved = Path(saved)
+        candidates.append(saved)
+        candidates.append(REPO_ROOT.parents[1] / "code" / "ns_reni" / "outputs" / saved.name)
     if os.environ.get("RENI_CKPT_PATH"):  # docker-compose convention
         candidates.append(Path(os.environ["RENI_CKPT_PATH"]).expanduser() / "latent_dim_100")
     candidates.append(
@@ -318,7 +329,9 @@ def load_model(
         config.pipeline.datamanager.data = dataparser.data
         config.data = dataparser.data
 
-        config.pipeline.model.illumination_field_ckpt_path = resolve_reni_prior()
+        config.pipeline.model.illumination_field_ckpt_path = resolve_reni_prior(
+            saved=config.pipeline.model.illumination_field_ckpt_path)
+        print(f"[prior] {config.pipeline.model.illumination_field_ckpt_path}")
 
         if eval_num_rays_per_chunk is not None:
             config.pipeline.model.eval_num_rays_per_chunk = eval_num_rays_per_chunk
