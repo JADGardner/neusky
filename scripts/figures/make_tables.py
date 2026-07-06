@@ -168,7 +168,8 @@ def evaluate_nerfosr_relighting(scene: str, device: str, protocol: str = "holdou
         config.pipeline.datamanager.dataparser.session_holdout_indices = \
             SESSION_HOLDOUT_INDICES[scene]
 
-    _, pipeline, _, step = load_model(scene, device=device, config_hook=hook)
+    _, pipeline, _, step = load_model(scene, device=device, config_hook=hook,
+                                      eval_num_rays_per_chunk=1024)
     metrics = pipeline.get_average_eval_image_metrics(step=step)
     result = {"psnr": float(metrics["psnr"]), "mse": float(metrics["mse"])}
     del pipeline
