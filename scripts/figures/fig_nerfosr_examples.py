@@ -126,7 +126,7 @@ def compose(args):
         # envmap inset overflowing the render panel's top-right corner
         rb = axes[r, 1].get_position()
         iw, ih = 0.42 * rb.width, 0.42 * rb.width * 0.5 * (15.0 / 4.7)
-        ins = fig.add_axes([rb.x1 - iw * 0.92, rb.y1 - ih * 0.45, iw, ih])
+        ins = fig.add_axes([rb.x1 - iw * 0.99, rb.y1 - ih * 0.92, iw, ih])
         ins.imshow(Image.open(PANELS_DIR / scene / "envmap.png"))
         ins.set_xticks([]); ins.set_yticks([])
         for s in ins.spines.values():
