@@ -67,12 +67,20 @@ def main():
                         help="Threshold epsilon (default: config target_min_bias)")
     parser.add_argument("--eta", type=float, default=None,
                         help="Sigmoid scale eta (default: config target_max_scale)")
+    parser.add_argument("--config-values", action="store_true",
+                        help="Use the config's converged epsilon/eta instead "
+                             "of the schematic defaults")
     parser.add_argument("--scene", default=None,
                         help="Read learned epsilon/eta from this scene's latest "
                              "checkpoint instead of the config defaults")
     args = parser.parse_args()
 
-    epsilon, eta = config_defaults()
+    # schematic proportions matching the paper's original figure: the
+    # curve's bend width is comparable to the 0-to-epsilon spacing. Pass
+    # --config-values (or --scene/--epsilon/--eta) for the real parameters.
+    epsilon, eta = (0.3, 13.0)
+    if args.config_values:
+        epsilon, eta = config_defaults()
     if args.scene:
         ckpt_eps, ckpt_eta = checkpoint_values(args.scene)
         epsilon = ckpt_eps
@@ -83,22 +91,26 @@ def main():
     if args.eta is not None:
         eta = args.eta
 
-    x = np.linspace(epsilon - 1.0, epsilon + 1.0, 1000)
+    # x-range proportioned like the paper figure: 0 near the left quarter,
+    # epsilon around the centre, transition fully resolved
+    span = max(abs(epsilon), 4.0 / eta)
+    x = np.linspace(-3.0 * span, 7.0 * span, 1000)
     # visibility = 1 - sigmoid(eta * (x - epsilon)); x = ||s-x|| - f_DDF(s,-d)
     visibility = 1.0 - 1.0 / (1.0 + np.exp(-eta * (x - epsilon)))
 
-    fig, ax = plt.subplots(figsize=(5.0, 3.2))
-    ax.plot(x, visibility, color="tab:blue", linewidth=2.0,
-            label=rf"$\eta = {eta:g}$")
-    ax.axvline(epsilon, color="tab:red", linestyle="--", linewidth=1.0)
-    ax.annotate(rf"$\epsilon = {epsilon:g}$", xy=(epsilon, 0.5),
-                xytext=(epsilon + 0.12, 0.62), color="tab:red")
-    ax.set_xlabel(r"$\|\mathbf{s}-\mathbf{x}\| - f_\mathrm{DDF}(\mathbf{s},-\mathbf{d})$")
-    ax.set_ylabel(r"$V(\mathbf{x},\mathbf{d})$")
-    ax.set_ylim(-0.05, 1.05)
-    ax.legend(loc="upper right", frameon=False)
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
+    # layout matches the paper's original sigmoid.pdf: wide-short boxed
+    # axes, ticks only at {0, epsilon} and {0, 1}, no legend or annotations
+    fig, ax = plt.subplots(figsize=(6.4, 2.3))
+    ax.plot(x, visibility, color="tab:blue", linewidth=1.2)
+    ax.set_xlabel(r"GT $-$ Predicted", fontsize=10)
+    ax.set_ylabel("Visibility", fontsize=10)
+    ax.set_xticks([0.0, epsilon])
+    ax.set_xticklabels(["$0$", r"$\epsilon$"], fontsize=11)
+    ax.set_yticks([0.0, 1.0])
+    ax.set_yticklabels(["$0$", "$1$"], fontsize=10)
+    ax.set_ylim(0.0, 1.0)
+    ax.set_xlim(x[0], x[-1])
+    ax.tick_params(direction="in", length=3)
     fig.tight_layout()
 
     save_figure(fig, args.output, svg=args.svg)
