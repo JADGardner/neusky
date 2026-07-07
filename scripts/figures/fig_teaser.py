@@ -753,13 +753,29 @@ def stage_compose(args):
     panel("envmap_a.png", rel_x - 14, rel_a_y - 16, inset_w, rx=3,
           border="#fff", border_w=3)
 
-    box_w, box_h = 78, 42
+    # camera-transform icon: James's SVG asset, nested with a white card
+    box_w = 96
+    icon = (Path(__file__).resolve().parent / "assets"
+            / "camera_transform.svg").read_text()
+    icon = icon[icon.index("<svg"):]
+    vb = icon[icon.index('viewBox="') + 9:]
+    vb_w, vb_h = float(vb.split()[2]), float(vb.split()[3].split('"')[0])
+    box_h = box_w * vb_h / vb_w + 14
     box_x, box_y = rel_x - 14, rel_b_y - 16
-    body.append(f'<rect x="{box_x}" y="{box_y:.1f}" width="{box_w}" '
-                f'height="{box_h}" rx="5" fill="#fff" stroke="{INK}" '
+    body.append(f'<rect x="{box_x}" y="{box_y:.1f}" width="{box_w + 14}" '
+                f'height="{box_h:.1f}" rx="5" fill="#fff" stroke="{INK}" '
                 f'stroke-width="2"/>')
-    body.append(camera_glyph(box_x + 8, box_y + 13, s=0.95))
-    body.append(camera_glyph(box_x + 44, box_y + 8, s=0.95))
+    # keep the asset's own <svg> tag (it declares the inkscape/sodipodi
+    # namespaces its content uses); override placement and size on it
+    import re as _re
+    open_tag_end = icon.index(">")
+    open_tag = icon[:open_tag_end + 1]
+    rest = icon[open_tag_end + 1:]
+    open_tag = _re.sub(r'\s(width|height|x|y)="[^"]*"', "", open_tag)
+    open_tag = open_tag[:-1] + (
+        f' x="{box_x + 7}" y="{box_y + 7:.1f}" width="{box_w}" '
+        f'height="{box_h - 14:.1f}" preserveAspectRatio="xMidYMid meet">')
+    body.append(open_tag + rest)
     if args.labels:
         body.append(label_text(rel_x + rel_w / 2, rel_b_y + rel_b_h + 24,
                                "novel view + relighting", 13))
