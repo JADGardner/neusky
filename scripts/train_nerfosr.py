@@ -33,6 +33,8 @@ def parse_args() -> argparse.Namespace:
                         help="Override the SDF hash-grid table size (default 19). "
                              "21 = 4x table, quadratically fewer collisions - "
                              "targets far-field speckle from under-supervised cells.")
+    parser.add_argument("--no-ground-plane-loss", action="store_true",
+                        help="Disable the ground-plane normal loss")
     parser.add_argument("--sdf-bias", type=float, default=None,
                         help="Override the initial SDF sphere radius "
                              "(sdf_field.bias, default 0.1)")
@@ -77,6 +79,8 @@ def main() -> None:
         config.pipeline.model.sdf_field.log2_hashmap_size = args.log2_hashmap_size
     if args.sdf_bias is not None:
         config.pipeline.model.sdf_field.bias = args.sdf_bias
+    if args.no_ground_plane_loss:
+        config.pipeline.model.loss_inclusions["ground_plane_loss"] = False
     if args.no_sfm:
         dp.center_method_sfm = False
     dp.fg_boundary_erode_pixels = args.fg_boundary_erode_pixels
