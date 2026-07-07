@@ -21,6 +21,17 @@ import os
 # Diagram-only: keep CUDA fully out of the picture before torch import.
 os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
 
+import matplotlib
+
+matplotlib.rcParams.update({
+    "font.family": "serif",
+    "font.serif": [
+        "Nimbus Roman", "Times New Roman", "Times",
+        "Liberation Serif", "STIXGeneral", "DejaVu Serif",
+    ],
+    "mathtext.fontset": "stix",
+})
+
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -34,15 +45,6 @@ def make_frustums(bins, origins, directions, pixel_area: float):
         origins=origins, directions=directions,
         starts=bins[:, :-1, :], ends=bins[:, 1:, :], pixel_area=pixel_area,
     )
-
-
-def draw_sphere(ax, radius: float, alpha: float = 0.08, n: int = 30):
-    u = np.linspace(0, 2 * np.pi, n)
-    v = np.linspace(0, np.pi, n)
-    x = radius * np.outer(np.cos(u), np.sin(v))
-    y = radius * np.outer(np.sin(u), np.sin(v))
-    z = radius * np.outer(np.ones_like(u), np.cos(v))
-    ax.plot_surface(x, y, z, color="0.2", alpha=alpha, linewidth=0, shade=False)
 
 
 def main():
@@ -61,17 +63,14 @@ def main():
     num_samples = args.num_samples
     pixel_area = 0.12
 
-    # Notebook constants: two rays inside the unit sphere pointing along +y.
-    origins = torch.Tensor([[0.0, 0.0, 0.4], [0.0, 0.2, -0.4]]).unsqueeze(1)
-    directions = torch.tensor([[0, 1, 0]]).unsqueeze(0).repeat(2, 1, 1).float()
-    directions = directions / directions.norm(dim=-1, keepdim=True)
+    # Two vertical rays starting inside the unit sphere (matching the
+    # original figure's layout: rays rise from within r=1).
+    origins = torch.Tensor([[-0.18, -0.30, 0.0], [0.18, -0.10, 0.0]]).unsqueeze(1)
+    directions = torch.tensor([[0.0, 1.0, 0.0]]).unsqueeze(0).repeat(2, 1, 1).float()
 
-    # Left panel: uniform bins in [0.1, 2], positions kept where ||p|| < 2.
-    bins_uniform = torch.linspace(0.1, 2, num_samples + 1)[None, ..., None]
+    bins_uniform = torch.linspace(0.1, 3, num_samples + 1)[None, ..., None]
     frustums_one = make_frustums(bins_uniform, origins, directions, pixel_area)
 
-    # Right panel: linear bins in [0, 1] + quadratic bins out to far^2,
-    # mapped through the scene contraction.
     linear_bins = torch.linspace(0, 1, num_samples // 2 + 1)
     quadratic_bins = 1 + (torch.linspace(0, args.far, num_samples // 2 + 1) ** 2)
     bins = torch.cat((linear_bins, quadratic_bins[1:]), dim=0)[None, ..., None]
@@ -79,33 +78,53 @@ def main():
 
     contraction = SceneContraction(order=float("inf") if args.order == "Linf" else None)
 
-    fig = plt.figure(figsize=(12, 6))
-    colours = ["tab:red", "tab:blue"]
+    fig, ax = plt.subplots(figsize=(7.2, 4.1))
+    colours = ["red", "blue"]
+    CX = {"left": -2.7, "right": 2.7}
 
-    ax1 = fig.add_subplot(1, 2, 1, projection="3d")
+    for cx in CX.values():
+        ax.add_patch(plt.Circle((cx, 0), 2.0, color="0.93", zorder=0))
+        ax.add_patch(plt.Circle((cx, 0), 1.0, color="0.82", zorder=1))
+
+    # left: uncontracted straight rays, clipped at radius 2
     for i, frustum in enumerate(frustums_one):
-        positions = frustum.get_positions().squeeze()
-        positions = positions[positions.norm(dim=-1) < 2]
-        ax1.plot(positions[:, 0], positions[:, 1], positions[:, 2],
-                 color=colours[i % 2], linewidth=4)
+        pos = frustum.get_positions().squeeze()
+        pos = pos[pos.norm(dim=-1) < 2]
+        ax.plot(pos[:, 0] + CX["left"], pos[:, 1], color=colours[i % 2],
+                linewidth=1.8, zorder=3, solid_capstyle="round")
 
-    ax2 = fig.add_subplot(1, 2, 2, projection="3d")
+    # right: contracted rays converge at the radius-2 shell
     for i, frustum in enumerate(frustums_two):
-        contracted = contraction(frustum.get_positions()).squeeze()
-        ax2.plot(contracted[:, 0], contracted[:, 1], contracted[:, 2],
-                 color=colours[i % 2], linewidth=4)
+        con = contraction(frustum.get_positions()).squeeze()
+        ax.plot(con[:, 0] + CX["right"], con[:, 1], color=colours[i % 2],
+                linewidth=1.8, zorder=3, solid_capstyle="round")
 
-    for ax in (ax1, ax2):
-        draw_sphere(ax, 1.0, alpha=0.10)
-        draw_sphere(ax, 2.0, alpha=0.04)
-        ax.set_axis_off()
-        ax.set_box_aspect((1, 1, 1))
-        lim = 1.6
-        ax.set_xlim(-lim, lim); ax.set_ylim(-lim, lim); ax.set_zlim(-lim, lim)
-        # Side-on view (rays run along +y, separated in z): camera near +x.
-        ax.view_init(elev=18, azim=-15)
+    # r = 2 annotation: central label, arrows out to the shell / convergence
+    y2 = 1.95
+    ax.annotate("", xy=(CX["left"] + 0.55, y2), xytext=(-0.62, y2),
+                arrowprops=dict(arrowstyle="->", lw=0.9, color="black"))
+    ax.annotate("", xy=(CX["right"] - 0.35, y2), xytext=(0.62, y2),
+                arrowprops=dict(arrowstyle="->", lw=0.9, color="black"))
+    ax.text(0, y2, r"$r = 2$", ha="center", va="center", fontsize=12)
 
-    fig.subplots_adjust(left=0, right=1, top=1, bottom=0, wspace=0)
+    # r = 1 annotation
+    y1 = 0.30
+    x1l = CX["left"] + float(np.sqrt(1 - y1 ** 2))
+    x1r = CX["right"] - float(np.sqrt(1 - y1 ** 2))
+    ax.annotate("", xy=(x1l, y1), xytext=(-0.62, y1),
+                arrowprops=dict(arrowstyle="->", lw=0.9, color="black"))
+    ax.annotate("", xy=(x1r, y1), xytext=(0.62, y1),
+                arrowprops=dict(arrowstyle="->", lw=0.9, color="black"))
+    ax.text(0, y1, r"$r = 1$", ha="center", va="center", fontsize=12)
+
+    for name, cx in (("No contraction", CX["left"]), ("Contraction", CX["right"])):
+        ax.text(cx, -2.45, name, ha="center", va="top", fontsize=12)
+
+    ax.set_xlim(-5.0, 5.0)
+    ax.set_ylim(-2.9, 2.35)
+    ax.set_aspect("equal")
+    ax.axis("off")
+    fig.tight_layout(pad=0.1)
     save_figure(fig, args.output, svg=args.svg)
 
 
