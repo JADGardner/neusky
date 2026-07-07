@@ -18,8 +18,10 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--panels-dir", type=Path, default=FIGS / "teaser_panels")
     ap.add_argument("--output", type=Path, default=FIGS / "teaser_thesis")
-    ap.add_argument("--x", type=float, default=208.0)
-    ap.add_argument("--y", type=float, default=90.0)
+    # centred under the DDF grid (centre x 235.9), with the same vertical
+    # gap below albedo/normal (bottom 84.7) as DDF-to-albedo (10.3 units)
+    ap.add_argument("--x", type=float, default=194.4)
+    ap.add_argument("--y", type=float, default=95.0)
     ap.add_argument("--w", type=float, default=40.0)
     ap.add_argument("--gap", type=float, default=3.0)
     args = ap.parse_args()
