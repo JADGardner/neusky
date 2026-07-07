@@ -45,6 +45,29 @@ def main():
     k = svg.index("<g")
     svg = svg[:k] + imgs + svg[k:]
 
+    # baked text labels (original teaser wording; thesis serif)
+    LABELS = [
+        (30.5, 116.5, 5.0, ["Unconstrained Outdoor", "Multi-View Images"]),
+        (130.5, 24.5, 3.2, ["Sky at", "Infinity"]),
+        (130.5, 39.5, 3.2, ["Scene Geometry", "Bounds"]),
+        (122.0, 122.0, 5.0, ["NeuS-Facto Volume"]),
+        (141.5, 106.5, 2.9, ["Sky Pixel Illumination Constraint"]),
+        (235.9, 52.5, 5.0, ["Differentiable Sky Visibility"]),
+        (214.3, 90.5, 5.0, ["Albedo"]),
+        (257.7, 90.5, 5.0, ["Normal"]),
+        (235.9, 121.5, 5.0, ["HDR Neural Illumination Prior"]),
+        (334.0, 66.5, 5.0, ["Relighting"]),
+        (334.0, 126.5, 5.0, ["Novel Views"]),
+    ]
+    texts = ""
+    for x, y, size, lines in LABELS:
+        for i, line in enumerate(lines):
+            texts += (f'<text x="{x}" y="{y + i * size * 1.15:.2f}" '
+                      f'font-family="Nimbus Roman, Times New Roman, serif" '
+                      f'font-size="{size}" text-anchor="middle" '
+                      f'fill="#000">{line}</text>')
+    svg = svg[: svg.rindex("</svg>")] + texts + "</svg>"
+
     out_svg = args.output.with_suffix(".svg")
     out_svg.write_text(svg)
     for fmt in ("pdf", "png"):
