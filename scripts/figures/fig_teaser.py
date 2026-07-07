@@ -584,103 +584,30 @@ def stage_compose(args):
     body.append(arrow(500, 420, 555, 420, width=3.0))
 
     # ---- 2. scene + spheres diagram ----------------------------------------
-    CX, CY = 855, 470            # sphere centre
-    R_IN, R_OUT = 205, 275       # DDF sphere / distant illumination sphere
-    body.append(arc_path(CX, CY, R_OUT, 184, -4, width=3.0))
-    body.append(arc_path(CX, CY, R_IN, 186, -6, width=2.2))
+    # James's complete central asset: 3D view, arcs, frustum with warped
+    # image, blue camera ray, and the two latent squares with their arrow.
+    import re as _re
+    asset = (Path(__file__).resolve().parent / "assets"
+             / "teaser_3d_view_with_frustum.svg").read_text()
+    asset = asset[asset.index("<svg"):]
+    vb = asset[asset.index('viewBox="') + 9:]
+    vb_w2, vb_h2 = float(vb.split()[2]), float(vb.split()[3].split('"')[0])
+    A_X, A_W = 470, 690
+    A_H = A_W * vb_h2 / vb_w2
+    A_Y = 470 - A_H / 2
+    open_end = asset.index(">")
+    open_tag = _re.sub(r'\s(width|height|x|y)="[^"]*"', "", asset[:open_end + 1])
+    open_tag = open_tag[:-1] + (
+        f' x="{A_X}" y="{A_Y:.1f}" width="{A_W}" height="{A_H:.1f}" '
+        f'preserveAspectRatio="xMidYMid meet">')
+    body.append(open_tag + asset[open_end + 1:])
 
-    hero_w = 470
-    hero_h = hero_w * sizes["hero.png"][1] / sizes["hero.png"][0]
-    hero_x, hero_y = CX - hero_w / 2, CY - hero_h / 2 - 10
-    panel("hero.png", hero_x, hero_y, hero_w, rx=0)
-
-    # Camera frustum at the lower left: the training photo is perspective-
-    # warped onto the frustum cross-section from d0 to d0+L (its edges lie on
-    # the frustum lines), with the pyramid drawn around it.
-    import math as _math
-    from PIL import Image as _Im
-    ax, ay = 588, 712            # frustum apex
-    theta = _math.radians(-42.0)
-    u = (_math.cos(theta), _math.sin(theta))          # view direction
-    v = (u[1], -u[0])                                 # image-plane vertical (screen-up)
-    d0, L, half0 = 66, 96, 24.0                       # near dist, span, near half-h
-    half1 = half0 * (d0 + L) / d0
-    C0 = (ax + d0 * u[0], ay + d0 * u[1])
-    C1 = (ax + (d0 + L) * u[0], ay + (d0 + L) * u[1])
-    quad = [
-        (C0[0] + half0 * v[0], C0[1] + half0 * v[1]),   # near-top
-        (C1[0] + half1 * v[0], C1[1] + half1 * v[1]),   # far-top
-        (C1[0] - half1 * v[0], C1[1] - half1 * v[1]),   # far-bottom
-        (C0[0] - half0 * v[0], C0[1] - half0 * v[1]),   # near-bottom
-    ]
-    xs = [q[0] for q in quad]; ys = [q[1] for q in quad]
-    bx0, by0, bx1, by1 = min(xs), min(ys), max(xs), max(ys)
-    SS = 4  # supersample the warp
-    bw, bh = int((bx1 - bx0) * SS), int((by1 - by0) * SS)
-    src = _Im.open(panels_dir / "frustum.png").convert("RGBA")
-    local = [((q[0] - bx0) * SS, (q[1] - by0) * SS) for q in quad]
-    # PIL QUAD maps target bbox corners from source quad; we need the inverse:
-    # transform with PERSPECTIVE coefficients source->target
-    import numpy as _np
-
-    def _persp_coeffs(src_pts, dst_pts):
-        A = []
-        for (X, Y), (x, y) in zip(dst_pts, src_pts):
-            A.append([x, y, 1, 0, 0, 0, -X * x, -X * y])
-            A.append([0, 0, 0, x, y, 1, -Y * x, -Y * y])
-        A = _np.array(A, dtype=float)
-        B = _np.array([c for pt in dst_pts for c in pt], dtype=float)
-        return _np.linalg.solve(A, B)
-
-    sw, sh = src.size
-    src_pts = [(0, 0), (sw, 0), (sw, sh), (0, sh)]
-    coeffs = _persp_coeffs(local, src_pts)   # target->source for PIL
-    warped = src.transform((bw, bh), _Im.PERSPECTIVE, coeffs,
-                           _Im.Resampling.BICUBIC)
-    warped_path = panels_dir / "frustum_warped.png"
-    warped.save(warped_path)
-    import base64 as _b64
-    uris["frustum_warped.png"] = ("data:image/png;base64,"
-                                  + _b64.b64encode(warped_path.read_bytes()).decode("ascii"))
-    frustum = [
-        f'<image x="{bx0:.1f}" y="{by0:.1f}" width="{bx1 - bx0:.1f}" '
-        f'height="{by1 - by0:.1f}" href="{uris["frustum_warped.png"]}"/>',
-        # pyramid edges: apex to the far corners
-        f'<line x1="{ax}" y1="{ay}" x2="{quad[1][0]:.1f}" y2="{quad[1][1]:.1f}" '
-        f'stroke="{INK}" stroke-width="2"/>',
-        f'<line x1="{ax}" y1="{ay}" x2="{quad[2][0]:.1f}" y2="{quad[2][1]:.1f}" '
-        f'stroke="{INK}" stroke-width="2"/>',
-        # image-plane outline
-        f'<polygon points="{" ".join(f"{q[0]:.1f},{q[1]:.1f}" for q in quad)}" '
-        f'fill="none" stroke="{INK}" stroke-width="2"/>',
-    ]
-    body.append("\n".join(frustum))
-
-    # Blue camera ray from the frustum apex through the scene to the outer
-    # sphere, with orange sample dots inside the scene volume.
-    tipx, tipy = _pt(CX, CY, R_OUT + 12, 52)
-    body.append(f'<line x1="{ax}" y1="{ay}" x2="{tipx:.1f}" y2="{tipy:.1f}" '
-                f'stroke="{RAY_BLUE}" stroke-width="5" '
-                f'marker-end="url(#arrow-blue)"/>')
-    for t in (0.34, 0.44, 0.54, 0.64):
-        dx, dy = ax + (tipx - ax) * t, ay + (tipy - ay) * t
-        body.append(f'<circle cx="{dx:.1f}" cy="{dy:.1f}" r="4.5" '
-                    f'fill="{DOT_ORANGE}"/>')
-
-    # Latent squares: DDF latent <-> RENI++ latent, red double-headed arrow.
-    sq, sq_y = 46, 668
-    sq1_x, sq2_x = 755, 915
-    for sx in (sq1_x, sq2_x):
-        body.append(f'<rect x="{sx}" y="{sq_y}" width="{sq}" height="{sq}" '
-                    f'fill="{SQUARE_FILL}" stroke="{INK}" stroke-width="3.5"/>')
-    body.append(double_arrow_red(sq1_x + sq + 9, sq2_x - 9, sq_y + sq / 2))
-    if args.labels:
-        body.append(label_text(sq1_x + sq / 2, sq_y + sq + 20, "DDF latent", 13))
-        body.append(label_text(sq2_x + sq / 2, sq_y + sq + 20, "RENI++ latent", 13))
-
-    # Thin arrow: frustum -> DDF latent square.
-    body.append(arrow(648, 664, sq1_x - 7, sq_y + sq / 2 + 4, width=1.6,
-                      marker="arrow-thin"))
+    # anchor points on the asset (fractions of its box)
+    def apt(fx, fy):
+        return A_X + fx * A_W, A_Y + fy * A_H
+    tipx, tipy = apt(0.885, 0.20)      # blue-ray tip (curve to DDF grid)
+    dsx, dsy = apt(0.900, 0.44)        # outer-arc right (dashed curve start)
+    sq_rx, sq_ry = apt(0.960, 0.905)   # right latent square (arrow target)
 
     body.append(arrow(1160, 420, 1215, 420, width=3.0))
 
@@ -701,11 +628,11 @@ def stage_compose(args):
         body.append(label_text(col_x + grid_w / 2, ddf_y + ddf_h + 22,
                                "spherical directional distance (DDF)", 13))
 
-    # Curved arrow: DDF sphere (inner arc) -> depth grid.
-    sx_, sy_ = _pt(CX, CY, R_IN, 62)
+    # Curved arrow: blue-ray tip -> depth grid.
     body.append(curve_arrow(
-        f"M {sx_:.1f} {sy_:.1f} C {sx_ + 130:.1f} {sy_ - 130:.1f}, "
-        f"{col_x - 160} {ddf_y + 60}, {col_x - 12} {ddf_y + ddf_h / 2:.1f}",
+        f"M {tipx:.1f} {tipy:.1f} C {tipx + 90:.1f} {tipy - 60:.1f}, "
+        f"{col_x - 170} {ddf_y + ddf_h / 2 - 20:.1f}, "
+        f"{col_x - 12} {ddf_y + ddf_h / 2:.1f}",
         width=2.6))
 
     # (b) albedo + camera-space normals
@@ -729,14 +656,13 @@ def stage_compose(args):
     # Dashed curve: outer illumination sphere curving DOWN to the RENI
     # envmap image (the sphere is what the envmap depicts); thin arrow:
     # envmap panel -> RENI latent square.
-    sxo, syo = _pt(CX, CY, R_OUT, 38)
     body.append(curve_arrow(
-        f"M {sxo + 6:.1f} {syo - 6:.1f} C {sxo + 120:.1f} {syo + 60:.1f}, "
+        f"M {dsx:.1f} {dsy:.1f} C {dsx + 80:.1f} {dsy + 85:.1f}, "
         f"{col_x - 150} {env_y + env_h * 0.5:.1f}, "
         f"{col_x - 12} {env_y + env_h * 0.5:.1f}",
         width=1.8, dashed=True, marker="arrow-thin"))
-    body.append(arrow(col_x - 6, env_y + env_h * 0.75, sq2_x + sq + 8,
-                      sq_y + sq * 0.75, width=1.6, marker="arrow-thin"))
+    body.append(arrow(col_x - 6, env_y + env_h * 0.75, sq_rx + 8, sq_ry,
+                      width=1.6, marker="arrow-thin"))
 
     body.append(arrow(1790, 420, 1845, 420, width=3.0))
 
