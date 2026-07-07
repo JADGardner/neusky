@@ -53,10 +53,12 @@ GT_IMAGES = {
 OURS_TO_FEGR = [[-1, 0, 0], [0, 0, 1], [0, -1, 0]]
 NORMAL_REMAPS = {
     "lk2": [[1, 0, 0], [0, 1, 0], [0, 0, 1]],   # FEGR: native target frame
-    # SOL-NeRF: handedness flip + 40-degree heading rotation into the FEGR
-    # palette (their COLMAP world heading is ~40 deg off the facade; sweep in
-    # outputs/solnerf_heading_shortlist.png).
-    "lwp": [[-0.766044, 0.0, 0.642788], [0.0, 1.0, 0.0], [0.642788, 0.0, 0.766044]],
+    # SOL-NeRF: solved by Procrustes against our lwp normals at the matched
+    # view (outputs/solve_solnerf_frame.py; 660k correspondences, det=-1:
+    # an improper convention change, heading ~31 deg + slight tilt).
+    "lwp": [[0.8532, 0.1127, -0.5093],
+            [-0.1665, 0.9841, -0.0612],
+            [0.4943, 0.1371, 0.8584]],
 }
 # The official NeRF-OSR renders are already y-up like FEGR.
 NERFOSR_REMAP = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
