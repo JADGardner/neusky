@@ -112,7 +112,7 @@ def main():
     # layout matches the paper's original sigmoid.pdf: wide-short boxed
     # axes, ticks only at {0, epsilon} and {0, 1}, no legend or annotations
     fig, ax = plt.subplots(figsize=(6.4, 2.3))
-    ax.plot(x, visibility, color="tab:blue", linewidth=1.2)
+    ax.plot(x, visibility, color="#3A5FAD", linewidth=1.6)  # SphereJEPA blue
     ax.set_xlabel(r"GT $-$ Predicted", fontsize=10)
     ax.set_ylabel("Visibility", fontsize=10)
     ax.set_xticks([0.0, epsilon])
