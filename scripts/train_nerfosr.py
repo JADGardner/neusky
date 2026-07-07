@@ -33,6 +33,9 @@ def parse_args() -> argparse.Namespace:
                         help="Override the SDF hash-grid table size (default 19). "
                              "21 = 4x table, quadratically fewer collisions - "
                              "targets far-field speckle from under-supervised cells.")
+    parser.add_argument("--sdf-bias", type=float, default=None,
+                        help="Override the initial SDF sphere radius "
+                             "(sdf_field.bias, default 0.1)")
     parser.add_argument("--no-amp", action="store_true",
                         help="Disable mixed-precision training (fp32 everywhere). "
                              "Speckle diagnostic: AMP amplifies sensitivity to "
@@ -72,6 +75,8 @@ def main() -> None:
         config.mixed_precision = False
     if args.log2_hashmap_size is not None:
         config.pipeline.model.sdf_field.log2_hashmap_size = args.log2_hashmap_size
+    if args.sdf_bias is not None:
+        config.pipeline.model.sdf_field.bias = args.sdf_bias
     if args.no_sfm:
         dp.center_method_sfm = False
     dp.fg_boundary_erode_pixels = args.fg_boundary_erode_pixels
