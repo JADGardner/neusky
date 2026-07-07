@@ -245,10 +245,11 @@ def main():
     for scene, kind, row in scenes_rows:
         bb = axes[(row, 0)].get_position()
         gtb = gt_axes[scene].get_position()
-        # rotated row labels sit between the GT column and the method grid
-        fig.text((gtb.x1 + bb.x0) / 2, (bb.y0 + bb.y1) / 2, kind.capitalize(),
-                 ha="center", va="center", rotation=90, fontsize=fs,
-                 fontfamily="serif")
+        # rotated row labels sit between the GT column and the method grid,
+        # biased toward the grid to leave a clear gap from the GT image
+        fig.text(gtb.x1 + 0.72 * (bb.x0 - gtb.x1), (bb.y0 + bb.y1) / 2,
+                 kind.capitalize(), ha="center", va="center", rotation=90,
+                 fontsize=fs, fontfamily="serif")
 
     save_figure(fig, args.output, svg=args.svg)
 
