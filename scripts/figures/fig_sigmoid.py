@@ -24,6 +24,17 @@ CPU-only; runnable while a training job owns the GPU:
 import argparse
 import re
 
+import matplotlib
+
+matplotlib.rcParams.update({
+    "font.family": "serif",
+    "font.serif": [
+        "Nimbus Roman", "Times New Roman", "Times",
+        "Liberation Serif", "STIXGeneral", "DejaVu Serif",
+    ],
+    "mathtext.fontset": "stix",
+})
+
 import matplotlib.pyplot as plt
 import numpy as np
 
