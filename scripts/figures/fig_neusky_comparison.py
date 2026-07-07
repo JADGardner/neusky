@@ -36,27 +36,50 @@ PAPER_ASSETS = {
     ("lwp", "normal"): ASSETS / "sol_nerf_site3_lwp_normals_from_paper.jpg",
 }
 MIDDLE_METHOD = {"lk2": "FEGR", "lwp": "SOL-NeRF"}
+GT_IMAGES = {
+    "lk2": Path("/home/james/data/NeRF-OSR/Data/lk2/final/train/rgb/09-04_13_00_DSC_0309.jpg"),
+    "lwp": Path("/home/james/data/NeRF-OSR/Data/lwp/final/train/rgb/26-04_17_50_DSC_2355.jpg"),
+}
 
 # Paper normal maps use different axis conventions; remap each into OUR
 # convention (neusky normal_vis, world-space (n+1)/2). Signed permutation
 # rows = which source axis (+/-x, +/-y, +/-z) lands in each of ours.
 # Identity until calibrated against our render (--debug-normals emits a
 # side-by-side hue sheet for choosing these).
+# Display convention: the FEGR paper frame (world y-up: ground green,
+# left-facing red, right-facing cyan), per James's reference. FEGR's frame
+# is opposite-handed to ours, so the conversion includes an x-flip
+# (det = -1); sources already in the FEGR frame pass through.
+OURS_TO_FEGR = [[-1, 0, 0], [0, 0, 1], [0, -1, 0]]
 NORMAL_REMAPS = {
-    # FEGR renders world y-up, z-toward-camera; ours is z-up, camera ~ -y.
-    "lk2": [[1, 0, 0], [0, 0, -1], [0, 1, 0]],
-    # SOL-NeRF's convention already matches ours closely.
-    "lwp": [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+    "lk2": [[1, 0, 0], [0, 1, 0], [0, 0, 1]],   # FEGR: native target frame
+    # SOL-NeRF: handedness flip + 40-degree heading rotation into the FEGR
+    # palette (their COLMAP world heading is ~40 deg off the facade; sweep in
+    # outputs/solnerf_heading_shortlist.png).
+    "lwp": [[-0.766044, 0.0, 0.642788], [0.0, 1.0, 0.0], [0.642788, 0.0, 0.766044]],
 }
-# The official NeRF-OSR renders use the same y-up convention as FEGR.
-NERFOSR_REMAP = [[1, 0, 0], [0, 0, -1], [0, 1, 0]]
+# The official NeRF-OSR renders are already y-up like FEGR.
+NERFOSR_REMAP = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
 # Sky masks for the exact figure views: the cityscapes semantic masks
 # (sky class = RGB 70,130,180). The plain mask/ dir is a validity mask.
 NERFOSR_VIEW_MASKS = {
-    "lk2": Path("/home/james/data/NeRF-OSR/Data/lk2/final/train/cityscapes_mask/07-04_17_30_DSC_0049.png"),
+    "lk2": Path("/home/james/data/NeRF-OSR/Data/lk2/final/train/cityscapes_mask/09-04_13_00_DSC_0309.png"),
     "lwp": Path("/home/james/data/NeRF-OSR/Data/lwp/final/train/cityscapes_mask/26-04_17_50_DSC_2355.png"),
 }
 CITYSCAPES_SKY = np.array([70, 130, 180]) / 255.0
+# Crop of the full view corresponding to each paper crop (normalised
+# x0, y0, x1, y1 from the template match); applied to our renders and the
+# NeRF-OSR renders so every cell shares the paper framing.
+CROP_BOXES = {
+    "lk2": (0.0078, 0.0118, 0.9922, 0.9905),
+    "lwp": (0.0078, 0.0047, 0.9922, 0.8246),
+}
+
+
+def crop_to_box(img, box):
+    h, w = img.shape[:2]
+    x0, y0, x1, y1 = box
+    return img[int(y0 * h):int(y1 * h), int(x0 * w):int(x1 * w)]
 
 
 def remap_normal_image(img, M):
@@ -111,6 +134,7 @@ def _render_ours(scene: str, view: int, device: str):
     outputs = render_view(model, cameras, view, device)
     albedo = outputs["albedo"].cpu().numpy().clip(0, 1)
     normal = outputs["normal_vis"].cpu().numpy().clip(0, 1)
+    normal = remap_normal_image(normal, OURS_TO_FEGR)
     # white sky in the normal cell (match the masked baseline cells)
     if "accumulation" in outputs:
         acc = outputs["accumulation"].cpu().numpy()
@@ -126,9 +150,11 @@ def main():
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     add_common_args(parser, "neusky_comparison")
-    # defaults match the original comparisons_full figure / paper crops:
-    # lk2 train 0 = 07-04_17_30_DSC_0049.jpg, lwp train 234 = 26-04_17_50_DSC_2355.jpg
-    parser.add_argument("--lk2-view", type=int, default=0)
+    # views matched to the FEGR/SOL-NeRF paper crops by edge-based template
+    # search (outputs/match_paper_views.py): lk2 train 81 =
+    # 09-04_13_00_DSC_0309.jpg, lwp train 234 = 26-04_17_50_DSC_2355.jpg;
+    # both near-full-frame with the CROP_BOXES trims below.
+    parser.add_argument("--lk2-view", type=int, default=81)
     parser.add_argument("--lwp-view", type=int, default=234)
     for scene in ("lk2", "lwp"):
         for kind in ("albedo", "normal"):
@@ -144,16 +170,17 @@ def main():
     grid = {}   # (scene, kind, col) -> image
     for scene in ("lk2", "lwp"):
         albedo, normal = _render_ours(scene, views[scene], args.device)
-        grid[(scene, "albedo", 2)] = albedo
-        grid[(scene, "normal", 2)] = normal
+        grid[(scene, "albedo", 2)] = crop_to_box(albedo, CROP_BOXES[scene])
+        grid[(scene, "normal", 2)] = crop_to_box(normal, CROP_BOXES[scene])
         paper_albedo = _load_image(PAPER_ASSETS[(scene, "albedo")])
         paper_normal = remap_normal_image(
             _load_image(PAPER_ASSETS[(scene, "normal")]), NORMAL_REMAPS[scene])
-        if scene == "lk2":
-            # FEGR crops include blown-out sky; mask it (white) in both cells
-            sky = sky_mask_from_albedo(paper_albedo)
-            paper_albedo = apply_sky_mask(paper_albedo, sky)
-            paper_normal = apply_sky_mask(paper_normal, sky)
+        # both paper crops include sky; mask it (white) in both cells.
+        # FEGR's sky is blown-out white, SOL-NeRF's a pale blue-grey.
+        sky = sky_mask_from_albedo(paper_albedo,
+                                   lum_thresh=0.90 if scene == "lk2" else 0.78)
+        paper_albedo = apply_sky_mask(paper_albedo, sky)
+        paper_normal = apply_sky_mask(paper_normal, sky)
         grid[(scene, "albedo", 1)] = paper_albedo
         grid[(scene, "normal", 1)] = paper_normal
         view_mask = None
@@ -178,17 +205,26 @@ def main():
                         (m * 255).astype("uint8")).resize(
                         (img.shape[1], img.shape[0]))) > 127
                 img = apply_sky_mask(img, m)
-            grid[(scene, kind, 0)] = img
+            grid[(scene, kind, 0)] = crop_to_box(img, CROP_BOXES[scene])
 
-    fig, axes = plt.subplots(4, 3, figsize=(13.5, 11.6),
-                             gridspec_kw={"hspace": 0.14})
+    fig = plt.figure(figsize=(16.5, 11.6))
+    gs = fig.add_gridspec(4, 4, hspace=0.14, wspace=0.06)
     scenes_rows = [("lk2", "albedo", 0), ("lk2", "normal", 1),
                    ("lwp", "albedo", 2), ("lwp", "normal", 3)]
+    axes = {}
+    gt_axes = {}
+    for block_row, scene in ((0, "lk2"), (2, "lwp")):
+        ax = fig.add_subplot(gs[block_row:block_row + 2, 0])
+        gt = crop_to_box(_load_image(GT_IMAGES[scene]), CROP_BOXES[scene])
+        ax.imshow(gt)
+        ax.axis("off")
+        gt_axes[scene] = ax
     for scene, kind, row in scenes_rows:
         for col in range(3):
-            ax = axes[row, col]
+            ax = fig.add_subplot(gs[row, col + 1])
             ax.imshow(grid[(scene, kind, col)])
             ax.axis("off")
+            axes[(row, col)] = ax
 
     plt.tight_layout(rect=(0.02, 0, 1, 1), h_pad=2.6)
 
@@ -196,16 +232,20 @@ def main():
     fs = args.label_fontsize
     for block_row, scene in ((0, "lk2"), (2, "lwp")):
         names = ("NeRF-OSR", MIDDLE_METHOD[scene], "Ours")
-        # one shared header height per block (cells have differing aspects)
-        top = max(axes[block_row, c].get_position().y1 for c in range(3))
+        top = max(axes[(block_row, c)].get_position().y1 for c in range(3))
+        bbg = gt_axes[scene].get_position()
+        fig.text((bbg.x0 + bbg.x1) / 2, top + 0.008, "Ground Truth",
+                 ha="center", va="bottom", fontsize=fs, fontfamily="serif")
         for col, name in enumerate(names):
-            bb = axes[block_row, col].get_position()
+            bb = axes[(block_row, col)].get_position()
             fig.text((bb.x0 + bb.x1) / 2, top + 0.008, name,
                      ha="center", va="bottom", fontsize=fs, fontfamily="serif")
     for scene, kind, row in scenes_rows:
-        bb = axes[row, 0].get_position()
-        fig.text(bb.x0 - 0.012, (bb.y0 + bb.y1) / 2, kind.capitalize(),
-                 ha="right", va="center", rotation=90, fontsize=fs,
+        bb = axes[(row, 0)].get_position()
+        gtb = gt_axes[scene].get_position()
+        # rotated row labels sit between the GT column and the method grid
+        fig.text((gtb.x1 + bb.x0) / 2, (bb.y0 + bb.y1) / 2, kind.capitalize(),
+                 ha="center", va="center", rotation=90, fontsize=fs,
                  fontfamily="serif")
 
     save_figure(fig, args.output, svg=args.svg)
