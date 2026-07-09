@@ -365,6 +365,72 @@ def stage_envmap(args):
     print(f"[envmap] {stem} frame {frame}: {metrics}")
 
 
+GSIR_LOGS = {
+    "abandoned_buildings": "/workspace/phd/outputs/synthetic_benchmark/gs_ir_logs/abandoned_buildings_stage1_fullres_fix",
+    "apartment_building": "/workspace/phd/outputs/synthetic_benchmark/gs_ir_logs/apartment_building_stage1_fullres_fix",
+    "arlanda_uppsala_cathedral": "/workspace/phd/outputs/synthetic_benchmark/gs_ir_logs/arlanda_uppsala_cathedral_stage1_fullres_fix",
+    "glass_building": "/workspace/phd/outputs/synthetic_benchmark/gs_ir_logs/glass_building_stage1_fullres_fix",
+    "interstellar_house": "/workspace/phd/code/neusky/outputs/synthetic_benchmark/gs_ir_logs/interstellar_house_stage1_fullres_fix",
+}
+
+
+def cubemap_to_erp(cube, height=256):
+    """Sample an OpenGL-convention cubemap [6,H,W,3] over a dataset-frame
+    (Z-up) ERP grid, matching the GT envmap panel's convention."""
+    H, W = height, 2 * height
+    iy, ix = np.mgrid[0:H, 0:W]
+    theta = (iy + 0.5) / H * np.pi
+    phi = (ix + 0.5) / W * 2 * np.pi - np.pi
+    d = np.stack([np.sin(theta) * np.cos(phi),
+                  np.sin(theta) * np.sin(phi),
+                  np.cos(theta)], axis=-1)
+    x, y, z = d[..., 0], d[..., 1], d[..., 2]
+    ax_, ay, az = np.abs(x), np.abs(y), np.abs(z)
+    face = np.zeros(d.shape[:2], np.int32)
+    u = np.zeros_like(x)
+    v = np.zeros_like(x)
+    # OpenGL cube-map face selection and per-face (s,t)
+    m = (ax_ >= ay) & (ax_ >= az) & (x > 0)
+    face[m], u[m], v[m] = 0, -z[m] / ax_[m], -y[m] / ax_[m]
+    m = (ax_ >= ay) & (ax_ >= az) & (x <= 0)
+    face[m], u[m], v[m] = 1, z[m] / ax_[m], -y[m] / ax_[m]
+    m = (ay > ax_) & (ay >= az) & (y > 0)
+    face[m], u[m], v[m] = 2, x[m] / ay[m], z[m] / ay[m]
+    m = (ay > ax_) & (ay >= az) & (y <= 0)
+    face[m], u[m], v[m] = 3, x[m] / ay[m], -z[m] / ay[m]
+    m = (az > ax_) & (az > ay) & (z > 0)
+    face[m], u[m], v[m] = 4, x[m] / az[m], -y[m] / az[m]
+    m = (az > ax_) & (az > ay) & (z <= 0)
+    face[m], u[m], v[m] = 5, -x[m] / az[m], -y[m] / az[m]
+    Hc, Wc = cube.shape[1], cube.shape[2]
+    ui = np.clip(((u + 1) / 2 * Wc).astype(np.int32), 0, Wc - 1)
+    vi = np.clip(((v + 1) / 2 * Hc).astype(np.int32), 0, Hc - 1)
+    return cube[face, vi, ui]
+
+
+def stage_gsir_env(args):
+    """Extract the GS-IR stage-2 baked environment cubemap to an ERP panel
+    per scene (no GPU; reads chkpnt40000)."""
+    import torch
+
+    for scene in SYNTHETIC_SCENES:
+        stem = scene.removesuffix("_prepared")
+        log_dir = Path(GSIR_LOGS[stem])
+        ck_path = log_dir / "chkpnt40000.pth"
+        if not ck_path.exists():
+            print(f"[gsir-env] {stem}: no stage-2 checkpoint, skipping")
+            continue
+        ck = torch.load(ck_path, map_location="cpu", weights_only=False)
+        cube = ck["cubemap"]["env_base"].float().numpy()
+        env = np.clip(cubemap_to_erp(cube), 0.0, None)
+        out = PANELS_DIR / stem
+        out.mkdir(parents=True, exist_ok=True)
+        save_png(linear_to_srgb(env / max(np.percentile(env, 99), 1e-6)),
+                 out / "gs_ir_env.png")
+        np.save(out / "gs_ir_env_hdr.npy", env)
+        print(f"[gsir-env] {stem}: cubemap {cube.shape} -> {out / 'gs_ir_env.png'}")
+
+
 def stage_compose(args):
     import matplotlib.pyplot as plt
     from PIL import Image
@@ -375,11 +441,11 @@ def stage_compose(args):
                   "illum": "Illumination"}
     cols = ("gt",) + METHODS
     illum_panels = {"gt": "envmap_gt.png", "neusky": "envmap_pred.png",
-                    "nerf_osr": "nerf_osr_env.png", "gs_ir": None}
+                    "nerf_osr": "nerf_osr_env.png", "gs_ir": "gs_ir_env.png"}
     illum_notes = {"gt": "HDRI (frame rotation)",
                    "neusky": "left-half fit",
                    "nerf_osr": "fitted SH (order 2)",
-                   "gs_ir": "not recovered (stage-2\nlighting not trained)"}
+                   "gs_ir": "baked environment (scene-wide)"}
 
     for stem, info in manifest.items():
         out = PANELS_DIR / stem
@@ -394,14 +460,13 @@ def stage_compose(args):
                     path = out / name if name else None
                     if path is not None and path.exists():
                         ax.imshow(Image.open(path))
+                        ax.set_xlabel(illum_notes[source], fontsize=9,
+                                      labelpad=2.5)
                     else:
-                        ax.text(0.5, 0.5, illum_notes["gs_ir"], ha="center",
+                        ax.text(0.5, 0.5, "not recovered", ha="center",
                                 va="center", fontsize=10, color="0.45",
                                 transform=ax.transAxes)
                         ax.set_facecolor("0.94")
-                    if source != "gs_ir":
-                        ax.set_xlabel(illum_notes[source], fontsize=9,
-                                      labelpad=2.5)
                 else:
                     path = out / f"{source}_{modality}.png"
                     if path.exists():
@@ -428,7 +493,8 @@ def main():
     parser = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--stage", choices=["panels", "envmap", "compose"],
+    parser.add_argument("--stage",
+                        choices=["panels", "envmap", "gsir_env", "compose"],
                         required=True)
     parser.add_argument("--frame", type=int, default=None,
                         help="Override the auto-selected frame (all scenes)")
@@ -440,6 +506,8 @@ def main():
         stage_panels(args)
     elif args.stage == "compose":
         stage_compose(args)
+    elif args.stage == "gsir_env":
+        stage_gsir_env(args)
     else:
         stage_envmap(args)
 
