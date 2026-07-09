@@ -304,11 +304,28 @@ class LPIPSScorer:
             return float(self._fn(a.float(), b.float()).item())
 
 
+def scale_align_scalar(pred: np.ndarray, gt: np.ndarray, mask: np.ndarray) -> np.ndarray:
+    """Single-scalar least-squares scale alignment (no intercept).
+
+    One alpha over all channels of mask==True pixels:
+    alpha = sum(pred * gt) / sum(pred^2) (1 if the denominator is 0).
+    A scalar handles the albedo scale ambiguity without also forgiving
+    white-balance errors, which the earlier per-channel variant did.
+    Returns clip(alpha * pred, 0, 1).
+    """
+    p, g = pred[mask].astype(np.float64), gt[mask].astype(np.float64)
+    denom = float(np.sum(p * p))
+    alpha = float(np.sum(p * g)) / denom if denom > 0 else 1.0
+    return np.clip(pred * alpha, 0.0, 1.0)
+
+
 def scale_align_per_channel(pred: np.ndarray, gt: np.ndarray, mask: np.ndarray) -> np.ndarray:
     """Per-channel least-squares scale alignment (no intercept).
 
     For each channel c: alpha_c = sum(mask * pred_c * gt_c) / sum(mask * pred_c^2)
     (alpha_c = 1 if the denominator is 0). Returns clip(alpha * pred, 0, 1).
+    Kept as a diagnostic; the reported albedo metrics use the scalar
+    alignment above.
     """
     aligned = np.empty_like(pred)
     for c in range(pred.shape[-1]):
@@ -382,6 +399,13 @@ def evaluate_rgb(pred_dir: Path, stem: str, gt: dict, lpips_fn, prefix: str) -> 
     m[f"{prefix}/psnr_masked_ea"] = psnr(pred_ea, gt["rgb"], mask)
     if lpips_fn is not None:
         m[f"{prefix}/lpips"] = lpips_fn(pred, gt["rgb"])
+        # masked LPIPS: composite BOTH images onto the same neutral fill
+        # outside the mask, so sky rendering cannot influence the score
+        fill = 0.5
+        m3 = mask[..., None]
+        pred_c = np.where(m3, pred, fill).astype(np.float32)
+        gt_c = np.where(m3, gt["rgb"], fill).astype(np.float32)
+        m[f"{prefix}/lpips_masked"] = lpips_fn(pred_c, gt_c)
     return m
 
 
@@ -396,9 +420,11 @@ def evaluate_decomposition(pred_dir: Path, stem: str, gt: dict, notes: list) -> 
             pred = srgb_to_linear(np.clip(pred, 0.0, 1.0)).astype(np.float32)
         _check_shape(pred, gt["albedo"], stem, "albedo")
         gt_albedo = np.clip(gt["albedo"], 0.0, 1.0)
-        aligned = scale_align_per_channel(pred, gt_albedo, mask)
+        aligned = scale_align_scalar(pred, gt_albedo, mask)
         m["decomposition/albedo_psnr_masked"] = psnr(aligned, gt_albedo, mask)
         m["decomposition/albedo_ssim_masked"] = ssim(aligned, gt_albedo, mask)
+        aligned_pc = scale_align_per_channel(pred, gt_albedo, mask)
+        m["decomposition/albedo_psnr_masked_perchannel"] = psnr(aligned_pc, gt_albedo, mask)
 
     p = find_pred(pred_dir, stem, "normal")
     if p is not None and "normal" in gt:
