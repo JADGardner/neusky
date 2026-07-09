@@ -84,8 +84,9 @@ def normal_to_vis(n, zup=False):
     return vis
 
 
-# which sources store Z-up (dataset-world) normals
-ZUP_NORMALS = {"gt", "nerf_osr", "gs_ir"}
+# all sources store Z-up dataset-world normals (the NeuSky prediction
+# contract converts model-frame normals to the dataset frame at export)
+ZUP_NORMALS = {"gt", "neusky", "nerf_osr", "gs_ir"}
 
 
 def sh_basis(dirs):
