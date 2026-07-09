@@ -40,7 +40,9 @@ from _common import FIGURES_DIR, OUTPUTS_ROOT, SYNTHETIC_SCENES
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "synthetic_benchmark"))
 from evaluate import read_exr  # noqa: E402
 
-PANELS_DIR = FIGURES_DIR / "synthetic_comparison_panels"
+import os
+PANELS_DIR = Path(os.environ.get("SYNTH_PANELS_DIR",
+                                 FIGURES_DIR / "synthetic_comparison_panels"))
 BENCH = OUTPUTS_ROOT / "synthetic_benchmark"
 DATA_ROOT = Path("/home/james/data/neusky_synthetic_data")
 METHODS = ("neusky", "nerf_osr", "gs_ir")
@@ -71,15 +73,54 @@ def stack_exr_rgb(path):
     raise ValueError(f"unrecognised EXR channels {sorted(data)} in {path}")
 
 
-def normal_to_vis(n):
-    """World-frame normal -> colour vis; zero-length background -> white."""
+def normal_to_vis(n, zup=False):
+    """World-frame normal -> colour vis; zero-length background -> white.
+    zup converts dataset/Blender Z-up normals to the thesis Y-up
+    convention (ground green); NeuSky predictions are already Y-up."""
+    if zup:
+        n = np.stack([n[..., 0], n[..., 2], -n[..., 1]], axis=-1)
     vis = (n + 1.0) / 2.0
     vis[np.linalg.norm(n, axis=-1) < 0.5] = 1.0
     return vis
 
 
+# which sources store Z-up (dataset-world) normals
+ZUP_NORMALS = {"gt", "nerf_osr", "gs_ir"}
+
+
+def sh_basis(dirs):
+    x, y, z = dirs[..., 0], dirs[..., 1], dirs[..., 2]
+    return np.stack([
+        np.full_like(x, 0.282095),
+        0.488603 * y, 0.488603 * z, 0.488603 * x,
+        1.092548 * x * y, 1.092548 * y * z,
+        0.315392 * (3.0 * z * z - 1.0),
+        1.092548 * x * z, 0.546274 * (x * x - y * y),
+    ], axis=-1)
+
+
+def sh_envmap(coeffs, height=256):
+    """Evaluate 9x3 SH coefficients over a dataset-frame (Z-up) ERP grid,
+    matching the GT envmap panel's convention."""
+    H, W = height, 2 * height
+    iy, ix = np.mgrid[0:H, 0:W]
+    theta = (iy + 0.5) / H * np.pi
+    phi = (ix + 0.5) / W * 2 * np.pi - np.pi
+    d = np.stack([np.sin(theta) * np.cos(phi),
+                  np.sin(theta) * np.sin(phi),
+                  np.cos(theta)], axis=-1)
+    return np.clip(sh_basis(d) @ np.asarray(coeffs, np.float32), 0.0, None)
+
+
+# Frames chosen to show the building (facade / front) rather than the
+# best-PSNR view, which for some scenes is a featureless wall.
+FRAME_OVERRIDES = {"glass_building": 23, "interstellar_house": 3}
+
+
 def good_frame(scene_stem):
-    """Frame with the best NeuSky exposure-aligned NVS PSNR."""
+    """Overridden frame, else the best NeuSky exposure-aligned NVS PSNR."""
+    if scene_stem in FRAME_OVERRIDES:
+        return FRAME_OVERRIDES[scene_stem]
     metrics = json.loads((BENCH / "neusky" / f"{scene_stem}_gt" / "metrics.json").read_text())
     per_frame = metrics["per_frame"]  # {"0000": {metric: value}}
     key = "nvs/psnr_masked_ea"
@@ -121,11 +162,8 @@ def stage_panels(args):
         else:
             gt_albedo = linear_to_srgb(stack_exr_rgb(test_dir / "albedo" / f"{frame:04d}.exr"))
         save_png(gt_albedo, out / "gt_albedo.png")
-        normal_png = test_dir / "normal" / f"{frame:04d}.png"
-        if normal_png.exists():
-            gt_normal = np.asarray(Image.open(normal_png).convert("RGB"), np.float32) / 255
-        else:
-            gt_normal = normal_to_vis(stack_exr_rgb(test_dir / "normal" / f"{frame:04d}.exr"))
+        gt_normal = normal_to_vis(stack_exr_rgb(test_dir / "normal" / f"{frame:04d}.exr"),
+                                  zup=True)
         save_png(gt_normal, out / "gt_normal.png")
 
         # method panels
@@ -153,7 +191,9 @@ def stage_panels(args):
                 save_png(linear_to_srgb(pred_lin), out / f"{method}_albedo.png")
             nrm_exr = frames_dir / f"{frame:04d}_normal.exr"
             if nrm_exr.exists():
-                save_png(normal_to_vis(stack_exr_rgb(nrm_exr)), out / f"{method}_normal.png")
+                save_png(normal_to_vis(stack_exr_rgb(nrm_exr),
+                                       zup=method in ZUP_NORMALS),
+                         out / f"{method}_normal.png")
 
         # NeuSky estimated-track render (left-half illumination fit)
         est = BENCH / "neusky" / f"{stem}_estimated"
@@ -192,6 +232,19 @@ def stage_panels(args):
             save_png(linear_to_srgb(small / max(np.percentile(small, 99), 1e-6)),
                      out / "envmap_gt.png")
             np.save(out / "envmap_gt_hdr.npy", small)
+
+        # NeRF-OSR fitted SH (fair left-half protocol) -> ERP panel
+        sh_txt = (Path(__file__).resolve().parents[2] / "outputs"
+                  / "synthetic_benchmark" / "nerf_osr_logs"
+                  / f"synthetic_{stem}_nerfosr" / "env_fitted_test"
+                  / f"{frame:04d}.txt")
+        if sh_txt.exists():
+            env_sh = sh_envmap(np.loadtxt(sh_txt))
+            save_png(linear_to_srgb(env_sh / max(np.percentile(env_sh, 99), 1e-6)),
+                     out / "nerf_osr_env.png")
+            np.save(out / "nerf_osr_env_hdr.npy", env_sh)
+        else:
+            print(f"[panels] {stem}: no fitted SH at {sh_txt}")
 
         manifest[stem] = {"frame": frame, "label": label}
         print(f"[panels] {stem}: frame {frame} -> {out}")
@@ -316,49 +369,54 @@ def stage_compose(args):
     from PIL import Image
 
     manifest = json.loads((PANELS_DIR / "manifest.json").read_text())
-    rows = ("rgb", "albedo", "normal")
-    row_labels = {"rgb": "Render", "albedo": "Albedo", "normal": "Normals"}
+    rows = ("rgb", "albedo", "normal", "illum")
+    row_labels = {"rgb": "Render", "albedo": "Albedo", "normal": "Normals",
+                  "illum": "Illumination"}
     cols = ("gt",) + METHODS
+    illum_panels = {"gt": "envmap_gt.png", "neusky": "envmap_pred.png",
+                    "nerf_osr": "nerf_osr_env.png", "gs_ir": None}
+    illum_notes = {"gt": "HDRI (frame rotation)",
+                   "neusky": "left-half fit",
+                   "nerf_osr": "fitted SH (order 2)",
+                   "gs_ir": "not recovered (stage-2\nlighting not trained)"}
 
     for stem, info in manifest.items():
         out = PANELS_DIR / stem
-        fig, axs = plt.subplots(3, 5, figsize=(15.2, 7.6))
-        fig.subplots_adjust(left=0.03, right=0.995, top=0.94, bottom=0.01,
-                            wspace=0.03, hspace=0.05)
+        fig, axs = plt.subplots(4, 4, figsize=(12.4, 8.9))
+        fig.subplots_adjust(left=0.035, right=0.995, top=0.95, bottom=0.03,
+                            wspace=0.03, hspace=0.06)
         for r, modality in enumerate(rows):
             for c, source in enumerate(cols):
                 ax = axs[r, c]
-                name = f"{source}_{modality}.png"
-                path = out / name
-                if path.exists():
-                    ax.imshow(Image.open(path))
+                if modality == "illum":
+                    name = illum_panels[source]
+                    path = out / name if name else None
+                    if path is not None and path.exists():
+                        ax.imshow(Image.open(path))
+                    else:
+                        ax.text(0.5, 0.5, illum_notes["gs_ir"], ha="center",
+                                va="center", fontsize=10, color="0.45",
+                                transform=ax.transAxes)
+                        ax.set_facecolor("0.94")
+                    if source != "gs_ir":
+                        ax.set_xlabel(illum_notes[source], fontsize=9,
+                                      labelpad=2.5)
                 else:
-                    ax.text(0.5, 0.5, "---", ha="center", va="center",
-                            fontsize=16, color="0.6", transform=ax.transAxes)
-                    ax.set_facecolor("0.92")
+                    path = out / f"{source}_{modality}.png"
+                    if path.exists():
+                        ax.imshow(Image.open(path))
+                    else:
+                        ax.text(0.5, 0.5, "---", ha="center", va="center",
+                                fontsize=16, color="0.6",
+                                transform=ax.transAxes)
+                        ax.set_facecolor("0.92")
                 ax.set_xticks([]); ax.set_yticks([])
                 if r == 0:
                     ax.set_title("Ground Truth" if source == "gt"
-                                 else METHOD_LABELS[source], fontsize=13, pad=5)
+                                 else METHOD_LABELS[source], fontsize=13,
+                                 pad=5)
                 if c == 0:
                     ax.set_ylabel(row_labels[modality], fontsize=13)
-            # illumination column: GT envmap / NeuSky fitted / estimated render
-            ax = axs[r, 4]
-            name = {"rgb": "envmap_gt.png", "albedo": "envmap_pred.png",
-                    "normal": "neusky_est_rgb.png"}[modality]
-            lbl = {"rgb": "GT illumination", "albedo": "NeuSky fitted (left half)",
-                   "normal": "NeuSky render, fitted illum."}[modality]
-            path = out / name
-            if path.exists():
-                ax.imshow(Image.open(path))
-            else:
-                ax.text(0.5, 0.5, "---", ha="center", va="center",
-                        fontsize=16, color="0.6", transform=ax.transAxes)
-                ax.set_facecolor("0.92")
-            ax.set_xticks([]); ax.set_yticks([])
-            if r == 0:
-                ax.set_title("Illumination", fontsize=13, pad=5)
-            ax.set_xlabel(lbl, fontsize=10, labelpad=3)
 
         from _common import save_figure
         save_figure(fig, FIGURES_DIR / f"synthetic_comparison_{stem}", svg=False)
