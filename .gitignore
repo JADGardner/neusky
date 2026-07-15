@@ -196,3 +196,7 @@ publication/animations/
 .apptainer/*.sif
 .apptainer/*_overlay.img
 .apptainer/.env
+
+# Downloaded figure inputs and editor backups
+/publication/dam_wall_1k.exr
+*.orig
