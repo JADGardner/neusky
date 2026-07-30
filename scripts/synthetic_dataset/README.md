@@ -166,5 +166,8 @@ python scripts/synthetic_dataset/build_hf_release.py \
 ```
 
 The builder validates every split and ground-truth layer, stages the five
-accepted scenes, adds the dataset card and benchmark results, and generates
-`MANIFEST.json` and `SHA256SUMS`.
+accepted scenes into independently downloadable `tar.zst` archives, adds the
+dataset card and benchmark results, and generates `MANIFEST.json` and
+`SHA256SUMS`. Each archive extracts to the usual `scenes/<scene>/` loader
+contract. This keeps a complete Hugging Face download below the free-tier API
+request limit instead of requiring one request per rendered file.

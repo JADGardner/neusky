@@ -103,3 +103,5 @@ def test_huggingface_release_uses_an_explicit_allowlist():
     assert "license: cc-by-4.0" in card
     assert "1,500" in card
     assert "@@REPO_ID@@" in card
+    assert "archives/interstellar_house.tar.zst" in card
+    assert "scenes/<scene>/" in card

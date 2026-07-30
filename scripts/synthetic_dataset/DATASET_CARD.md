@@ -76,6 +76,8 @@ Every scene also contains `points3d.ply`, used for scene centring and
 Gaussian-splatting initialisation, and `transforms.json`, containing all camera
 and illumination metadata.
 
+Each independently downloadable archive extracts to:
+
 ```text
 scenes/<scene>/
   transforms.json
@@ -102,12 +104,18 @@ The mask images use the Cityscapes colours expected by NeuSky: sky is
 
 ## Download
 
-Download the complete release with the Hugging Face CLI:
+Download the complete release with the Hugging Face CLI, verify it, then
+extract the five scene archives:
 
 ```bash
 hf download @@REPO_ID@@ \
   --repo-type dataset \
   --local-dir neusky-synthetic
+
+(cd neusky-synthetic && sha256sum -c SHA256SUMS)
+for archive in neusky-synthetic/archives/*.tar.zst; do
+  tar --zstd -xf "$archive" -C neusky-synthetic
+done
 ```
 
 Download one scene:
@@ -115,24 +123,25 @@ Download one scene:
 ```bash
 hf download @@REPO_ID@@ \
   --repo-type dataset \
-  --include "scenes/interstellar_house/**" \
+  archives/interstellar_house.tar.zst \
   --local-dir neusky-synthetic
+
+tar --zstd -xf \
+  neusky-synthetic/archives/interstellar_house.tar.zst \
+  -C neusky-synthetic
 ```
 
-Or use Python:
+Once the repository is public, an individual scene can also be downloaded
+without the CLI:
 
-```python
-from huggingface_hub import snapshot_download
-
-snapshot_download(
-    repo_id="@@REPO_ID@@",
-    repo_type="dataset",
-    local_dir="neusky-synthetic",
-)
+```bash
+curl -L \
+  "https://huggingface.co/datasets/@@REPO_ID@@/resolve/main/archives/interstellar_house.tar.zst?download=true" \
+  -o interstellar_house.tar.zst
 ```
 
-The release can be verified against `SHA256SUMS`. `MANIFEST.json` records the
-size and SHA256 of every payload file.
+`zstd` is required for extraction. `MANIFEST.json` records the size and SHA256
+of every release file, and `SHA256SUMS` can be checked before extraction.
 
 ## NeuSky
 

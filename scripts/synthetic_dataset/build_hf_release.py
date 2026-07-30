@@ -9,6 +9,7 @@ import json
 import os
 import shutil
 import subprocess
+import tempfile
 from collections import Counter
 from datetime import date
 from pathlib import Path
@@ -156,6 +157,43 @@ def stage_scene(source: Path, destination: Path, mode: str) -> None:
                 )
 
 
+def archive_scene(
+    source: Path,
+    output: Path,
+    scene: str,
+    mode: str,
+) -> None:
+    """Create a deterministic, independently downloadable scene archive."""
+    if shutil.which("tar") is None or shutil.which("zstd") is None:
+        raise RuntimeError("building scene archives requires GNU tar and zstd")
+
+    archive_dir = output / "archives"
+    archive_dir.mkdir(exist_ok=True)
+    archive_path = archive_dir / f"{scene}.tar.zst"
+
+    with tempfile.TemporaryDirectory(prefix=f".{scene}-", dir=output) as temporary:
+        temporary_root = Path(temporary)
+        stage_scene(source, temporary_root / "scenes" / scene, mode)
+        subprocess.run(
+            [
+                "tar",
+                "--sort=name",
+                "--mtime=@0",
+                "--owner=0",
+                "--group=0",
+                "--numeric-owner",
+                "--format=gnu",
+                "--use-compress-program=zstd -T0 -3 --no-progress",
+                "-cf",
+                str(archive_path),
+                "-C",
+                str(temporary_root),
+                f"scenes/{scene}",
+            ],
+            check=True,
+        )
+
+
 def copy_release_metadata(
     output: Path,
     overview: Path,
@@ -297,8 +335,8 @@ def main() -> None:
         source = renders / f"{scene}_prepared"
         print(f"[validate] {scene}")
         scene_stats[scene] = validate_scene(source, scene)
-        print(f"[stage] {scene}")
-        stage_scene(source, output / "scenes" / scene, args.mode)
+        print(f"[archive] {scene}")
+        archive_scene(source, output, scene, args.mode)
 
     copy_release_metadata(
         output=output,
