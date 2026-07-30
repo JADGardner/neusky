@@ -75,6 +75,8 @@ def main():
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     add_common_args(parser, "ao_and_shadow")
     parser.add_argument("--scene", default="lk2")
+    parser.add_argument("--labels", action="store_true",
+                        help="Bake the column labels (formerly TikZ)")
     parser.add_argument("--view", type=int, default=None,
                         help="Train view index (default: per-scene notebook view)")
     parser.add_argument("--azimuth", type=float, default=45.0,
@@ -106,6 +108,11 @@ def main():
     for ax in axs:
         ax.axis("off")
     plt.tight_layout(pad=0.3)
+    if getattr(args, "labels", False):
+        for ax, text in ((axs[0], "Ambient Occlusion"), (axs[1], "Shadow")):
+            bb = ax.get_position()
+            fig.text((bb.x0 + bb.x1) / 2, bb.y1 + 0.02, text, ha="center",
+                     va="bottom", fontsize=12, fontfamily="serif")
     save_figure(fig, args.output, svg=args.svg)
 
 

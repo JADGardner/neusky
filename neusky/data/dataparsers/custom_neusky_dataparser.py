@@ -24,6 +24,9 @@ Expected directory layout (produced by scripts/prepare_synthetic_data.py):
         train/
             rgb/*.png
             cityscapes_mask/*.png
+            albedo/*.exr          # optional train GT for upper-bound supervision
+            normal/*.exr
+            depth/*.exr
         validation/
             rgb/*.png
             cityscapes_mask/*.png
@@ -379,6 +382,7 @@ class CustomNeuskyDataparser(DataParser):
         camera_to_worlds = torch.from_numpy(np.stack(all_c2w))  # [N, 4, 4]
 
         # --- Normalise poses across all splits ---
+        pose_scale_factor = float(self.config.scale_factor)
         if self.config.center_method_sfm:
             # SfM centering: use auto_orient for up-vector alignment only
             camera_to_worlds, transform = camera_utils.auto_orient_and_center_poses(
@@ -414,13 +418,16 @@ class CustomNeuskyDataparser(DataParser):
                     )
                     scale = cap
 
-                camera_to_worlds[:, :3, 3] *= scale * self.config.scale_factor
+                pose_scale_factor = float(scale * self.config.scale_factor)
+                camera_to_worlds[:, :3, 3] *= pose_scale_factor
             else:
                 CONSOLE.log("[yellow]SfM centering requested but no points found, falling back to pose centering")
                 camera_to_worlds[:, 2, 3] -= torch.mean(camera_to_worlds[:, 2, 3], dim=0)
+                scale_factor = 1.0
                 if self.config.auto_scale_poses:
                     scale_factor = 1.0 / torch.max(torch.abs(camera_to_worlds[:, :3, 3]))
-                    camera_to_worlds[:, :3, 3] *= scale_factor * self.config.scale_factor
+                pose_scale_factor = float(scale_factor * self.config.scale_factor)
+                camera_to_worlds[:, :3, 3] *= pose_scale_factor
         else:
             camera_to_worlds, transform = camera_utils.auto_orient_and_center_poses(
                 camera_to_worlds,
@@ -436,7 +443,8 @@ class CustomNeuskyDataparser(DataParser):
             scale_factor = 1.0
             if self.config.auto_scale_poses:
                 scale_factor /= torch.max(torch.abs(camera_to_worlds[:, :3, 3]))
-            camera_to_worlds[:, :3, 3] *= scale_factor * self.config.scale_factor
+            pose_scale_factor = float(scale_factor * self.config.scale_factor)
+            camera_to_worlds[:, :3, 3] *= pose_scale_factor
 
         # --- Slice out the requested split ---
         query = split if split != "val" else "val"
@@ -526,6 +534,7 @@ class CustomNeuskyDataparser(DataParser):
             "out_of_view_frustum_objects_masks": [None] * len(image_filenames),
             "include_sidewalk_in_ground_mask": self.config.include_sidewalk_in_ground_mask,
             "orientation_rotation": orientation_rotation,  # 3x3 rotation from auto_orient_and_center_poses
+            "metric_depth_scale": pose_scale_factor,  # multiply metric GT z-depth into model coordinates
             "gt_envmap_info": gt_envmap_info,  # per-frame HDRI path + rotation
         }
         metadata.update(gt_layers)

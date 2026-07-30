@@ -60,22 +60,20 @@ ENV PATH=/usr/local/cuda/bin:$PATH
 ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
 
 # -- PyTorch + CUDA 12.8 ------------------------------------------------------
+# Pinned to 2.8.0/cu128 so CUDA extensions build against the image CUDA version.
 RUN conda run -n research pip install --no-cache-dir \
-    torch torchvision torchaudio \
-    --extra-index-url https://download.pytorch.org/whl/cu128
+    torch==2.8.0 torchvision==0.23.0 torchaudio==2.8.0 \
+    --index-url https://download.pytorch.org/whl/cu128
 
 # -- Set up LD_LIBRARY_PATH for CUDA libs from torch --------------------------
 ENV LD_LIBRARY_PATH=/opt/conda/envs/research/lib/python3.12/site-packages/torch/lib:/opt/conda/envs/research/lib/python3.12/site-packages/nvidia/cudnn/lib:/opt/conda/envs/research/lib/python3.12/site-packages/nvidia/cublas/lib:$LD_LIBRARY_PATH
 
 # -- CUDA extensions (require devel headers + compilers) ----------------------
-# tiny-cuda-nn: required by nerfstudio hash-grid encodings
+# tiny-cuda-nn: use the prebuilt pt2.8.0/cu128 wheel to avoid fragile source compiles.
 ARG CUDA_ARCHITECTURES="90;89;86;80"
-RUN conda run -n research bash -c " \
-    export TCNN_CUDA_ARCHITECTURES='${CUDA_ARCHITECTURES}' && \
-    export FORCE_CUDA=1 && \
-    pip install --no-cache-dir --no-build-isolation \
-        git+https://github.com/NVlabs/tiny-cuda-nn.git#subdirectory=bindings/torch \
-    && pip cache purge && rm -rf /tmp/*"
+RUN conda run -n research pip install --no-cache-dir \
+    --extra-index-url https://miropsota.github.io/torch_packages_builder \
+    "tinycudann==2.0+pt2.8.0cu128"
 
 # -- nvdiffrast (differentiable rasterization) --------------------------------
 RUN conda run -n research bash -c " \
@@ -113,8 +111,21 @@ RUN conda run -n research pip install --no-cache-dir \
     einops pyyaml packaging requests \
     pyexr OpenEXR roma \
     icosphere wget yacs ftfy regex kaleido omegaconf \
+    configargparse tensorboardX lpips kornia \
     "imageio[all]" \
     && pip cache purge && rm -rf /tmp/*
+
+# -- GS-IR CUDA extensions ----------------------------------------------------
+COPY thirdparty/gs-ir/submodules/diff-gaussian-rasterization /opt/gs-ir-build/diff-gaussian-rasterization
+COPY thirdparty/gs-ir/submodules/simple-knn /opt/gs-ir-build/simple-knn
+COPY thirdparty/gs-ir/gs-ir /opt/gs-ir-build/gs-ir
+RUN conda run -n research bash -c " \
+    export TORCH_CUDA_ARCH_LIST='8.0;8.6;8.9;9.0+PTX' && \
+    pip install --no-cache-dir --no-build-isolation \
+        /opt/gs-ir-build/diff-gaussian-rasterization \
+        /opt/gs-ir-build/simple-knn \
+        /opt/gs-ir-build/gs-ir \
+    && pip cache purge && rm -rf /tmp/* /opt/gs-ir-build"
 
 # nerfstudio CLI completions
 RUN conda run -n research ns-install-cli || true

@@ -113,10 +113,11 @@ class NeuSkyDataManager(VanillaDataManager):  # pylint: disable=abstract-method
 
         self.train_dataset = self.create_train_dataset()
         self.eval_dataset = self.create_eval_dataset()
+        self._configure_train_gt_cache()
 
         # TODO This is a mess, can only have test or val at one time anyway so just use one variable
         # This will need updating in pipeline and model too
-        if self.eval_latent_optimise_method == "per_image":
+        if self.eval_latent_optimise_method in ["per_image", "synthetic_gt_envmap"]:
             self.num_test = len(self.test_outputs.image_filenames)
             if self.test_mode == "test":
                 self.num_val = len(self.test_outputs.image_filenames)
@@ -150,6 +151,27 @@ class NeuSkyDataManager(VanillaDataManager):  # pylint: disable=abstract-method
             split="train",
         )
 
+    def _configure_train_gt_cache(self) -> None:
+        if not isinstance(self.train_dataset, NeuSkyDataset) or not self.train_dataset.gt_layer_filenames:
+            return
+        configured_images = self.config.train_num_images_to_sample_from
+        if configured_images is None or configured_images < 0:
+            cached_images = len(self.train_dataset)
+        else:
+            cached_images = min(int(configured_images), len(self.train_dataset))
+        supervised_layers = [
+            layer_name for layer_name in ("albedo", "normal", "depth")
+            if layer_name in self.train_dataset.gt_layer_filenames
+        ]
+        if not supervised_layers:
+            return
+        cache_items = cached_images * len(supervised_layers)
+        self.train_dataset.set_gt_layer_cache_max_items(cache_items)
+        CONSOLE.print(
+            f"Train GT layer cache can hold {cache_items} tensors "
+            f"({cached_images} images x {len(supervised_layers)} layers)."
+        )
+
     def create_eval_dataset(self) -> NeuSkyDataset:
         self.test_outputs = self.dataparser.get_dataparser_outputs("test")
         self.val_outputs = self.dataparser.get_dataparser_outputs("val")
@@ -161,11 +183,20 @@ class NeuSkyDataManager(VanillaDataManager):  # pylint: disable=abstract-method
             split=self.test_split,
         )
 
+    def next_train(self, step: int) -> Tuple[RayBundle, Dict]:
+        image_batch = next(self.iter_train_image_dataloader)
+        assert self.train_pixel_sampler is not None
+        batch = self.train_pixel_sampler.sample(image_batch)
+        batch = self.train_dataset.add_lazy_train_gt_to_batch(batch)
+        ray_indices = batch["indices"].cpu()
+        ray_bundle = self.train_ray_generator(ray_indices)
+        return ray_bundle, batch
+
     def setup_eval(self):
         """Sets up the data loader for evaluation"""
         assert self.eval_dataset is not None
         CONSOLE.print("Setting up evaluation dataset...")
-        if self.eval_latent_optimise_method == "per_image":
+        if self.eval_latent_optimise_method in ["per_image", "synthetic_gt_envmap"]:
             self.eval_image_dataloader = CacheDataloader(
                 self.eval_dataset,
                 num_images_to_sample_from=self.config.eval_num_images_to_sample_from,
@@ -248,7 +279,7 @@ class NeuSkyDataManager(VanillaDataManager):  # pylint: disable=abstract-method
 
 
     def next_eval_image(self, step: int) -> Tuple[int, RayBundle, Dict]:
-        if not self.eval_latent_optimise_method == "per_image":
+        if self.eval_latent_optimise_method not in ["per_image", "synthetic_gt_envmap"]:
             # nerf osr holdout
             if self.eval_dataloader.count >= len(self.eval_dataloader.image_indices):
                 self.eval_dataloader.count = 0
@@ -267,7 +298,11 @@ class NeuSkyDataManager(VanillaDataManager):  # pylint: disable=abstract-method
             camera_ray_bundle.camera_indices = torch.ones_like(camera_ray_bundle.camera_indices) * image_idx
             return image_idx, camera_ray_bundle, batch
         else:
-            eval_idx = int(step) % len(self.eval_dataset)
+            eval_image_indices = self.config.eval_image_indices
+            if eval_image_indices is None:
+                eval_idx = int(step) % len(self.eval_dataset)
+            else:
+                eval_idx = int(eval_image_indices[int(step) % len(eval_image_indices)])
             camera, batch = self.eval_dataloader.get_camera(eval_idx)
             camera_ray_bundle = camera.generate_rays(camera_indices=0, keep_shape=True)
             image_idx_value = batch["image_idx"]

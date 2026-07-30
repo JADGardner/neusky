@@ -28,8 +28,8 @@ Outputs default to `publication/figures/<name>.{png,pdf}` and
 | `fig_ddf_depth.py` | `ddf_sdf_comparison.png` — DDF depth vs SDF pseudo-GT from sphere cameras | scene ckpt with DDF | lk2 runnable |
 | `fig_ao_shadow.py` | `ao_and_shadow.pdf` — direction-averaged AO + single-direction shadow | scene ckpt with DDF | lk2 runnable |
 | `fig_relighting.py` | `further_relighting_examples.png` — latent swaps + fixed envmaps | scene ckpt (+ `publication/point_light.exr`; dam_wall auto-downloads) | lk2 runnable |
-| `fig_synthetic_eval_grid.py` | `synthetic_eval_grid.png` — 5 scenes x 6 cols (GT/pred RGB, albedo, normal) | synthetic data + per-scene ckpts | blocked on synthetic refits |
-| `make_tables.py` | `nerf_osr.{tex,csv}` (tab:nerf_osr) and `synthetic.{tex,csv}` (tab:synthetic) | scene ckpts per table | partial: `--scenes lk2` works now |
+| `fig_synthetic_eval_grid.py` | `synthetic_eval_grid.png` — 5 scenes x 6 cols (GT/pred RGB, albedo, normal) | synthetic data + `outputs/synthetic_benchmark/neusky/*_gt` predictions | partial as benchmark renders finish |
+| `make_tables.py` | `nerf_osr.{tex,csv}` (tab:nerf_osr) and `synthetic.{tex,csv}` (tab:synthetic) | NeRF-OSR ckpts; synthetic benchmark metrics JSON | synthetic table reads saved benchmark metrics |
 
 "Runnable now" for checkpoint scripts assumes the GPU is free — do **not**
 run them while a training job owns the local 4090. The diagram-only scripts

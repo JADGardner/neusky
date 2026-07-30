@@ -256,6 +256,99 @@ PYTHONPATH=. python scripts/synthetic_benchmark/render_neusky_predictions.py \
     --pred-dir outputs/synthetic_benchmark/abandoned_buildings_estimated
 ```
 
+## Third-party baselines
+
+### NeRF-OSR
+
+NeRF-OSR lives at `thirdparty/nerf-osr` and can now consume the synthetic
+scenes through an adapter dataset. Run these from the NeuSky repo root inside
+the research container (`docker compose run --rm research bash`, or the parent
+Apptainer wrapper on `csgpu13` with the same mounted paths). For Apptainer, run
+`.apptainer/apptainer.sh install --container research` after pulling so the
+GS-IR CUDA extensions are compiled into the overlay; Docker bakes them into the
+image at build time:
+
+```bash
+# 1) Prepare all scenes for NeRF-OSR. This writes a NeRF-OSR datadir plus
+#    configs under thirdparty/nerf-osr/configs/neusky_synthetic/.
+PYTHONPATH=. python scripts/synthetic_benchmark/prepare_nerfosr_synthetic.py \
+    --data /workspace/data/neusky_synthetic_data/renders/*_prepared \
+    --output-root /workspace/data/neusky_synthetic_data/nerf_osr_synthetic \
+    --config-datadir /workspace/data/neusky_synthetic_data/nerf_osr_synthetic
+
+# 2) Train one scene with the upstream code.
+cd thirdparty/nerf-osr
+python ddp_train_nerf.py --config configs/neusky_synthetic/interstellar_house.txt \
+    --world_size 1
+cd ../..
+
+# 3) Render the trained checkpoint into this benchmark's prediction contract.
+PYTHONPATH=. python scripts/synthetic_benchmark/render_nerfosr_predictions.py \
+    --config thirdparty/nerf-osr/configs/neusky_synthetic/interstellar_house.txt \
+    --pred-dir outputs/synthetic_benchmark/nerf_osr/interstellar_house_gt \
+    --resolution-level 1
+
+# 4) Score and then regenerate the thesis table.
+python scripts/synthetic_benchmark/evaluate.py \
+    --pred-dir outputs/synthetic_benchmark/nerf_osr/interstellar_house_gt \
+    --data /workspace/data/neusky_synthetic_data/renders/interstellar_house_prepared \
+    --tracks nvs decomposition \
+    --output outputs/synthetic_benchmark/nerf_osr/interstellar_house_gt/metrics.json \
+    --csv outputs/synthetic_benchmark/nerf_osr/interstellar_house_gt/metrics_per_frame.csv
+PYTHONPATH=. python scripts/figures/make_tables.py --tables synthetic
+```
+
+The adapter normalises poses with the same SfM-percentile/camera-radius cap
+used by NeuSky, writes NeRF-OSR OpenCV camera axes, converts masks to the
+binary loss mask expected upstream, and writes per-frame 9x3 diffuse SH files
+under `<datadir>/<scene>/env_sh/<split>/` for the known-illumination track.
+Depth predictions are converted back to metric scene units before scoring.
+
+NeRF-OSR does not currently implement the benchmark's left-half illumination
+fit, so its `estimated_*` cells remain blank unless a method-specific fitting
+adapter is added.
+
+### GS-IR
+
+GS-IR lives at `thirdparty/gs-ir`. The adapter below creates the Blender-style
+`transforms_train.json`/`transforms_test.json` layout GS-IR already knows how
+to train from, then exports a trained checkpoint into the benchmark contract:
+
+```bash
+# 1) Prepare all scenes for upstream GS-IR.
+PYTHONPATH=. python scripts/synthetic_benchmark/prepare_gsir_synthetic.py \
+    --data /workspace/data/neusky_synthetic_data/renders/*_prepared \
+    --output-root /workspace/data/neusky_synthetic_data/gs_ir_synthetic
+
+# 2) Train one scene with the upstream code.
+cd thirdparty/gs-ir
+python train.py -s /workspace/data/neusky_synthetic_data/gs_ir_synthetic/interstellar_house \
+    -m /workspace/outputs/synthetic_benchmark/gs_ir_logs/interstellar_house \
+    --iterations 30000 --eval
+cd ../..
+
+# 3) Render the trained checkpoint into this benchmark's prediction contract.
+PYTHONPATH=. python scripts/synthetic_benchmark/render_gsir_predictions.py \
+    --data /workspace/data/neusky_synthetic_data/gs_ir_synthetic/interstellar_house \
+    --model-path /workspace/outputs/synthetic_benchmark/gs_ir_logs/interstellar_house \
+    --pred-dir outputs/synthetic_benchmark/gs_ir/interstellar_house_gt \
+    --split test --resolution 1
+
+# 4) Score and then regenerate the thesis table.
+python scripts/synthetic_benchmark/evaluate.py \
+    --pred-dir outputs/synthetic_benchmark/gs_ir/interstellar_house_gt \
+    --data /workspace/data/neusky_synthetic_data/renders/interstellar_house_prepared \
+    --tracks nvs decomposition \
+    --output outputs/synthetic_benchmark/gs_ir/interstellar_house_gt/metrics.json \
+    --csv outputs/synthetic_benchmark/gs_ir/interstellar_house_gt/metrics_per_frame.csv
+PYTHONPATH=. python scripts/figures/make_tables.py --tables synthetic
+```
+
+The renderer adapter exports GS-IR's direct Gaussian RGB render plus albedo,
+normal, depth, roughness and metallic maps. It does not implement the
+left-half illumination-fitting track or external-HDRI relighting, so GS-IR's
+`estimated_*` cells remain blank unless a fitting/relighting adapter is added.
+
 ## Validation
 
 `test_evaluate.py` (pytest, runs anywhere — builds its own tiny fixture)

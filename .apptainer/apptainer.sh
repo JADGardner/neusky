@@ -190,14 +190,33 @@ do_install() {
                 fi
             }
 
-            echo '[1/3] nerfstudio (mainline)'
+            register_cuda_if_needed() {
+                local pkg_path=\"\$1\"
+                local import_stmt=\"\$2\"
+                local pkg_name=\$(basename \"\$pkg_path\")
+                if ! python -c \"\$import_stmt\" 2>/dev/null; then
+                    echo \"  Registering \$pkg_name CUDA extension ...\"
+                    TORCH_CUDA_ARCH_LIST='8.0;8.6;8.9;9.0+PTX' \
+                        pip install --target /overlay-packages -e \"\$pkg_path\" \
+                            --no-deps --no-cache-dir --no-build-isolation
+                else
+                    echo \"  \$pkg_name CUDA extension already registered, skipping.\"
+                fi
+            }
+
+            echo '[1/4] GS-IR CUDA extensions'
+            register_cuda_if_needed /workspace/code/thirdparty/gs-ir/submodules/diff-gaussian-rasterization 'import diff_gaussian_rasterization'
+            register_cuda_if_needed /workspace/code/thirdparty/gs-ir/submodules/simple-knn 'import simple_knn._C'
+            register_cuda_if_needed /workspace/code/thirdparty/gs-ir/gs-ir 'import gs_ir'
+
+            echo '[2/4] nerfstudio (mainline)'
             echo '  Registering nerfstudio ...'
             pip install --target /overlay-packages -e /opt/nerfstudio --no-deps --no-cache-dir --no-build-isolation
 
-            echo '[2/3] ns_reni'
+            echo '[3/4] ns_reni'
             register_if_needed /workspace/code/ns_reni reni
 
-            echo '[3/3] neusky'
+            echo '[4/4] neusky'
             register_if_needed /workspace/code neusky
         "
     fi

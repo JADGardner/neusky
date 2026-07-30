@@ -1,0 +1,22 @@
+{
+  "abandoned_buildings": {
+    "frame": 16,
+    "label": "Abandoned Buildings"
+  },
+  "apartment_building": {
+    "frame": 7,
+    "label": "Apartment Building"
+  },
+  "arlanda_uppsala_cathedral": {
+    "frame": 21,
+    "label": "Arlanda Cathedral"
+  },
+  "glass_building": {
+    "frame": 23,
+    "label": "Glass Building"
+  },
+  "interstellar_house": {
+    "frame": 3,
+    "label": "Interstellar House"
+  }
+}

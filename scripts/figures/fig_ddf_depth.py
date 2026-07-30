@@ -58,6 +58,8 @@ def main():
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     add_common_args(parser, "ddf_sdf_comparison")
     parser.add_argument("--scene", default="lk2")
+    parser.add_argument("--labels", action="store_true",
+                        help="Bake the row labels (formerly TikZ)")
     parser.add_argument("--azimuths", type=float, nargs="+", default=[200.0, 245.0, 290.0],
                         help="Camera azimuths (deg) on the DDF sphere")
     parser.add_argument("--elevation", type=float, default=30.0,
@@ -93,6 +95,11 @@ def main():
         axs[0, c].axis("off")
         axs[1, c].axis("off")
     plt.tight_layout(pad=0.3)
+    if getattr(args, "labels", False):
+        for row, text in ((0, "DDF Prediction"), (1, "SDF Target")):
+            bb = axs[row, 0].get_position()
+            fig.text(bb.x0 - 0.008, (bb.y0 + bb.y1) / 2, text, ha="right",
+                     va="center", rotation=90, fontsize=11, fontfamily="serif")
     save_figure(fig, args.output, svg=args.svg)
 
 

@@ -36,7 +36,7 @@ def main():
     model.eval()
     dm = pipeline.datamanager
 
-    camera = deepcopy(dm.train_dataset.cameras[args.view : args.view + 1])
+    camera = deepcopy(dm.train_dataset.cameras[args.view : args.view + 1]).to(model.device)
     camera.rescale_output_resolution(args.render_scale)
     ray_bundle = camera.generate_rays(camera_indices=0, keep_shape=True)
     ray_bundle.camera_indices = torch.ones_like(ray_bundle.camera_indices) * args.view

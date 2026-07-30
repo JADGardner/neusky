@@ -99,11 +99,11 @@ def main():
     parser.add_argument("--reni-latents", type=int, nargs="*", default=[10, 55, 42],
                         help="RENI++ PRIOR training-latent indices to relight "
                              "with (novel real-HDRI illuminations)")
-    parser.add_argument("--reni-rotations", type=float, nargs="*", default=[-45, 0, 0],
+    parser.add_argument("--reni-rotations", type=float, nargs="*", default=[90, 0, 0],
                         help="Yaw rotation (degrees, about the vertical axis) "
                              "applied to each --reni-latents illumination; "
                              "missing entries default to 0")
-    parser.add_argument("--reni-exposures", type=float, nargs="*", default=[1.0, 1.0, 2.0],
+    parser.add_argument("--reni-exposures", type=float, nargs="*", default=[2.0, 1.0, 2.0],
                         help="Exposure multiplier for each --reni-latents "
                              "render, relative to the view's fitted exposure "
                              "(1.0 = as fitted; applied in exp-scale space); "

@@ -1,7 +1,7 @@
 {
   "scene": "glass_building",
-  "frame": 18,
+  "frame": 23,
   "step": 100000,
-  "envmap_psnr_loghdr": 19.437924506228356,
-  "sun_angle_deg": 22.28945675494629
+  "envmap_psnr_loghdr": 17.93581128452493,
+  "sun_angle_deg": 83.50369421753393
 }

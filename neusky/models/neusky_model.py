@@ -59,6 +59,7 @@ from neusky.model_components.renderers import (
     RGBLambertianRendererWithVisibility,
     RGBBlinnPhongRendererWithVisibility,
 )
+
 from neusky.model_components.losses import RENISkyPixelLoss
 from neusky.model_components.illumination_hdr import IlluminationHDRDecode
 from neusky.field_components.neusky_fieldheadnames import NeuSkyFieldHeadNames
@@ -75,6 +76,34 @@ from reni.model_components.illumination_samplers import IlluminationSamplerConfi
 from reni.field_components.field_heads import RENIFieldHeadNames
 from reni.utils.colourspace import linear_to_sRGB
 from neusky.utils.utils import find_nerfstudio_project_root, rot_z
+
+
+def masked_colour_loss(inputs: torch.Tensor, targets: torch.Tensor, mask: torch.Tensor, loss_type: str) -> torch.Tensor:
+    mask = mask.type_as(inputs)
+    if mask.shape != inputs.shape:
+        mask = mask.expand_as(inputs)
+
+    diff = inputs - targets
+    if loss_type == "l1":
+        values = diff.abs()
+    elif loss_type == "l2":
+        values = diff.square()
+    else:
+        raise ValueError(f"Unsupported masked colour loss type: {loss_type}")
+
+    return (values * mask).sum() / mask.sum().clamp_min(1.0)
+
+
+def masked_cosine_colour_loss(inputs: torch.Tensor, targets: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+    if mask.dim() == inputs.dim():
+        pixel_mask = mask.any(dim=-1)
+    else:
+        pixel_mask = mask.bool()
+
+    if pixel_mask.any():
+        similarity = F.cosine_similarity(inputs[pixel_mask], targets[pixel_mask], dim=1)
+        return torch.mean(1 - similarity)
+    return inputs.sum() * 0.0
 
 
 def fg_boundary_band_at(step: Union[int, None], anneal_start: int, anneal_end: int, band_px: float) -> float:
@@ -218,7 +247,7 @@ class NeuSkyFactoModelConfig(NeuSFactoModelConfig):
     """Optimizer and scheduler for latent code optimisation"""
     eval_latent_sample_region: Literal["left_image_half", "right_image_half", "full_image"] = "full_image"
     """Sample region of images for eval latent optimisation if method is per image"""
-    eval_latent_optimise_method: Literal["per_image", "nerf_osr_holdout", "nerf_osr_envmap"] = "per_image"
+    eval_latent_optimise_method: Literal["per_image", "nerf_osr_holdout", "nerf_osr_envmap", "synthetic_gt_envmap"] = "per_image"
     """Method for optimising eval latents"""
     eval_latent_prior_weight: float = 0.0
     """L2 prior weight on the eval latents during fitting (adds w * mean(z^2) to the fit
@@ -232,6 +261,14 @@ class NeuSkyFactoModelConfig(NeuSFactoModelConfig):
     """Fit eval latents from sky pixels only: disable the building rgb losses during
     the fit and gate the sky loss on rendered accumulation < 0.5, so shading on the
     building cannot drag the illumination latent."""
+    gt_envmap_loss_num_directions: int = 128
+    """Number of random GT HDRI directions per training image for direct RENI latent supervision."""
+    gt_envmap_fit_num_directions: int = 2048
+    """Number of random GT HDRI directions per eval-latent optimisation step."""
+    gt_envmap_fit_num_images_per_step: int = 8
+    """Number of eval HDRIs sampled per synthetic GT-envmap latent optimisation step."""
+    gt_envmap_fit_width: int = 128
+    """Downsampled HDRI cache width used for GT-envmap latent fitting and comparisons."""
     eval_latent_optimisation_seed: int = 42
     """Seed set before eval latent optimisation so relighting evals are deterministic"""
     envmap_saturation_scale: float = 10.0
@@ -275,6 +312,7 @@ class NeuSkyFactoModel(NeuSFactoModel):
         self.train_metadata = kwargs.get("train_metadata", None)
         self.eval_metadata = kwargs.get("eval_metadata", None)
         self.viewing_training_image = False # DEBGUG for viewing training images
+        self._gt_envmap_cache = {}
         # Last training step threaded through forward() by the pipeline (the
         # same plumbing that drives the visibility-threshold decay). Used to
         # anneal the fg-boundary ignore band; None (e.g. eval) means band 0,
@@ -527,6 +565,144 @@ class NeuSkyFactoModel(NeuSFactoModel):
                 / self.config.steps_till_min_visibility_threshold
             )
             return self.visibility_threshold_start * torch.exp(-decay_rate * step)
+
+    def _synthetic_envmap_rotation(self, metadata: Optional[Dict[str, Any]], info: Dict[str, Any], dtype, device) -> torch.Tensor:
+        orientation = torch.eye(3, dtype=dtype, device=device)
+        if metadata is not None and metadata.get("orientation_rotation") is not None:
+            orientation = torch.as_tensor(metadata["orientation_rotation"], dtype=dtype, device=device)
+
+        rotation = info.get("rotation") if info is not None else None
+        z_angle = 0.0
+        if rotation is not None and len(rotation) >= 3:
+            z_angle = float(rotation[2])
+
+        # Blender's mapping-node Z rotation shifts panorama lookups by +z; equivalently
+        # the panorama-to-scene rotation is Rz(-z). Compose with the dataparser
+        # orientation so directions are compared in NeuSky's model frame.
+        env_to_scene = rot_z(torch.tensor(-z_angle, dtype=dtype)).to(device=device, dtype=dtype)
+        return orientation @ env_to_scene
+
+    def _load_gt_envmap_tensor(self, path: str, *, height: int, width: int, device, dtype) -> torch.Tensor:
+        key = (str(path), int(height), int(width), str(device), str(dtype))
+        cached = self._gt_envmap_cache.get(key)
+        if cached is not None:
+            return cached
+
+        import pyexr
+
+        arr = pyexr.open(path).get()
+        if arr.ndim == 2:
+            arr = arr[:, :, None]
+        if arr.shape[2] > 3:
+            arr = arr[:, :, :3]
+        arr = np.nan_to_num(arr.astype(np.float32), nan=0.0, posinf=0.0, neginf=0.0)
+        arr = np.maximum(arr, 0.0)
+        tensor = torch.from_numpy(arr).permute(2, 0, 1).unsqueeze(0).to(device=device, dtype=dtype)
+        if tensor.shape[-2:] != (height, width):
+            tensor = torch.nn.functional.interpolate(tensor, size=(height, width), mode="area")
+        tensor = tensor.squeeze(0).permute(1, 2, 0).contiguous()
+        self._gt_envmap_cache[key] = tensor
+        return tensor
+
+    def _sample_synthetic_gt_envmap(
+        self,
+        info: Dict[str, Any],
+        directions: torch.Tensor,
+        metadata: Optional[Dict[str, Any]],
+        *,
+        height: Optional[int] = None,
+        width: Optional[int] = None,
+    ) -> torch.Tensor:
+        if info is None or info.get("path") is None:
+            raise ValueError("Synthetic GT envmap info is missing a path")
+
+        width = int(width or self.config.gt_envmap_fit_width)
+        height = int(height or max(1, width // 2))
+        envmap = self._load_gt_envmap_tensor(
+            str(info["path"]), height=height, width=width, device=directions.device, dtype=directions.dtype
+        )
+
+        rotation = self._synthetic_envmap_rotation(metadata, info, directions.dtype, directions.device)
+        d_pano = directions.reshape(-1, 3) @ rotation
+        d_pano = F.normalize(d_pano, dim=-1, eps=1e-6)
+
+        theta = torch.acos(d_pano[:, 2].clamp(-1.0, 1.0))
+        phi = torch.atan2(d_pano[:, 0], d_pano[:, 1])
+        u = torch.remainder(phi / (2.0 * torch.pi), 1.0) * width
+        v = (theta / torch.pi).clamp(0.0, 1.0) * (height - 1)
+
+        x0 = torch.floor(u).long() % width
+        x1 = (x0 + 1) % width
+        y0 = torch.floor(v).long().clamp(0, height - 1)
+        y1 = (y0 + 1).clamp(0, height - 1)
+        wx = (u - torch.floor(u)).unsqueeze(-1)
+        wy = (v - torch.floor(v)).unsqueeze(-1)
+
+        c00 = envmap[y0, x0]
+        c10 = envmap[y0, x1]
+        c01 = envmap[y1, x0]
+        c11 = envmap[y1, x1]
+        return (1.0 - wy) * ((1.0 - wx) * c00 + wx * c10) + wy * ((1.0 - wx) * c01 + wx * c11)
+
+    def _synthetic_gt_envmap_loss(
+        self,
+        image_indices: torch.Tensor,
+        metadata: Optional[Dict[str, Any]],
+        latent_bank: torch.Tensor,
+        scale_bank: Optional[torch.Tensor],
+        *,
+        num_directions: int,
+    ) -> Optional[torch.Tensor]:
+        if metadata is None or metadata.get("gt_envmap_info") is None or not isinstance(self.illumination_field, RENIField):
+            return None
+
+        infos = metadata["gt_envmap_info"]
+        valid = []
+        for idx in image_indices.detach().cpu().long().tolist():
+            if 0 <= idx < len(infos) and infos[idx] is not None:
+                valid.append(idx)
+        if not valid:
+            return None
+
+        image_indices_t = torch.tensor(valid, dtype=torch.long, device=self.device)
+        directions = torch.randn((int(num_directions), 3), device=self.device, dtype=latent_bank.dtype)
+        directions = F.normalize(directions, dim=-1, eps=1e-6)
+
+        all_directions = directions.repeat(len(valid), 1)
+        camera_indices = image_indices_t.repeat_interleave(directions.shape[0])
+        ray_samples = RaySamples(
+            frustums=Frustums(
+                origins=torch.zeros_like(all_directions),
+                directions=all_directions,
+                starts=torch.zeros_like(all_directions[..., :1]),
+                ends=torch.ones_like(all_directions[..., :1]),
+                pixel_area=torch.ones_like(all_directions[..., :1]),
+            ),
+            camera_indices=camera_indices[:, None],
+        )
+
+        scale = None if scale_bank is None else scale_bank[camera_indices]
+        outputs = self.illumination_field.forward(
+            ray_samples=ray_samples,
+            latent_codes=latent_bank[camera_indices],
+            scale=scale,
+        )
+        pred_hdr = self.illumination_field.unnormalise(outputs[RENIFieldHeadNames.RGB]).clamp_min(0.0)
+
+        gt_chunks = []
+        for idx in valid:
+            gt_chunks.append(self._sample_synthetic_gt_envmap(infos[idx], directions, metadata))
+        gt_hdr = torch.cat(gt_chunks, dim=0).type_as(pred_hdr).clamp_min(0.0)
+
+        finite = torch.isfinite(pred_hdr).all(dim=-1) & torch.isfinite(gt_hdr).all(dim=-1)
+        if not finite.any():
+            return pred_hdr.sum() * 0.0
+        pred_hdr = pred_hdr[finite]
+        gt_hdr = gt_hdr[finite]
+
+        log_mse = torch.mean((torch.log(pred_hdr + 1e-8) - torch.log(gt_hdr + 1e-8)) ** 2)
+        cosine = torch.mean(1.0 - F.cosine_similarity(pred_hdr, gt_hdr, dim=-1, eps=1e-8))
+        return log_mse + cosine
 
     def forward(
         self,
@@ -1056,16 +1232,14 @@ class NeuSkyFactoModel(NeuSFactoModel):
             # appearance
             image = batch["image"].to(self.device)
             pred_image = outputs["rgb"]
-            # apply inverse of sky mask to image and pred_image as we only apply sky losses to reni directly
-            image = image * (1 - sky_mask.float()).unsqueeze(1).expand_as(image)
-            pred_image = pred_image * (1 - sky_mask.float()).unsqueeze(1).expand_as(pred_image)
+            # Apply object RGB losses only on non-sky pixels without diluting by sky area.
+            rgb_mask = (1 - sky_mask.float()).unsqueeze(1).expand_as(image)
             if self.config.loss_inclusions["rgb_l1_loss"]:
-                loss_dict["rgb_l1_loss"] = self.rgb_l1_loss(image, pred_image)
+                loss_dict["rgb_l1_loss"] = masked_colour_loss(pred_image, image, rgb_mask, "l1")
             if self.config.loss_inclusions["rgb_l2_loss"]:
-                loss_dict["rgb_l2_loss"] = self.rgb_l2_loss(image, pred_image)
+                loss_dict["rgb_l2_loss"] = masked_colour_loss(pred_image, image, rgb_mask, "l2")
             if self.config.loss_inclusions["cosine_colour_loss"]:
-                similarity = self.cosine_colour_loss(image, pred_image)
-                loss_dict["cosine_colour_loss"] = torch.mean(1 - similarity)
+                loss_dict["cosine_colour_loss"] = masked_cosine_colour_loss(pred_image, image, rgb_mask)
 
             # eikonal loss
             if self.config.loss_inclusions["eikonal loss"]:
@@ -1147,6 +1321,72 @@ class NeuSkyFactoModel(NeuSFactoModel):
                     depth_pred.reshape(1, 32, -1), (depth_gt * 50 + 0.5).reshape(1, 32, -1), depth_mask
                 )
 
+            train_gt_base_mask = (1.0 - sky_mask.float()).unsqueeze(1) > 0.5
+
+            if self.config.loss_inclusions.get("gt_albedo_loss", False) and "gt_albedo" in batch:
+                gt_albedo = batch["gt_albedo"].to(self.device).type_as(outputs["albedo"])
+                pred_albedo = outputs["albedo"]
+                albedo_valid = train_gt_base_mask & torch.isfinite(gt_albedo).all(dim=-1, keepdim=True)
+                if albedo_valid.any().item():
+                    loss_dict["gt_albedo_loss"] = masked_colour_loss(
+                        pred_albedo, gt_albedo, albedo_valid.expand_as(pred_albedo), "l1"
+                    )
+                else:
+                    loss_dict["gt_albedo_loss"] = pred_albedo.sum() * 0.0
+
+            if self.config.loss_inclusions.get("gt_normal_loss", False) and "gt_normal" in batch:
+                gt_normal = batch["gt_normal"].to(self.device).type_as(outputs["normal"])
+                if self.train_metadata is not None and "orientation_rotation" in self.train_metadata:
+                    R = self.train_metadata["orientation_rotation"].to(self.device).type_as(gt_normal)
+                    gt_normal = (R @ gt_normal.reshape(-1, 3).T).T.reshape_as(gt_normal)
+
+                pred_normal = F.normalize(outputs["normal"], dim=-1, eps=1e-6)
+                gt_normal_norm = F.normalize(gt_normal, dim=-1, eps=1e-6)
+                normal_valid = (
+                    train_gt_base_mask.squeeze(-1)
+                    & torch.isfinite(gt_normal).all(dim=-1)
+                    & (torch.linalg.norm(gt_normal, dim=-1) > 1e-6)
+                )
+                if normal_valid.any().item():
+                    cos = (pred_normal[normal_valid] * gt_normal_norm[normal_valid]).sum(dim=-1).clamp(-1.0, 1.0)
+                    loss_dict["gt_normal_loss"] = torch.mean(1.0 - cos)
+                else:
+                    loss_dict["gt_normal_loss"] = pred_normal.sum() * 0.0
+
+            if self.config.loss_inclusions.get("gt_depth_loss", False) and "gt_depth" in batch:
+                gt_depth = batch["gt_depth"].to(self.device).type_as(outputs["depth"])
+                if gt_depth.dim() == 1:
+                    gt_depth = gt_depth.unsqueeze(-1)
+                depth_pred = outputs["depth"]
+                depth_scale = torch.tensor(1.0, device=self.device, dtype=gt_depth.dtype)
+                if self.train_metadata is not None and "metric_depth_scale" in self.train_metadata:
+                    raw_scale = self.train_metadata["metric_depth_scale"]
+                    depth_scale = torch.as_tensor(raw_scale, device=self.device, dtype=gt_depth.dtype)
+                gt_depth_model = gt_depth * depth_scale
+                depth_valid = (
+                    train_gt_base_mask
+                    & torch.isfinite(gt_depth)
+                    & torch.isfinite(depth_pred)
+                    & (gt_depth > 0.0)
+                    & (gt_depth < 1.0e9)
+                )
+                if depth_valid.any().item():
+                    loss_dict["gt_depth_loss"] = torch.mean(torch.abs(depth_pred[depth_valid] - gt_depth_model[depth_valid]))
+                else:
+                    loss_dict["gt_depth_loss"] = depth_pred.sum() * 0.0
+
+            if self.config.loss_inclusions.get("gt_envmap_loss", False) and "indices" in batch:
+                image_indices = torch.unique(batch["indices"][:, 0].long())
+                gt_envmap_loss = self._synthetic_gt_envmap_loss(
+                    image_indices=image_indices,
+                    metadata=self.train_metadata,
+                    latent_bank=self.train_illumination_latents,
+                    scale_bank=self.train_scale,
+                    num_directions=self.config.gt_envmap_loss_num_directions,
+                )
+                if gt_envmap_loss is not None:
+                    loss_dict["gt_envmap_loss"] = gt_envmap_loss
+
             if self.config.loss_inclusions["interlevel_loss"]:
                 loss_dict["interlevel_loss"] = interlevel_loss(outputs["weights_list"], outputs["ray_samples_list"])
 
@@ -1205,18 +1445,16 @@ class NeuSkyFactoModel(NeuSFactoModel):
             # colour. This diagnostic fits latents from sky evidence alone.
             sky_only_fit = (self.fitting_eval_latents
                             and getattr(self.config, "eval_fit_sky_only", False))
-            # apply inverse of sky mask to image and pred_image as we only apply sky losses to reni directly
-            image = image * (1 - sky_mask.float()).unsqueeze(1).expand_as(image)
-            pred_image = pred_image * (1 - sky_mask.float()).unsqueeze(1).expand_as(pred_image)
+            # Apply object RGB losses only on non-sky pixels without diluting by sky area.
+            rgb_mask = (1 - sky_mask.float()).unsqueeze(1).expand_as(image)
             if not sky_only_fit:
                 if self.config.loss_inclusions["rgb_l1_loss"]:
-                    loss_dict["rgb_l1_loss"] = self.rgb_l1_loss(image, pred_image)
+                    loss_dict["rgb_l1_loss"] = masked_colour_loss(pred_image, image, rgb_mask, "l1")
                 if self.config.loss_inclusions["rgb_l2_loss"]:
-                    loss_dict["rgb_l2_loss"] = self.rgb_l2_loss(image, pred_image)
+                    loss_dict["rgb_l2_loss"] = masked_colour_loss(pred_image, image, rgb_mask, "l2")
                 if self.config.loss_inclusions["cosine_colour_loss"]:
-                    similarity = self.cosine_colour_loss(image, pred_image)
-                    loss_dict["cosine_colour_loss"] = torch.mean(1 - similarity)
-                
+                    loss_dict["cosine_colour_loss"] = masked_cosine_colour_loss(pred_image, image, rgb_mask)
+
             # SKY PIXEL LOSS TEST
             if self.config.eval_latent_optimise_method != 'nerf_osr_envmap':
                 if self.config.loss_inclusions["sky_pixel_loss"]["enabled"]:
@@ -1231,7 +1469,7 @@ class NeuSkyFactoModel(NeuSFactoModel):
                     if sky_only_fit:
                         # Trust only rays the model itself renders as clear sky:
                         # excludes silhouette pixels where a mask error would
-                        # teach RENI the building colour.
+                        # teach RENI the building's colour.
                         clear = (outputs["accumulation"].detach() < 0.5).float()
                         sky_mask = sky_mask * clear.expand_as(sky_mask)
                     loss_dict["sky_pixel_loss"] = self.sky_pixel_loss(
@@ -1415,36 +1653,76 @@ class NeuSkyFactoModel(NeuSFactoModel):
             gt_norm = torch.nn.functional.normalize(gt_normal, dim=-1)
             pred_norm = torch.nn.functional.normalize(pred_normal, dim=-1)
 
-            # Mean angular error in degrees on foreground pixels
+            # Mean angular error in degrees on foreground pixels. Synthetic
+            # sky normals are intentionally grey/zero, and predicted sky
+            # normals are unconstrained, so exclude sky/invalid pixels from
+            # both metrics and visualisation.
             fg_pixels = fg_mask[..., 0] > 0.5  # (H, W)
-            if fg_pixels.any():
-                cos_sim = (gt_norm[fg_pixels] * pred_norm[fg_pixels]).sum(dim=-1).clamp(-1.0, 1.0)
+            normal_valid = (
+                fg_pixels
+                & torch.isfinite(gt_normal).all(dim=-1)
+                & torch.isfinite(pred_normal).all(dim=-1)
+                & (torch.linalg.norm(gt_normal, dim=-1) > 1e-6)
+            )
+            if normal_valid.any():
+                cos_sim = (gt_norm[normal_valid] * pred_norm[normal_valid]).sum(dim=-1).clamp(-1.0, 1.0)
                 angular_error_deg = torch.acos(cos_sim) * (180.0 / torch.pi)
                 metrics_dict["normal_mae"] = float(angular_error_deg.mean().item())
 
-            # Visualization: map [-1,1] to [0,1]
+            # Visualization: map [-1,1] to [0,1] and show sky/invalid pixels
+            # as neutral grey on both GT and predicted halves.
             gt_normal_vis = (gt_norm + 1.0) / 2.0
             pred_normal_vis = (pred_norm + 1.0) / 2.0
+            normal_valid_vis = normal_valid.unsqueeze(-1)
+            neutral_normal = torch.full_like(gt_normal_vis, 0.5)
+            gt_normal_vis = torch.where(normal_valid_vis, gt_normal_vis, neutral_normal)
+            pred_normal_vis = torch.where(normal_valid_vis, pred_normal_vis, neutral_normal)
             images_dict["gt_vs_pred_normal"] = torch.cat([gt_normal_vis, pred_normal_vis], dim=1)
 
         # Depth evaluation
         if "gt_depth" in batch:
-            gt_depth = batch["gt_depth"].to(self.device)  # (H, W, 1)
-            pred_depth = outputs["depth"]  # (H, W, 1)
+            gt_depth = batch["gt_depth"].to(self.device)  # (H, W, 1), metric z-depth for synthetic data
+            pred_depth = outputs["depth"]  # (H, W, 1), model-space z-depth
 
-            # Scale-shift align predicted depth to GT
-            valid_mask = (gt_depth[..., 0] > 0.0) & (fg_mask[..., 0] > 0.5)
+            # Synthetic depth uses a large sky/no-hit sentinel. Exclude those
+            # pixels before scale alignment and visualization; otherwise the
+            # colormap range is dominated by 1e10 sky depths.
+            gt_depth_values = gt_depth[..., 0]
+            valid_mask = (
+                torch.isfinite(gt_depth_values)
+                & (gt_depth_values > 0.0)
+                & (gt_depth_values < 1.0e9)
+                & (fg_mask[..., 0] > 0.5)
+            )
             if valid_mask.any():
                 scale, shift = normalized_depth_scale_and_shift(
-                    pred_depth[None, ..., 0], gt_depth[None, ..., 0], valid_mask[None, ...]
+                    pred_depth[None, ..., 0], gt_depth_values[None, ...], valid_mask[None, ...]
                 )
                 aligned_depth = pred_depth * scale + shift
-                depth_error = (aligned_depth[..., 0] - gt_depth[..., 0]) ** 2
+                aligned_depth_values = aligned_depth[..., 0]
+                depth_error = (aligned_depth_values - gt_depth_values) ** 2
                 metrics_dict["depth_mse"] = float(depth_error[valid_mask].mean().item())
 
-                # Visualization
-                gt_depth_vis = colormaps.apply_depth_colormap(gt_depth)
-                pred_depth_vis = colormaps.apply_depth_colormap(aligned_depth)
+                # Visualization: use one shared range over valid GT + aligned
+                # prediction pixels and white out invalid/sky pixels.
+                vis_depth_values = torch.cat([gt_depth_values[valid_mask], aligned_depth_values[valid_mask]], dim=0)
+                near_plane = float(torch.min(vis_depth_values).item())
+                far_plane = float(torch.max(vis_depth_values).item())
+                if far_plane <= near_plane:
+                    far_plane = near_plane + 1e-6
+                valid_vis = valid_mask.unsqueeze(-1).float()
+                gt_depth_for_vis = torch.where(
+                    valid_mask.unsqueeze(-1), gt_depth, torch.full_like(gt_depth, far_plane)
+                )
+                pred_depth_for_vis = torch.where(
+                    valid_mask.unsqueeze(-1), aligned_depth, torch.full_like(aligned_depth, far_plane)
+                )
+                gt_depth_vis = colormaps.apply_depth_colormap(
+                    gt_depth_for_vis, accumulation=valid_vis, near_plane=near_plane, far_plane=far_plane
+                )
+                pred_depth_vis = colormaps.apply_depth_colormap(
+                    pred_depth_for_vis, accumulation=valid_vis, near_plane=near_plane, far_plane=far_plane
+                )
                 images_dict["gt_vs_pred_depth"] = torch.cat([gt_depth_vis, pred_depth_vis], dim=1)
 
         with torch.no_grad():
@@ -1491,27 +1769,14 @@ class NeuSkyFactoModel(NeuSFactoModel):
 
             if gt_envmap_info is not None:
                 try:
-                    import pyexr
-                    gt_hdri = pyexr.open(gt_envmap_info["path"]).get()  # (H, W, C) float32
-                    if gt_hdri.shape[2] > 3:
-                        gt_hdri = gt_hdri[:, :, :3]
-                    gt_hdri_t = torch.from_numpy(gt_hdri).to(self.device)
-
-                    # Apply Z-rotation as horizontal pixel shift
-                    rotation = gt_envmap_info.get("rotation")
-                    if rotation is not None and len(rotation) >= 3:
-                        z_angle = rotation[2]  # radians
-                        shift_frac = z_angle / (2.0 * torch.pi)
-                        shift_pixels = int(round(shift_frac.item() if isinstance(shift_frac, torch.Tensor) else shift_frac * gt_hdri_t.shape[1]))
-                        if shift_pixels != 0:
-                            gt_hdri_t = torch.roll(gt_hdri_t, shifts=-shift_pixels, dims=1)
-
-                    # Resize to match RENI++ envmap resolution
-                    gt_hdri_t = gt_hdri_t.permute(2, 0, 1).unsqueeze(0)  # (1, 3, H, W)
-                    gt_hdri_t = torch.nn.functional.interpolate(
-                        gt_hdri_t, size=(height, width), mode="bilinear", align_corners=False
-                    )
-                    gt_hdri_t = gt_hdri_t.squeeze(0).permute(1, 2, 0)  # (H, W, 3)
+                    directions = ray_samples.frustums.directions.reshape(height * width, 3)
+                    gt_hdri_t = self._sample_synthetic_gt_envmap(
+                        gt_envmap_info,
+                        directions,
+                        self.eval_metadata,
+                        height=height,
+                        width=width,
+                    ).reshape(height, width, 3)
 
                     # LDR tonemapped version
                     gt_ldr = linear_to_sRGB(gt_hdri_t)
@@ -1748,6 +2013,11 @@ class NeuSkyFactoModel(NeuSFactoModel):
             # exposure scale on the compare views below.
             self._fit_eval_latents_to_envmaps(datamanager)
             param_group = {"eval_latents": [self.eval_scale]}
+        elif self.config.eval_latent_optimise_method == "synthetic_gt_envmap":
+            self._fit_eval_latents_to_synthetic_gt_envmaps(datamanager)
+            self.fitting_eval_latents = False
+            self._restore_rng_after_eval_fit()
+            return
         elif self.eval_scale is not None:
             param_group = {"eval_latents": [self.eval_illumination_latents, self.eval_scale]}
         else:
@@ -1818,6 +2088,63 @@ class NeuSkyFactoModel(NeuSFactoModel):
         # No longer using eval RENI
         self.fitting_eval_latents = False
         self._restore_rng_after_eval_fit()
+
+    def _fit_eval_latents_to_synthetic_gt_envmaps(self, datamanager: NeuSkyDataManager):
+        """Fit eval RENI++ latents directly to correctly rotated synthetic GT HDRIs."""
+        assert self.eval_scale is not None, "synthetic_gt_envmap protocol requires a RENI illumination field"
+        metadata = datamanager.eval_dataset.metadata
+        infos = metadata.get("gt_envmap_info") if metadata is not None else None
+        if infos is None:
+            raise ValueError("synthetic_gt_envmap eval fitting requires gt_envmap_info metadata")
+
+        valid_indices = [idx for idx, info in enumerate(infos) if info is not None]
+        if not valid_indices:
+            raise ValueError("synthetic_gt_envmap eval fitting found no resolved GT HDRIs")
+
+        param_group = {"eval_latents": [self.eval_illumination_latents, self.eval_scale]}
+        optimizer = Optimizers(self.config.eval_latent_optimizer, param_group)
+        steps = optimizer.config["eval_latents"]["scheduler"].max_steps
+
+        self.eval_illumination_latents.data = torch.zeros_like(self.eval_illumination_latents.data)
+        self.eval_scale.data = torch.zeros_like(self.eval_scale.data)  # exp-neutral (see fit_latent_codes_for_eval)
+        num_images = min(int(self.config.gt_envmap_fit_num_images_per_step), len(valid_indices))
+
+        with Progress(
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+            TimeRemainingColumn(),
+            TextColumn("[blue]Loss: {task.fields[loss]}"),
+            TextColumn("[green]LR: {task.fields[lr]}"),
+        ) as progress:
+            task = progress.add_task("[green]Fitting eval latents to synthetic GT HDRIs... ", total=steps, loss="", lr="")
+            with self.illumination_field.hold_decoder_fixed():
+                for _ in range(steps):
+                    if num_images == len(valid_indices):
+                        selected = valid_indices
+                    else:
+                        selected = random.sample(valid_indices, num_images)
+                    loss = self._synthetic_gt_envmap_loss(
+                        image_indices=torch.tensor(selected, dtype=torch.long, device=self.device),
+                        metadata=metadata,
+                        latent_bank=self.eval_illumination_latents,
+                        scale_bank=self.eval_scale,
+                        num_directions=self.config.gt_envmap_fit_num_directions,
+                    )
+                    if loss is None:
+                        loss = self.eval_illumination_latents.sum() * 0.0
+
+                    optimizer.zero_grad_all()
+                    loss.backward()
+                    optimizer.optimizer_step("eval_latents")
+                    optimizer.scheduler_step("eval_latents")
+
+                    progress.update(
+                        task,
+                        advance=1,
+                        loss=f"{loss.item():.4f}",
+                        lr=f"{optimizer.schedulers['eval_latents'].get_last_lr()[0]:.8f}",
+                    )
 
     def _fit_eval_latents_to_envmaps(self, datamanager: NeuSkyDataManager):
         """Fit the eval RENI latents to the GT session envmaps (NeRF-OSR protocol).

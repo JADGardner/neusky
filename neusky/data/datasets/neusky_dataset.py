@@ -253,12 +253,23 @@ class NeuSkyDataset(InputDataset):
         self.out_of_view_frustum_objects_masks = dataparser_outputs.metadata["out_of_view_frustum_objects_masks"]
         self.split = split
 
-        # Extract GT layer filenames from metadata (populated by dataparser for val/test)
+        # Extract GT layer filenames from metadata. Validation/test load full images
+        # for metrics; train loads only sampled pixels lazily to avoid caching all
+        # full-resolution EXR layers in RAM.
         self.gt_layer_filenames = {}
         for layer_name in GT_LAYER_NAMES:
             key = f"gt_{layer_name}_filenames"
             if key in self.metadata and self.metadata[key] is not None:
                 self.gt_layer_filenames[layer_name] = self.metadata[key]
+        self._gt_layer_cache = {}
+        self._gt_layer_cache_order = []
+        self._gt_layer_cache_max_items = 24
+
+    def set_gt_layer_cache_max_items(self, max_items: int) -> None:
+        self._gt_layer_cache_max_items = max(1, int(max_items))
+        while len(self._gt_layer_cache_order) > self._gt_layer_cache_max_items:
+            old_key = self._gt_layer_cache_order.pop(0)
+            self._gt_layer_cache.pop(old_key, None)
 
     def get_numpy_image(self, image_idx: int) -> npt.NDArray[np.uint8]:
         """Returns the image of shape (H, W, 3 or 4).
@@ -301,26 +312,82 @@ class NeuSkyDataset(InputDataset):
 
         metadata["mask"] = self.get_mask(data["image_idx"])
 
-        # Load GT EXR layers for evaluation (val/test splits only)
-        idx = data["image_idx"]
-        for layer_name, filenames in self.gt_layer_filenames.items():
-            filepath = filenames[idx]
-            if filepath is None:
-                continue
-            num_ch = GT_LAYER_CHANNELS.get(layer_name, 3)
-            arr = _load_exr(filepath, num_channels=num_ch)
-            if arr is None:
-                continue
-            # Apply same spatial downscale as images
-            if self.scale_factor != 1.0:
-                h, w = arr.shape[:2]
-                new_h, new_w = int(h * self.scale_factor), int(w * self.scale_factor)
-                arr_t = torch.from_numpy(arr).permute(2, 0, 1).unsqueeze(0)
-                arr_t = torch.nn.functional.interpolate(arr_t, size=(new_h, new_w), mode="bilinear", align_corners=False)
-                arr = arr_t.squeeze(0).permute(1, 2, 0).numpy()
-            metadata[f"gt_{layer_name}"] = torch.from_numpy(arr)
+        # Load full GT EXR layers only for evaluation. For train, loading full
+        # albedo/normal/depth tensors here would make CacheDataloader keep all
+        # full-resolution GT layers in RAM. Train GT pixels are added lazily in
+        # NeuSkyDataManager.next_train after ray sampling.
+        if self.split != "train":
+            idx = data["image_idx"]
+            for layer_name in self.gt_layer_filenames:
+                arr = self._load_gt_layer(layer_name, idx)
+                if arr is not None:
+                    metadata[f"gt_{layer_name}"] = arr
 
         return metadata
+
+    def _load_gt_layer(self, layer_name: str, idx: int) -> Optional[torch.Tensor]:
+        filenames = self.gt_layer_filenames.get(layer_name)
+        if filenames is None:
+            return None
+        filepath = filenames[idx]
+        if filepath is None:
+            return None
+        num_ch = GT_LAYER_CHANNELS.get(layer_name, 3)
+        arr = _load_exr(filepath, num_channels=num_ch)
+        if arr is None:
+            return None
+        if self.scale_factor != 1.0:
+            h, w = arr.shape[:2]
+            new_h, new_w = int(h * self.scale_factor), int(w * self.scale_factor)
+            arr_t = torch.from_numpy(arr).permute(2, 0, 1).unsqueeze(0)
+            arr_t = torch.nn.functional.interpolate(arr_t, size=(new_h, new_w), mode="bilinear", align_corners=False)
+            arr = arr_t.squeeze(0).permute(1, 2, 0).numpy()
+        return torch.from_numpy(arr)
+
+    def _get_cached_gt_layer(self, layer_name: str, idx: int) -> Optional[torch.Tensor]:
+        key = (layer_name, int(idx))
+        if key in self._gt_layer_cache:
+            self._gt_layer_cache_order.remove(key)
+            self._gt_layer_cache_order.append(key)
+            return self._gt_layer_cache[key]
+
+        tensor = self._load_gt_layer(layer_name, int(idx))
+        if tensor is None:
+            return None
+        self._gt_layer_cache[key] = tensor
+        self._gt_layer_cache_order.append(key)
+        while len(self._gt_layer_cache_order) > self._gt_layer_cache_max_items:
+            old_key = self._gt_layer_cache_order.pop(0)
+            self._gt_layer_cache.pop(old_key, None)
+        return tensor
+
+    def add_lazy_train_gt_to_batch(self, batch: Dict) -> Dict:
+        if self.split != "train" or not self.gt_layer_filenames or "indices" not in batch:
+            return batch
+
+        indices = batch["indices"].cpu().long()
+        image_indices = indices[:, 0]
+        ys = indices[:, 1]
+        xs = indices[:, 2]
+        unique_image_indices = torch.unique(image_indices).tolist()
+
+        for layer_name in ("albedo", "normal", "depth"):
+            if layer_name not in self.gt_layer_filenames:
+                continue
+            num_ch = GT_LAYER_CHANNELS.get(layer_name, 3)
+            values = torch.empty((indices.shape[0], num_ch), dtype=torch.float32)
+            have_values = torch.zeros((indices.shape[0],), dtype=torch.bool)
+            for img_idx in unique_image_indices:
+                layer = self._get_cached_gt_layer(layer_name, int(img_idx))
+                if layer is None:
+                    continue
+                selector = image_indices == int(img_idx)
+                values[selector] = layer[ys[selector], xs[selector]]
+                have_values[selector] = True
+            if have_values.all():
+                batch[f"gt_{layer_name}"] = values
+
+        return batch
 
     def get_mask(self, idx):
         mask = None

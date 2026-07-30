@@ -1,7 +1,7 @@
 {
   "scene": "interstellar_house",
-  "frame": 16,
+  "frame": 3,
   "step": 100000,
-  "envmap_psnr_loghdr": 16.392211320742284,
-  "sun_angle_deg": 114.21551960111974
+  "envmap_psnr_loghdr": 13.206683333839633,
+  "sun_angle_deg": 93.24205061204532
 }
