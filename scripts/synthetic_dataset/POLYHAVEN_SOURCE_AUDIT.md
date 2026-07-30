@@ -10,8 +10,6 @@ official Poly Haven API.
 
 - 131 files have the same MD5 and byte size as the current upstream file.
 - 36 files have a different MD5 and byte size.
-- The changed asset identifiers are pinned in `hdris_16k_legacy.txt`.
-- The accepted versions of those 36 files total 10.06 GiB.
 - Checksums for all accepted files are in `hdris_16k_generation_md5.txt`.
 
 The downloader is resolving the correct asset identifiers, resolution and EXR
@@ -47,7 +45,7 @@ retaining their asset identifiers. This is an inference from the changed
 pixels, file sizes and metadata; the API does not expose an immutable version
 history that identifies the exact upstream operation.
 
-The prepared NeuSky dataset remains an exact record of the accepted renders.
-For a bitwise-identical source set, distribute the 36 accepted legacy EXRs as a
-CC0 delta bundle, download the other 131 files from Poly Haven, and verify the
-combined directory against `hdris_16k_generation_md5.txt`.
+These sparse upstream revisions are accepted for source re-rendering and no
+legacy HDRI bundle is required for the release. The prepared NeuSky dataset
+remains the canonical record for reproducing the reported experiments and
+figures.

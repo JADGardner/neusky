@@ -71,23 +71,15 @@ python scripts/synthetic_dataset/download_hdris.py \
 
 `hdris_16k_manifest.json` pins the currently resolved file URLs, sizes and
 checksums. `hdris_16k_generation_md5.txt` records the files used for the
-accepted render. Poly Haven has since replaced 36 of the 167 EXRs under the
-same asset identifiers. Those files differ in image content, not only EXR
-metadata, so using the current downloads can change rendered pixels.
+accepted render. Poly Haven has since made minor upstream revisions to 36 of
+the 167 EXRs under the same asset identifiers. A pixel-level spot check found
+only sparse image changes, consistent with retouching or reprocessing. Current
+Poly Haven downloads are accepted for source re-rendering; they are not
+expected to reproduce the historical render pixels bit for bit.
 
-`hdris_16k_legacy.txt` identifies the changed files. The accepted versions
-total 10.06 GiB and should be published as a CC0 source-delta bundle. Overlay
-that bundle on a current download to recover the exact 167-file source set,
-then verify it with:
-
-```bash
-cd "$NEUSKY_SYN_DATA/hdris_16k"
-md5sum --check /path/to/neusky/scripts/synthetic_dataset/hdris_16k_generation_md5.txt
-```
-
-Until that delta bundle has a public URL, the distributed prepared dataset is
-the only fully public bitwise record of the accepted renders. Regenerate the
-current download manifest only when intentionally updating the dataset:
+The distributed prepared dataset is the canonical input for reproducing the
+reported results. Regenerate the current download manifest only when
+intentionally updating the pinned upstream files:
 
 ```bash
 python scripts/synthetic_dataset/download_hdris.py \

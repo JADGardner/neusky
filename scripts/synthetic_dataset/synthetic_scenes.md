@@ -101,8 +101,8 @@ so the model must disentangle material appearance from lighting.
 - **Source**: Poly Haven (CC0)
 - Each frame uses a different HDRI with a random Z-axis rotation
 - Download with `scripts/synthetic_dataset/download_hdris.py`
-- `hdris_16k_legacy.txt` lists the 36 accepted-generation files that Poly
-  Haven has subsequently replaced
+- 36 assets have received minor upstream revisions since the accepted renders;
+  current Poly Haven versions are supported for source re-rendering
 
 ### Ground Textures (Poly Haven CC0, 2K)
 

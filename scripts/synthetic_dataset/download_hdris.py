@@ -209,16 +209,16 @@ def report_upstream_changes(
     if changed:
         print(
             "[manifest] warning: "
-            f"{len(changed)} Poly Haven files have changed since the accepted "
-            "dataset was rendered"
+            f"{len(changed)} Poly Haven files have minor upstream revisions "
+            "relative to the accepted render"
         )
         print(
             "[manifest] the prepared dataset remains exact; a fresh render "
             "may not be bitwise identical"
         )
         print(
-            "[manifest] see hdris_16k_legacy.txt for the accepted-generation "
-            "files that must be overlaid for an exact source set"
+            "[manifest] current upstream versions are accepted for source "
+            "re-rendering"
         )
 
 

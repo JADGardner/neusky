@@ -32,14 +32,6 @@ def _generation_checksums() -> dict[str, str]:
     return checksums
 
 
-def _legacy_asset_ids() -> list[str]:
-    return [
-        line.strip()
-        for line in (GENERATOR / "hdris_16k_legacy.txt").read_text().splitlines()
-        if line.strip() and not line.lstrip().startswith("#")
-    ]
-
-
 def test_hdri_selection_and_manifests_are_synchronised():
     asset_ids = _asset_ids()
     assert len(asset_ids) == 167
@@ -59,7 +51,6 @@ def test_hdri_selection_and_manifests_are_synchronised():
         for asset in manifest["assets"]
         if generation_checksums[f"{asset['asset_id']}.exr"] != asset["md5"]
     ]
-    assert changed == _legacy_asset_ids()
     assert len(changed) == 36
 
 
