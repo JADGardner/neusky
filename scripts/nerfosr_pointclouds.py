@@ -10,8 +10,8 @@ to compute a robust scene center and percentile-based scale.
 Subcommands:
   convert  Read Data/<scene>/colmap/sparse_triangulated/points3D.bin and write
            Data/<scene>/final/points3d.ply for each scene.
-  package  Stage the converted PLYs (plus a README) into a zip for upload to
-           the NeuSky NeRF-OSR extras Dropbox folder.
+  package  Stage only the converted PLYs (plus a README) into a standalone
+           zip.
   install  Extract a downloaded zip (or copy from an extracted folder) into a
            NeRF-OSR Data tree, placing each points3d.ply under <scene>/final/.
 
@@ -167,7 +167,9 @@ def main() -> int:
     p_convert.add_argument("--force", action="store_true", help="Overwrite existing PLYs")
     p_convert.set_defaults(func=cmd_convert)
 
-    p_package = sub.add_parser("package", help="Stage converted PLYs into a zip for Dropbox")
+    p_package = sub.add_parser(
+        "package", help="Stage only the converted PLYs into a zip"
+    )
     p_package.add_argument("--data", default="~/data/NeRF-OSR/Data", help="NeRF-OSR Data root")
     p_package.add_argument("--scenes", nargs="+", default=DEFAULT_SCENES)
     p_package.add_argument("--output", default="~/Downloads/nerfosr_neusky_point_clouds.zip")

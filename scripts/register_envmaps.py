@@ -63,8 +63,8 @@ Subcommands:
   compare   Render the panorama from a recovered rotation towards a chosen
             model image's viewpoint and save a side-by-side PNG (visual
             sanity check).
-  package   Stage the per-scene envmap_rotations.json files into a zip for
-            the NeuSky NeRF-OSR extras Dropbox folder.
+  package   Stage only the per-scene envmap_rotations.json files into a
+            standalone zip.
   install   Extract a downloaded zip into a NeRF-OSR Data tree.
 
 Typical usage (register/compare inside the research container):
@@ -686,7 +686,9 @@ def main() -> int:
     p_cmp.add_argument("--output", default="/tmp/envmap_compare.png")
     p_cmp.set_defaults(func=cmd_compare)
 
-    p_pkg = sub.add_parser("package", help="Zip envmap_rotations.json files for Dropbox")
+    p_pkg = sub.add_parser(
+        "package", help="Zip only the per-scene envmap_rotations.json files"
+    )
     p_pkg.add_argument("--data", default="~/data/NeRF-OSR/Data")
     p_pkg.add_argument("--scenes", nargs="+", default=DEFAULT_SCENES)
     p_pkg.add_argument("--output", default="~/Downloads/nerfosr_neusky_eval_extras.zip")

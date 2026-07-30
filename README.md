@@ -157,9 +157,25 @@ https://github.com/JADGardner/neusky/blob/bdf689b8b23a9fc38144e789686edcb161b512
 ns-download-data nerfosr --save-dir data --capture-name lk2
 ```
 
+Download the NeuSky additions for all three evaluated scenes, verify the
+release, and extract them over the directory containing the official `Data/`
+folder:
+
 ```bash
-python neusky/scripts/download_and_copy_segmentation_masks.py lk2 /path/to/Data/NeRF-OSR
+hf download jadgardner/neusky-nerfosr-overlay \
+  --repo-type dataset \
+  --revision v1.0 \
+  --local-dir neusky-nerfosr-overlay
+
+(cd neusky-nerfosr-overlay && sha256sum -c SHA256SUMS)
+for archive in neusky-nerfosr-overlay/archives/*.tar.zst; do
+  tar --zstd -xf "$archive" -C /path/to/NeRF-OSR
+done
 ```
+
+The overlay contains only the Cityscapes segmentation masks,
+`points3d.ply`, and `envmap_rotations.json` used by NeuSky. It does not
+redistribute the original NeRF-OSR images, poses or environment maps.
 
 ## Start Training
 
