@@ -63,13 +63,13 @@ from neusky.model_components.illumination_hdr import IlluminationHDRDecode
 TWO_BRACKET_DIR = Path(
     os.environ.get(
         "NEUSKY_TB_CKPT_DIR",
-        "/workspace/phd/outputs/reni/reni_latent_reset_d100_two_bracket/reni/2026-07-02_4cycles_g7h",
+        "model-storage/reni/neusky-prior",
     )
 )
 PAPER_DIR = Path(
     os.environ.get(
         "NEUSKY_PP_CKPT_DIR",
-        "/home/james/model-storage/reni_paper_models/reni_plus_plus_models/latent_dim_100",
+        "model-storage/reni/published/reni_plus_plus_models/latent_dim_100",
     )
 )
 

@@ -18,8 +18,8 @@ Everything defaults sensibly for a standalone clone of this repo (repo-local
     NEUSKY_OUTPUTS          outputs root           (default <repo>/outputs)
     NERF_OSR_ROOT           NeRF-OSR data root     (default ~/data/NeRF-OSR/Data)
     NEUSKY_SYNTHETIC_ROOT   synthetic renders root (default ~/data/neusky_synthetic_data/renders)
-    NEUSKY_RENI_PRIOR       RENI++ prior ckpt dir  (default <repo>/model-storage/
-                            reni_paper_models/reni_plus_plus_models/latent_dim_100)
+    NEUSKY_RENI_PRIOR       RENI++ prior ckpt dir  (default <repo>/
+                            model-storage/reni/neusky-prior)
     NEUSKY_RUNS             pin scene -> run dir, e.g.
                             "lk2=outputs/lk2_refit_optimised/neusky/2026-06-11_121134;st=..."
 
@@ -154,6 +154,22 @@ SCENE_BEST_RUNS = {
     "lwp": "outputs/lwp_rngfix_w32cyc_hash21/neusky/2026-07-05_082758",
 }
 
+RELEASED_BEST_RUNS = {
+    "lk2": "model-storage/neusky/nerf-osr/lk2",
+    "st": "model-storage/neusky/nerf-osr/st",
+    "lwp": "model-storage/neusky/nerf-osr/lwp",
+    "abandoned_buildings_prepared":
+        "model-storage/neusky/synthetic/abandoned_buildings",
+    "apartment_building_prepared":
+        "model-storage/neusky/synthetic/apartment_building",
+    "arlanda_uppsala_cathedral_prepared":
+        "model-storage/neusky/synthetic/arlanda_uppsala_cathedral",
+    "glass_building_prepared":
+        "model-storage/neusky/synthetic/glass_building",
+    "interstellar_house_prepared":
+        "model-storage/neusky/synthetic/interstellar_house",
+}
+
 
 def _runs_map() -> dict:
     """Parse $NEUSKY_RUNS ("scene=path;scene2=path2", ';' or ',' separated)."""
@@ -186,6 +202,12 @@ def resolve_run_dir(scene: str) -> Path:
     scene = canonical_scene(scene)
 
     pinned = _runs_map().get(scene)
+    released = REPO_ROOT / RELEASED_BEST_RUNS.get(scene, "")
+    if pinned is None and scene in RELEASED_BEST_RUNS and (
+        released / "nerfstudio_models"
+    ).is_dir():
+        pinned = Path(RELEASED_BEST_RUNS[scene])
+        print(f"[runs] {scene}: using released checkpoint {pinned}")
     if pinned is None and scene in SCENE_BEST_RUNS:
         pinned = Path(SCENE_BEST_RUNS[scene])
         print(f"[runs] {scene}: using registered best run {pinned} "
@@ -249,14 +271,16 @@ def resolve_reni_prior(saved: Path | None = None) -> Path:
     3-channel paper prior fails with an fc-shape mismatch.
     """
     candidates = []
+    released_default = REPO_ROOT / "model-storage" / "reni" / "neusky-prior"
     if os.environ.get("NEUSKY_RENI_PRIOR"):
         candidates.append(Path(os.environ["NEUSKY_RENI_PRIOR"]).expanduser())
     if saved is not None:
         saved = Path(saved)
         candidates.append(saved)
         candidates.append(REPO_ROOT.parents[1] / "code" / "ns_reni" / "outputs" / saved.name)
-    if os.environ.get("RENI_CKPT_PATH"):  # docker-compose convention
-        candidates.append(Path(os.environ["RENI_CKPT_PATH"]).expanduser() / "latent_dim_100")
+    if os.environ.get("RENI_CKPT_PATH"):
+        candidates.append(Path(os.environ["RENI_CKPT_PATH"]).expanduser())
+    candidates.append(released_default)
     candidates.append(
         REPO_ROOT / "model-storage" / "reni_paper_models" / "reni_plus_plus_models" / "latent_dim_100"
     )
@@ -264,7 +288,8 @@ def resolve_reni_prior(saved: Path | None = None) -> Path:
     for c in candidates:
         if (c / "nerfstudio_models").is_dir():
             return c
-    return candidates[-2]  # default; populate_modules raises a clear error if absent
+    # populate_modules will raise a clear error at the public default path.
+    return released_default
 
 
 def _remap_data_path(saved: Path) -> Path:
@@ -298,8 +323,8 @@ def load_model(
     """Load a trained NeuSky pipeline for a scene via nerfstudio eval_setup.
 
     Resolves the latest run/checkpoint (resolve_run_dir), performs config
-    surgery for relocated paths (data roots + the RENI++ prior the configs
-    reference at model-storage/reni_paper_models/...), and returns
+    surgery for relocated paths (data roots + the released RENI++ prior), and
+    returns
     (config, pipeline, checkpoint_path, step). `config_hook(config)` allows
     per-figure overrides (e.g. eval_latent_optimise_method) before setup.
 

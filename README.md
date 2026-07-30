@@ -52,13 +52,18 @@ MODEL_STORAGE_PATH=/path/to/pretrained-models
 OUTPUTS_PATH=/path/to/outputs
 ```
 
-**RENI++ checkpoints (required):** NeuSky uses RENI++ as its illumination prior. Set `RENI_CKPT_PATH` to the directory containing the pretrained RENI++ models (the `checkpoints/reni_plus_plus_models/` directory from ns_reni):
+**RENI++ checkpoint (required):** NeuSky uses the released channelwise,
+two-bracket RENI prior. Download that exact prior into the model-storage
+layout expected by the checked-in configs:
 
 ```bash
-export RENI_CKPT_PATH=/path/to/ns_reni/checkpoints/reni_plus_plus_models
+python ns_reni/scripts/download_models.py \
+  model-storage/reni \
+  --group neusky-prior
 ```
 
-This gets mounted at `/workspace/model-storage/reni_plus_plus` inside the container.
+This is the prior used to train the released NeuSky models. It is distinct
+from the later joint-frame RENI thesis model.
 
 ### 2. Build and run
 
@@ -77,7 +82,7 @@ Inside the container, the project is mounted at `/workspace` with:
 - `/workspace/data` -- datasets (NeRF-OSR at `data/NeRF-OSR/Data/`)
 - `/workspace/outputs` -- training outputs
 - `/workspace/model-storage` -- pretrained checkpoints
-- `/workspace/model-storage/reni_plus_plus` -- RENI++ checkpoints
+- `/workspace/model-storage/reni/neusky-prior` -- NeuSky's RENI prior
 
 The entrypoint automatically installs `neusky` and `ns_reni` (submodule at `ns_reni/`) editably.
 
@@ -141,17 +146,34 @@ ns-install-cli
 
 ---
 
-## Download RENI++ pre-trained models
+## Download Pretrained Models
+
+Download the required RENI prior and all three final NeRF-OSR NeuSky models:
 
 ```bash
-python ns_reni/scripts/download_models.py output/path/for/reni_plus_plus_models/
+python ns_reni/scripts/download_models.py \
+  model-storage/reni \
+  --group neusky-prior
+python scripts/download_models.py model-storage/neusky
 ```
 
-Then update the config for NeuSky to point to the chosen RENI++ directory:
+The NeuSky downloader reads the tagged
+[NeuSky Models v1.0 release](https://huggingface.co/jadgardner/neusky-models),
+supports resumable downloads, and verifies each file against the release
+manifest. Fetch one real scene or the five accepted synthetic models with:
 
-https://github.com/JADGardner/neusky/blob/bdf689b8b23a9fc38144e789686edcb161b512e7/neusky/configs/neusky_config.py#L150
+```bash
+python scripts/download_models.py model-storage/neusky --scene lk2
+python scripts/download_models.py model-storage/neusky --collection synthetic
+```
+
+Use `python scripts/download_models.py --list` for all model identifiers.
+The figure scripts automatically prefer released models under
+`model-storage/neusky`; `NEUSKY_RUNS` can still pin another run explicitly.
 
 ## Download Data
+
+### NeRF-OSR
 
 ```bash
 ns-download-data nerfosr --save-dir data --capture-name lk2
@@ -176,6 +198,27 @@ done
 The overlay contains only the Cityscapes segmentation masks,
 `points3d.ply`, and `envmap_rotations.json` used by NeuSky. It does not
 redistribute the original NeRF-OSR images, poses or environment maps.
+
+### Synthetic Benchmark
+
+The five accepted synthetic scene datasets are available as independently
+downloadable archives in
+[NeuSky Synthetic v1.0](https://huggingface.co/datasets/jadgardner/neusky-synthetic):
+
+```bash
+hf download jadgardner/neusky-synthetic \
+  --repo-type dataset \
+  --revision v1.0 \
+  --local-dir neusky-synthetic
+
+(cd neusky-synthetic && sha256sum -c SHA256SUMS)
+for archive in neusky-synthetic/archives/*.tar.zst; do
+  tar --zstd -xf "$archive" -C data
+done
+```
+
+The dataset page documents the Blender scene sources, HDRI list, rendering
+code and the small accepted Poly Haven source-revision differences.
 
 ## Start Training
 
