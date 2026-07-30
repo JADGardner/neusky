@@ -1,0 +1,41 @@
+# Poly Haven 16K EXRs that differ from the files used for NeuSky Synthetic v1.
+#
+# These 36 accepted-generation files total 10.06 GiB. Preserve them in the
+# release as an optional source delta, then overlay them on a current download
+# of hdris_16k.txt for a bitwise-identical HDRI source set.
+autumn_park
+autumn_road
+aviation_museum
+beach_parking
+bell_park_pier
+blue_lagoon
+cedar_bridge
+circus_maximus_1
+dirt_bike_track_01
+driving_school
+factory_yard
+fish_hoek_beach
+freight_station
+furry_clouds
+harties
+hilltop_construction
+industrial_sunset
+learner_park
+misty_dawn
+moonlit_golf
+museumplein
+noon_grass
+old_outdoor_theater
+preller_drive
+reichstag_1
+signal_hill_dawn
+signal_hill_sunrise
+simons_town_harbour
+skate_park
+small_harbor_02
+stadium_01
+venice_dawn_1
+venice_sunset
+wide_street_01
+wide_street_02
+zwinger_night

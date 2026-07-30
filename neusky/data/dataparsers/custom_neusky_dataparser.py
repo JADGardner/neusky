@@ -16,7 +16,8 @@
 Reads a transforms.json file (instant-ngp / BlenderNeRF format) and
 PNG images organised into train/validation/test splits.
 
-Expected directory layout (produced by scripts/prepare_synthetic_data.py):
+Expected directory layout (produced by
+scripts/synthetic_dataset/prepare_synthetic_data.py):
 
     <data>/
         transforms.json          # camera poses for ALL frames
@@ -371,7 +372,7 @@ class CustomNeuskyDataparser(DataParser):
         if total == 0:
             raise ValueError(
                 f"No images found matching transforms in {self.config.data}. "
-                "Run scripts/prepare_synthetic_data.py first."
+                "Run scripts/synthetic_dataset/prepare_synthetic_data.py first."
             )
 
         CONSOLE.log(

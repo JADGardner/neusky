@@ -1,0 +1,1014 @@
+{
+  "schema_version": 1,
+  "source": "https://polyhaven.com/hdris",
+  "api": "https://api.polyhaven.com/files/{asset_id}",
+  "license": "CC0",
+  "resolution": "16k",
+  "format": "exr",
+  "count": 167,
+  "total_bytes": 51891828238,
+  "assets": [
+    {
+      "asset_id": "abandoned_hopper_terminal_03",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/abandoned_hopper_terminal_03_16k.exr",
+      "size": 300468871,
+      "md5": "2dc1e2bdfcae9766229179b9c2b65765"
+    },
+    {
+      "asset_id": "abandoned_hopper_terminal_04",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/abandoned_hopper_terminal_04_16k.exr",
+      "size": 320822524,
+      "md5": "6b5ca4aa533c3f040a1952088fbe777a"
+    },
+    {
+      "asset_id": "abandoned_parking",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/abandoned_parking_16k.exr",
+      "size": 303825300,
+      "md5": "d288eaf31bef460f4abf1257ac43219c"
+    },
+    {
+      "asset_id": "abandoned_slipway",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/abandoned_slipway_16k.exr",
+      "size": 360849134,
+      "md5": "38f3b3e5cb5b1a4a3221e68d8ed5a510"
+    },
+    {
+      "asset_id": "abandoned_tank_farm_01",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/abandoned_tank_farm_01_16k.exr",
+      "size": 303100308,
+      "md5": "9ec35df561aecc864e60907b87c7a4a2"
+    },
+    {
+      "asset_id": "abandoned_tank_farm_03",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/abandoned_tank_farm_03_16k.exr",
+      "size": 272594562,
+      "md5": "c5793d8ca17323293ea8856f8a8e6531"
+    },
+    {
+      "asset_id": "abandoned_tank_farm_04",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/abandoned_tank_farm_04_16k.exr",
+      "size": 299343440,
+      "md5": "9ee76997367fc023d20b9e145fcb74fc"
+    },
+    {
+      "asset_id": "abandoned_tank_farm_05",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/abandoned_tank_farm_05_16k.exr",
+      "size": 271752202,
+      "md5": "bbe1a9813daa054b8a78df5c617509b5"
+    },
+    {
+      "asset_id": "abandoned_waterworks",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/abandoned_waterworks_16k.exr",
+      "size": 307646519,
+      "md5": "eebef90fbb764c93346f88855dd69118"
+    },
+    {
+      "asset_id": "approaching_storm",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/approaching_storm_16k.exr",
+      "size": 300943702,
+      "md5": "2681545466b44765ff8f13b8d6ffe250"
+    },
+    {
+      "asset_id": "aristea_wreck",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/aristea_wreck_16k.exr",
+      "size": 273673714,
+      "md5": "0bbfc11ca745eec7cc25a32bd3f8718c"
+    },
+    {
+      "asset_id": "autumn_park",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/autumn_park_16k.exr",
+      "size": 327302990,
+      "md5": "4f11de47b44bc151ba43ce617419f59e"
+    },
+    {
+      "asset_id": "autumn_road",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/autumn_road_16k.exr",
+      "size": 337052649,
+      "md5": "a32b40cdb55167be2c6a9717490381f9"
+    },
+    {
+      "asset_id": "aviation_museum",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/aviation_museum_16k.exr",
+      "size": 296307456,
+      "md5": "e68ebbf7648ef8db0fe845e81d383315"
+    },
+    {
+      "asset_id": "aviation_museum_hill",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/aviation_museum_hill_16k.exr",
+      "size": 266642191,
+      "md5": "5316791d5e4e29a925745e73e335e445"
+    },
+    {
+      "asset_id": "beach_parking",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/beach_parking_16k.exr",
+      "size": 276079646,
+      "md5": "c3e5b36275aa3747002ddf229935c8d0"
+    },
+    {
+      "asset_id": "bell_park_dawn",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/bell_park_dawn_16k.exr",
+      "size": 351503352,
+      "md5": "cd47eeb2973c03172dcaaf74212c1f56"
+    },
+    {
+      "asset_id": "bell_park_pier",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/bell_park_pier_16k.exr",
+      "size": 246369988,
+      "md5": "6099220649a0f96f265608dc4bb76fde"
+    },
+    {
+      "asset_id": "blouberg_sunrise_1",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/blouberg_sunrise_1_16k.exr",
+      "size": 231652756,
+      "md5": "9f2adf3e4010ef1c930b653b86e7e637"
+    },
+    {
+      "asset_id": "blouberg_sunrise_2",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/blouberg_sunrise_2_16k.exr",
+      "size": 225169907,
+      "md5": "8c0abc74cd68ab43139baec102345152"
+    },
+    {
+      "asset_id": "blue_lagoon",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/blue_lagoon_16k.exr",
+      "size": 219731387,
+      "md5": "7cf0888b80bbf6c6211e8dbe7ba8e199"
+    },
+    {
+      "asset_id": "blue_lagoon_night",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/blue_lagoon_night_16k.exr",
+      "size": 306101136,
+      "md5": "05c6968142ad35280bdb15b0ab467d59"
+    },
+    {
+      "asset_id": "cannon",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/cannon_16k.exr",
+      "size": 81098532,
+      "md5": "e22dc6ed4157635f3c469d89980243a9"
+    },
+    {
+      "asset_id": "cape_hill",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/cape_hill_16k.exr",
+      "size": 275368582,
+      "md5": "f2bb57cc0da7ad737e9ed270df1eb91a"
+    },
+    {
+      "asset_id": "cayley_lookout",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/cayley_lookout_16k.exr",
+      "size": 304316362,
+      "md5": "486434931af5e04977473b443046bd5f"
+    },
+    {
+      "asset_id": "cedar_bridge",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/cedar_bridge_16k.exr",
+      "size": 302046573,
+      "md5": "1846c9ba5e6fbca64f1558fba3f3d3a2"
+    },
+    {
+      "asset_id": "champagne_castle_1",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/champagne_castle_1_16k.exr",
+      "size": 334770722,
+      "md5": "04eb69869ecf9dd61c42721e018ca697"
+    },
+    {
+      "asset_id": "circus_maximus_1",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/circus_maximus_1_16k.exr",
+      "size": 305450015,
+      "md5": "09a4395b5c0ae732a715d97e4df08975"
+    },
+    {
+      "asset_id": "circus_maximus_2",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/circus_maximus_2_16k.exr",
+      "size": 315144980,
+      "md5": "7b46fff12999b38f298eaf35d22708a9"
+    },
+    {
+      "asset_id": "cloud_layers",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/cloud_layers_16k.exr",
+      "size": 359850967,
+      "md5": "1240bcfa4a232532733b96295e456e38"
+    },
+    {
+      "asset_id": "cloudy_cliffside_road",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/cloudy_cliffside_road_16k.exr",
+      "size": 332184901,
+      "md5": "5307d6d1575bad4326d69bea36a288a2"
+    },
+    {
+      "asset_id": "dam_road",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/dam_road_16k.exr",
+      "size": 283129298,
+      "md5": "88f58080ae2188c1210fce063afa6ec8"
+    },
+    {
+      "asset_id": "derelict_highway_noon",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/derelict_highway_noon_16k.exr",
+      "size": 310725134,
+      "md5": "c91d4ae75e8b4f845aa3a33fde3a9b83"
+    },
+    {
+      "asset_id": "derelict_overpass",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/derelict_overpass_16k.exr",
+      "size": 307945606,
+      "md5": "52a7c8f2ce10256a4ccedb0be7bc30d0"
+    },
+    {
+      "asset_id": "dikhololo_night",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/dikhololo_night_16k.exr",
+      "size": 469560170,
+      "md5": "efbc89570228c1231db22a6904c2c06b"
+    },
+    {
+      "asset_id": "dikhololo_sunset",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/dikhololo_sunset_16k.exr",
+      "size": 296061832,
+      "md5": "274abcee76911635d6aec827ef59f037"
+    },
+    {
+      "asset_id": "dirt_bike_track_01",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/dirt_bike_track_01_16k.exr",
+      "size": 300890367,
+      "md5": "a4ab06f551d38b35f7ad54106294224a"
+    },
+    {
+      "asset_id": "dresden_square",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/dresden_square_16k.exr",
+      "size": 277495898,
+      "md5": "464ec99f4f6f46a359a5a8dc692706c9"
+    },
+    {
+      "asset_id": "driving_school",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/driving_school_16k.exr",
+      "size": 306194024,
+      "md5": "8619a33c5253da39e31029ae32f4b207"
+    },
+    {
+      "asset_id": "dry_field",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/dry_field_16k.exr",
+      "size": 311370043,
+      "md5": "3f123121b73f02a2bd5812085514580b"
+    },
+    {
+      "asset_id": "eilenriede_park",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/eilenriede_park_16k.exr",
+      "size": 335742777,
+      "md5": "86aea0c2cc7285869934fc0004963479"
+    },
+    {
+      "asset_id": "evening_meadow",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/evening_meadow_16k.exr",
+      "size": 1282648102,
+      "md5": "7fdd87a18e9449619ec300ac700b11ab"
+    },
+    {
+      "asset_id": "evening_road_01",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/evening_road_01_16k.exr",
+      "size": 300302905,
+      "md5": "be253502f0b832f976164afe248b83f1"
+    },
+    {
+      "asset_id": "factory_yard",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/factory_yard_16k.exr",
+      "size": 262971214,
+      "md5": "eb4c69233e164631d0f3ce0408416a70"
+    },
+    {
+      "asset_id": "fish_hoek_beach",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/fish_hoek_beach_16k.exr",
+      "size": 198066206,
+      "md5": "adaf963af1ed7ee5843f4e022434f32e"
+    },
+    {
+      "asset_id": "flower_road",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/flower_road_16k.exr",
+      "size": 244274492,
+      "md5": "d6dca7db4108365e7a764b2d103353cb"
+    },
+    {
+      "asset_id": "freight_station",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/freight_station_16k.exr",
+      "size": 290266704,
+      "md5": "f1998ebf83016ff44351e517f52f9511"
+    },
+    {
+      "asset_id": "furry_clouds",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/furry_clouds_16k.exr",
+      "size": 293626856,
+      "md5": "ce8568250518f6c93fc1a3435aa9c00f"
+    },
+    {
+      "asset_id": "goegap",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/goegap_16k.exr",
+      "size": 292448526,
+      "md5": "f3936578425d1262a68a046cd590a56a"
+    },
+    {
+      "asset_id": "gothic_manor_02",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/gothic_manor_02_16k.exr",
+      "size": 316547665,
+      "md5": "d8dd928cf20649a5712f9d5c7a0e09bd"
+    },
+    {
+      "asset_id": "green_point_park",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/green_point_park_16k.exr",
+      "size": 303439278,
+      "md5": "2a70ab6679bce8d205b355e4aaaaa016"
+    },
+    {
+      "asset_id": "harties",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/harties_16k.exr",
+      "size": 324379659,
+      "md5": "e4b7a401f4f6f6bb83ad2edc60e24830"
+    },
+    {
+      "asset_id": "hilltop_construction",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/hilltop_construction_16k.exr",
+      "size": 358023409,
+      "md5": "fa6449326cd4169621c135e4e846d838"
+    },
+    {
+      "asset_id": "hilly_terrain_01",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/hilly_terrain_01_16k.exr",
+      "size": 300018749,
+      "md5": "fa9ca5d050f802e87939c6697b54e74d"
+    },
+    {
+      "asset_id": "industrial_sunset",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/industrial_sunset_16k.exr",
+      "size": 318357555,
+      "md5": "56a95176360a5415615151869d0c8396"
+    },
+    {
+      "asset_id": "je_gray_park",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/je_gray_park_16k.exr",
+      "size": 303954110,
+      "md5": "2b683d271fdaea7624166bdc358a5998"
+    },
+    {
+      "asset_id": "kiara_1_dawn",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/kiara_1_dawn_16k.exr",
+      "size": 303882873,
+      "md5": "a17095920f3b69ec58f2cdabadc0c807"
+    },
+    {
+      "asset_id": "kiara_2_sunrise",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/kiara_2_sunrise_16k.exr",
+      "size": 307897156,
+      "md5": "0458003eea6e204f2aaad7f4fe58e47e"
+    },
+    {
+      "asset_id": "kiara_3_morning",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/kiara_3_morning_16k.exr",
+      "size": 327201405,
+      "md5": "384dc31da5ee76ff7a2da9b3a92cf730"
+    },
+    {
+      "asset_id": "kiara_5_noon",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/kiara_5_noon_16k.exr",
+      "size": 304266521,
+      "md5": "674c5eeb6e47c7e09b88f222f27c5145"
+    },
+    {
+      "asset_id": "kiara_7_late-afternoon",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/kiara_7_late-afternoon_16k.exr",
+      "size": 316364452,
+      "md5": "d10876a9f878d46f0f40102120221cd4"
+    },
+    {
+      "asset_id": "kiara_8_sunset",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/kiara_8_sunset_16k.exr",
+      "size": 306221301,
+      "md5": "aa2c14cb127de50d9aed77e000d44b7d"
+    },
+    {
+      "asset_id": "kiara_9_dusk",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/kiara_9_dusk_16k.exr",
+      "size": 303408675,
+      "md5": "fc766765c999a0338e7a0671debb0624"
+    },
+    {
+      "asset_id": "kloetzle_blei",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/kloetzle_blei_16k.exr",
+      "size": 333068181,
+      "md5": "8025f4354bbf27dec255a2d50ebcee66"
+    },
+    {
+      "asset_id": "kloofendal_38d_partly_cloudy",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/kloofendal_38d_partly_cloudy_16k.exr",
+      "size": 278183907,
+      "md5": "1e8633f0db809a2ea8909f809bbd295e"
+    },
+    {
+      "asset_id": "kloofendal_48d_partly_cloudy",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/kloofendal_48d_partly_cloudy_16k.exr",
+      "size": 313696222,
+      "md5": "09a0037557d4dfc60297e7a2a4a8c8e8"
+    },
+    {
+      "asset_id": "kloppenheim_01",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/kloppenheim_01_16k.exr",
+      "size": 263352906,
+      "md5": "2f23ffe7eea600aedbe9ac21563900ce"
+    },
+    {
+      "asset_id": "kloppenheim_02",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/kloppenheim_02_16k.exr",
+      "size": 406940961,
+      "md5": "54e6ef18c4c84a06d6f4860dd041634a"
+    },
+    {
+      "asset_id": "kloppenheim_03",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/kloppenheim_03_16k.exr",
+      "size": 278505138,
+      "md5": "969507ccb4737d8decfedb20f011137e"
+    },
+    {
+      "asset_id": "kloppenheim_04",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/kloppenheim_04_16k.exr",
+      "size": 388305460,
+      "md5": "21b1c249a7479a646e5a6020cba02084"
+    },
+    {
+      "asset_id": "kloppenheim_05",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/kloppenheim_05_16k.exr",
+      "size": 295879649,
+      "md5": "623cfc566a8101863e0160d091da26e5"
+    },
+    {
+      "asset_id": "kloppenheim_06",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/kloppenheim_06_16k.exr",
+      "size": 277673169,
+      "md5": "114e27604b723b2f63072404e2a888a9"
+    },
+    {
+      "asset_id": "kloppenheim_07",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/kloppenheim_07_16k.exr",
+      "size": 355417931,
+      "md5": "3df77b9187d1082ddba73a5d67094009"
+    },
+    {
+      "asset_id": "lakes",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/lakes_16k.exr",
+      "size": 284175735,
+      "md5": "6fc1bcf45889f1e07a753715e7112d16"
+    },
+    {
+      "asset_id": "lakeside",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/lakeside_16k.exr",
+      "size": 283745610,
+      "md5": "3f20324ca883d286dcea13a131c85c89"
+    },
+    {
+      "asset_id": "learner_park",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/learner_park_16k.exr",
+      "size": 316405394,
+      "md5": "958622b541a52a0b3ec18b9ab0da65b0"
+    },
+    {
+      "asset_id": "lenong_2",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/lenong_2_16k.exr",
+      "size": 294731611,
+      "md5": "dc783ca3f4f3cd0a0f6c90deb8ee511e"
+    },
+    {
+      "asset_id": "lenong_3",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/lenong_3_16k.exr",
+      "size": 305146651,
+      "md5": "a90f1ed6412c8554faba1ca0a9f461e3"
+    },
+    {
+      "asset_id": "lilienstein",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/lilienstein_16k.exr",
+      "size": 370174326,
+      "md5": "844cce5267960784abafe2dcf192aab1"
+    },
+    {
+      "asset_id": "lythwood_field",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/lythwood_field_16k.exr",
+      "size": 300185815,
+      "md5": "b0192b23c381f9d61760295eee67f4d5"
+    },
+    {
+      "asset_id": "mall_parking_lot",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/mall_parking_lot_16k.exr",
+      "size": 287405582,
+      "md5": "4c0f0bb7dccc0cfe171d791c6a8b74e6"
+    },
+    {
+      "asset_id": "mealie_road",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/mealie_road_16k.exr",
+      "size": 304001110,
+      "md5": "ef80cfd449657fc4e150b00e62aa7589"
+    },
+    {
+      "asset_id": "missile_launch_facility_02",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/missile_launch_facility_02_16k.exr",
+      "size": 355767531,
+      "md5": "db8a24b443748ef0aa0968d86c551f1c"
+    },
+    {
+      "asset_id": "misty_dawn",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/misty_dawn_16k.exr",
+      "size": 315196130,
+      "md5": "c52a3c8579b8f7f13a64d1167afc57a3"
+    },
+    {
+      "asset_id": "monte_scherbelino",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/monte_scherbelino_16k.exr",
+      "size": 323628308,
+      "md5": "8809793e25701af1262999c7f3f42860"
+    },
+    {
+      "asset_id": "moonless_golf",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/moonless_golf_16k.exr",
+      "size": 381175788,
+      "md5": "208ace3672d17aad6ef26ccddbb82729"
+    },
+    {
+      "asset_id": "moonlit_golf",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/moonlit_golf_16k.exr",
+      "size": 420774042,
+      "md5": "804aa228b28de57c287a4683113bf51c"
+    },
+    {
+      "asset_id": "mpumalanga_veld",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/mpumalanga_veld_16k.exr",
+      "size": 324127798,
+      "md5": "16ce555a62678dcb6ee95f5e49245ca3"
+    },
+    {
+      "asset_id": "mud_road",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/mud_road_16k.exr",
+      "size": 279787385,
+      "md5": "2a6e13f9676735fd68e61d0875af84e1"
+    },
+    {
+      "asset_id": "museumplein",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/museumplein_16k.exr",
+      "size": 306436855,
+      "md5": "77b13d1e2a2e45092eabf0add9705a6a"
+    },
+    {
+      "asset_id": "noga",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/noga_16k.exr",
+      "size": 348207237,
+      "md5": "2874c960e673b2bf872a3cdac63cd810"
+    },
+    {
+      "asset_id": "noon_grass",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/noon_grass_16k.exr",
+      "size": 347610543,
+      "md5": "41d2bf5270c086fd337ca45d86aa7341"
+    },
+    {
+      "asset_id": "old_outdoor_theater",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/old_outdoor_theater_16k.exr",
+      "size": 277529223,
+      "md5": "910af514c115376cd5b9cb1473ca6271"
+    },
+    {
+      "asset_id": "ostrich_road",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/ostrich_road_16k.exr",
+      "size": 315267467,
+      "md5": "ebc7619a194350c9bf74c64e0646041b"
+    },
+    {
+      "asset_id": "park_bench",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/park_bench_16k.exr",
+      "size": 351983258,
+      "md5": "b09f4db0fc7473004f2f33a2abd66d8d"
+    },
+    {
+      "asset_id": "pink_sunrise",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/pink_sunrise_16k.exr",
+      "size": 323751817,
+      "md5": "fc3fb63fc01df17f9c2be462f5c9c97f"
+    },
+    {
+      "asset_id": "preller_drive",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/preller_drive_16k.exr",
+      "size": 471357221,
+      "md5": "bc8fbd880a24d35d1e55a7a97e2b6b4e"
+    },
+    {
+      "asset_id": "pump_station",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/pump_station_16k.exr",
+      "size": 310365369,
+      "md5": "075a7fbfe3a3e470db21035ecdb8da91"
+    },
+    {
+      "asset_id": "quarry_01",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/quarry_01_16k.exr",
+      "size": 284512557,
+      "md5": "d4ad882270332ce2d1e4f0a27940148a"
+    },
+    {
+      "asset_id": "quarry_02",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/quarry_02_16k.exr",
+      "size": 259988808,
+      "md5": "1b8c9e85387d094a26e168a45e34bdc9"
+    },
+    {
+      "asset_id": "quarry_03",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/quarry_03_16k.exr",
+      "size": 289926813,
+      "md5": "9e8a7fff9590b19de851c6a30bec365b"
+    },
+    {
+      "asset_id": "quarry_04",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/quarry_04_16k.exr",
+      "size": 267334302,
+      "md5": "2c63a1e4ec59919e689e15fe6f30acac"
+    },
+    {
+      "asset_id": "qwantani",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/qwantani_16k.exr",
+      "size": 292127529,
+      "md5": "5ef830a11f644e8faa849f044cbba1d2"
+    },
+    {
+      "asset_id": "railway_bridge_02",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/railway_bridge_02_16k.exr",
+      "size": 312297664,
+      "md5": "53fb5d3b38edb11da26f9ec9cf230749"
+    },
+    {
+      "asset_id": "railway_bridges",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/railway_bridges_16k.exr",
+      "size": 304608801,
+      "md5": "da6985be234cc31bdae8cd54e84e71bf"
+    },
+    {
+      "asset_id": "red_hill_curve",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/red_hill_curve_16k.exr",
+      "size": 361097271,
+      "md5": "f07f719924fc60f3ac10392a989af73b"
+    },
+    {
+      "asset_id": "red_hill_straight",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/red_hill_straight_16k.exr",
+      "size": 338047223,
+      "md5": "90d65816a82ead03dafdf486d26b8fee"
+    },
+    {
+      "asset_id": "reichstag_1",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/reichstag_1_16k.exr",
+      "size": 289906082,
+      "md5": "7c4ceedd3891b0241e5b50c0556380c3"
+    },
+    {
+      "asset_id": "rocky_ridge",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/rocky_ridge_16k.exr",
+      "size": 272034113,
+      "md5": "f0406f9ed5801c7b8570e5b37387f6d3"
+    },
+    {
+      "asset_id": "rooftop_night",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/rooftop_night_16k.exr",
+      "size": 323425673,
+      "md5": "0b953d4ca6bccf1f9ec5ad745c33997b"
+    },
+    {
+      "asset_id": "rooitou_park",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/rooitou_park_16k.exr",
+      "size": 327000796,
+      "md5": "0fdf8dd6579bf0b3736fb5186846cc34"
+    },
+    {
+      "asset_id": "round_platform",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/round_platform_16k.exr",
+      "size": 264562841,
+      "md5": "b25026d0f20c0e86a882426609deaa85"
+    },
+    {
+      "asset_id": "ruckenkreuz",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/ruckenkreuz_16k.exr",
+      "size": 350578949,
+      "md5": "2b1ca4a0f14c451f12e3a3f0b382f54a"
+    },
+    {
+      "asset_id": "rural_landscape",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/rural_landscape_16k.exr",
+      "size": 311195621,
+      "md5": "0fa28c32483af83f534b93793b44cd91"
+    },
+    {
+      "asset_id": "rural_winter_roadside",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/rural_winter_roadside_16k.exr",
+      "size": 320554112,
+      "md5": "5da1c2d36c85baa4decbac115f9f50d1"
+    },
+    {
+      "asset_id": "rustig_koppie",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/rustig_koppie_16k.exr",
+      "size": 266781241,
+      "md5": "03c803b6b3eff8d67c768c7f54fce0ac"
+    },
+    {
+      "asset_id": "satara_night",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/satara_night_16k.exr",
+      "size": 477635481,
+      "md5": "3981bca7309239153d4bea3dc435ef8b"
+    },
+    {
+      "asset_id": "satara_night_no_lamps",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/satara_night_no_lamps_16k.exr",
+      "size": 485353628,
+      "md5": "e48e2bc9a8f1d38f05c2d730ba87e08d"
+    },
+    {
+      "asset_id": "shanghai_riverside",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/shanghai_riverside_16k.exr",
+      "size": 250143818,
+      "md5": "19cc5ccf1deab1108383efe8638f6eeb"
+    },
+    {
+      "asset_id": "signal_hill_dawn",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/signal_hill_dawn_16k.exr",
+      "size": 262260374,
+      "md5": "a537e0ab0af363c1fac13448229d9029"
+    },
+    {
+      "asset_id": "signal_hill_sunrise",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/signal_hill_sunrise_16k.exr",
+      "size": 273561996,
+      "md5": "d2038d0614810119449b11a68089a58d"
+    },
+    {
+      "asset_id": "simons_town_harbour",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/simons_town_harbour_16k.exr",
+      "size": 292479146,
+      "md5": "3f4195195a54446abbced34f3098a804"
+    },
+    {
+      "asset_id": "simons_town_rocks",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/simons_town_rocks_16k.exr",
+      "size": 302753645,
+      "md5": "9c5f9bfaa7b0705d7ee4517fbf6d4dc8"
+    },
+    {
+      "asset_id": "sisulu",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/sisulu_16k.exr",
+      "size": 365712622,
+      "md5": "33a8ba5741a92f505665bd9e4d2c283e"
+    },
+    {
+      "asset_id": "skate_park",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/skate_park_16k.exr",
+      "size": 228568050,
+      "md5": "9533866a1ab06b0279424f0ba480e603"
+    },
+    {
+      "asset_id": "small_harbor_01",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/small_harbor_01_16k.exr",
+      "size": 291394606,
+      "md5": "849f60ed00f33988713d5d7bc9fc3650"
+    },
+    {
+      "asset_id": "small_harbor_02",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/small_harbor_02_16k.exr",
+      "size": 308131073,
+      "md5": "aad705c9fd0ff234c91cf43262b1e826"
+    },
+    {
+      "asset_id": "snow_field",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/snow_field_16k.exr",
+      "size": 179161442,
+      "md5": "26c2a334d4b4a44e4f5e046f272c711b"
+    },
+    {
+      "asset_id": "snowy_field",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/snowy_field_16k.exr",
+      "size": 386864839,
+      "md5": "5b3dca174a7454ddcde0448f9e162986"
+    },
+    {
+      "asset_id": "solitude_night",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/solitude_night_16k.exr",
+      "size": 452758607,
+      "md5": "5305779aeb8923a105ca0c4474c9b223"
+    },
+    {
+      "asset_id": "spiaggia_di_mondello",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/spiaggia_di_mondello_16k.exr",
+      "size": 267224213,
+      "md5": "f37794a08c64a89e8516e88b6245394a"
+    },
+    {
+      "asset_id": "spruit_dawn",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/spruit_dawn_16k.exr",
+      "size": 289058304,
+      "md5": "e03ba6c486f04185965157ed1048e1e2"
+    },
+    {
+      "asset_id": "spruit_sunrise",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/spruit_sunrise_16k.exr",
+      "size": 302103373,
+      "md5": "0a575e7d0b0bd38bdb81fbe00dd261be"
+    },
+    {
+      "asset_id": "stadium_01",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/stadium_01_16k.exr",
+      "size": 313692082,
+      "md5": "d82ada63496a53d36bbf165b8ea898a6"
+    },
+    {
+      "asset_id": "sterkspruit_falls",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/sterkspruit_falls_16k.exr",
+      "size": 347694206,
+      "md5": "eb2d817c367c7cf655366c150f607d6d"
+    },
+    {
+      "asset_id": "straw_rolls_field_01",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/straw_rolls_field_01_16k.exr",
+      "size": 299529498,
+      "md5": "7080e65df6aea629aaf35c3992fa3ef3"
+    },
+    {
+      "asset_id": "suburban_field_01",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/suburban_field_01_16k.exr",
+      "size": 308716659,
+      "md5": "37cccdce7c9312ddce5c088ee4157d0d"
+    },
+    {
+      "asset_id": "suburban_field_02",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/suburban_field_02_16k.exr",
+      "size": 301295197,
+      "md5": "0a344382e650fd267baa888f53e89334"
+    },
+    {
+      "asset_id": "sunflowers",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/sunflowers_16k.exr",
+      "size": 315906883,
+      "md5": "4be88d89c6d9994516b24ca0011a5be6"
+    },
+    {
+      "asset_id": "sunset_fairway",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/sunset_fairway_16k.exr",
+      "size": 315997012,
+      "md5": "f9a348209ee87290816725b8b039955c"
+    },
+    {
+      "asset_id": "sunset_in_the_chalk_quarry",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/sunset_in_the_chalk_quarry_16k.exr",
+      "size": 262809386,
+      "md5": "efea20d32ed8f2cbc01fb503668c77a4"
+    },
+    {
+      "asset_id": "syferfontein_0d_clear",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/syferfontein_0d_clear_16k.exr",
+      "size": 288290328,
+      "md5": "fb45be0e7816e378406056353be1f37e"
+    },
+    {
+      "asset_id": "syferfontein_18d_clear",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/syferfontein_18d_clear_16k.exr",
+      "size": 283526315,
+      "md5": "bfefb875c41151aa50d06ef346d95856"
+    },
+    {
+      "asset_id": "syferfontein_1d_clear",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/syferfontein_1d_clear_16k.exr",
+      "size": 294861154,
+      "md5": "856b24185dc0a47add5398fa7799c27e"
+    },
+    {
+      "asset_id": "syferfontein_6d_clear",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/syferfontein_6d_clear_16k.exr",
+      "size": 296833175,
+      "md5": "d1482423fd9e13d407c7aeb597afe259"
+    },
+    {
+      "asset_id": "symmetrical_garden",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/symmetrical_garden_16k.exr",
+      "size": 328338638,
+      "md5": "8bace81d2671cec4bdefbcfd014750b3"
+    },
+    {
+      "asset_id": "table_mountain_1",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/table_mountain_1_16k.exr",
+      "size": 280462798,
+      "md5": "7265b39619ad06c8d91e746b616429b5"
+    },
+    {
+      "asset_id": "table_mountain_2",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/table_mountain_2_16k.exr",
+      "size": 286556806,
+      "md5": "8f11d008d2667b997d35536e48a92ef0"
+    },
+    {
+      "asset_id": "the_lost_city",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/the_lost_city_16k.exr",
+      "size": 300992614,
+      "md5": "c045489d292639ba74ac844ec1c117c0"
+    },
+    {
+      "asset_id": "the_sky_is_on_fire",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/the_sky_is_on_fire_16k.exr",
+      "size": 245390723,
+      "md5": "192daada4e4770dffa5101b7070390a3"
+    },
+    {
+      "asset_id": "tiber_island",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/tiber_island_16k.exr",
+      "size": 250280081,
+      "md5": "f76b5e26ec948be67b77ddcc1ec7630d"
+    },
+    {
+      "asset_id": "tucker_wreck",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/tucker_wreck_16k.exr",
+      "size": 277503509,
+      "md5": "3d3e28b36bee846d97dfe326f356da4e"
+    },
+    {
+      "asset_id": "umhlanga_sunrise",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/umhlanga_sunrise_16k.exr",
+      "size": 263707362,
+      "md5": "a5d842ad7484426c804249e0a3f8c0af"
+    },
+    {
+      "asset_id": "veld_fire",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/veld_fire_16k.exr",
+      "size": 328935124,
+      "md5": "6d27cd701924a407ddcd2aca561fe769"
+    },
+    {
+      "asset_id": "venice_dawn_1",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/venice_dawn_1_16k.exr",
+      "size": 260902426,
+      "md5": "f019af08ed1a37405c4c096cddfcf6cb"
+    },
+    {
+      "asset_id": "venice_sunset",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/venice_sunset_16k.exr",
+      "size": 249914749,
+      "md5": "ac5a91508a26f55e4d56d223d86a429e"
+    },
+    {
+      "asset_id": "versveldpas",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/versveldpas_16k.exr",
+      "size": 301178432,
+      "md5": "602dd9fa7dd6b4ca5a9470a232d478db"
+    },
+    {
+      "asset_id": "wasteland_clouds",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/wasteland_clouds_16k.exr",
+      "size": 300378209,
+      "md5": "962b835b331220fdf3158c56b67bd5c8"
+    },
+    {
+      "asset_id": "waterbuck_trail",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/waterbuck_trail_16k.exr",
+      "size": 285270135,
+      "md5": "b6471efa3e227e09d138d9e8175670e2"
+    },
+    {
+      "asset_id": "white_cliff_top",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/white_cliff_top_16k.exr",
+      "size": 253126475,
+      "md5": "fe5ccd9ae3223d269a856027223dd4b5"
+    },
+    {
+      "asset_id": "wide_street_01",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/wide_street_01_16k.exr",
+      "size": 260655471,
+      "md5": "e1ebc47ba34c7872eae46cd91bd660a8"
+    },
+    {
+      "asset_id": "wide_street_02",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/wide_street_02_16k.exr",
+      "size": 319430772,
+      "md5": "a01591be54b0655da0f923c2874e83db"
+    },
+    {
+      "asset_id": "winter_lake_01",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/winter_lake_01_16k.exr",
+      "size": 235750479,
+      "md5": "15330f8b35d5bcf0163f1fcf9b875bb5"
+    },
+    {
+      "asset_id": "winter_river",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/winter_river_16k.exr",
+      "size": 237877833,
+      "md5": "91e82fcdaf2d0572a18055d87f0661ab"
+    },
+    {
+      "asset_id": "winter_sky",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/winter_sky_16k.exr",
+      "size": 328689205,
+      "md5": "1192f031962d7b432246ff943f5c2a0d"
+    },
+    {
+      "asset_id": "yellow_field",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/yellow_field_16k.exr",
+      "size": 335745422,
+      "md5": "67c4002b984b27478d485b10c7e4f609"
+    },
+    {
+      "asset_id": "zwinger_night",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/exr/16k%2B/zwinger_night_16k.exr",
+      "size": 323633807,
+      "md5": "25b16dd9863c09efc058c86e32b91407"
+    }
+  ]
+}

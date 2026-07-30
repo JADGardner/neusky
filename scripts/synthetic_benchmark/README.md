@@ -78,7 +78,8 @@ in parentheses).
   In-range boundary mixtures are kept: they are legitimate filtered averages,
   directly comparable to a method's own anti-aliased output.
 - **RGB tonemap provenance: RESOLVED (2026-06-12).** The q98-exposure +
-  standard sRGB encode is implemented in `scripts/prepare_synthetic_data.py`
+  standard sRGB encode is implemented in
+  `scripts/synthetic_dataset/prepare_synthetic_data.py`
   (phd repo) and verified against the raw linear EXRs for all 125 test
   frames across all five scenes (content-matched PNG to EXR; worst absolute
   error exactly 1/255, i.e. quantisation only). Note the exposure gauge is

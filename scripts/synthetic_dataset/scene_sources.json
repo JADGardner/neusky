@@ -1,0 +1,199 @@
+{
+  "schema_version": 1,
+  "audited_on": "2026-07-30",
+  "dataset": "NeuSky Synthetic v1",
+  "licence_notes": {
+    "poly_haven": {
+      "licence": "CC0",
+      "licence_url": "https://polyhaven.com/license",
+      "redistributable": true
+    },
+    "blenderkit": {
+      "licence": "Royalty Free",
+      "licence_url": "https://www.blendkit.com/terms-and-conditions-2026/",
+      "redistributable_as_editable_scene": false,
+      "reason": "The terms permit redistribution only as part of a project from which the product cannot be separated. The source models remain extractable from the accepted .blend scenes."
+    },
+    "artstation": {
+      "licence": "Standard Use License",
+      "licence_url": "https://www.artstation.com/marketplace-product-eula",
+      "redistributable_as_editable_scene": false
+    }
+  },
+  "shared_poly_haven_assets": [
+    {
+      "asset_id": "tree_small_02",
+      "type": "model",
+      "resolution": "1k",
+      "url": "https://polyhaven.com/a/tree_small_02"
+    },
+    {
+      "asset_id": "boulder_01",
+      "type": "model",
+      "resolution": "1k",
+      "url": "https://polyhaven.com/a/boulder_01"
+    },
+    {
+      "asset_id": "shrub_04",
+      "type": "model",
+      "resolution": "1k",
+      "url": "https://polyhaven.com/a/shrub_04"
+    },
+    {
+      "asset_id": "island_tree_01",
+      "type": "model",
+      "resolution": "1k",
+      "url": "https://polyhaven.com/a/island_tree_01"
+    },
+    {
+      "asset_id": "coastal_cliff_04",
+      "type": "model",
+      "resolution": "8k",
+      "url": "https://polyhaven.com/a/coastal_cliff_04"
+    },
+    {
+      "asset_id": "modular_fort_01",
+      "type": "model",
+      "resolution": "8k",
+      "url": "https://polyhaven.com/a/modular_fort_01"
+    },
+    {
+      "asset_id": "patterned_cobblestone",
+      "type": "texture",
+      "resolution": "8k",
+      "url": "https://polyhaven.com/a/patterned_cobblestone"
+    },
+    {
+      "asset_id": "concrete_floor_02",
+      "type": "texture",
+      "resolution": "2k",
+      "url": "https://polyhaven.com/a/concrete_floor_02"
+    },
+    {
+      "asset_id": "grass_path_2",
+      "type": "texture",
+      "resolution": "2k",
+      "url": "https://polyhaven.com/a/grass_path_2"
+    },
+    {
+      "asset_id": "cobblestone_floor_04",
+      "type": "texture",
+      "resolution": "2k",
+      "url": "https://polyhaven.com/a/cobblestone_floor_04"
+    }
+  ],
+  "scenes": {
+    "abandoned_buildings": {
+      "accepted_scene": {
+        "filename": "abandoned_buildings.blend",
+        "size_bytes": 369879503,
+        "sha256": "d7ed8b9e8e28d9d4c579c3c46855895b760588b89c97bf571bb88af3febe4487"
+      },
+      "base_model": {
+        "title": "Building Pack Lowpoly",
+        "author": "Fridqeir Haynura",
+        "provider": "BlenderKit",
+        "listing_url": "https://www.blendkit.com/asset-gallery-detail/57b02da8-288e-4bf3-b326-b1fdddac89de/",
+        "listing_id": "57b02da8-288e-4bf3-b326-b1fdddac89de",
+        "cached_asset_id": "13aa072b-63a8-41d1-9dfc-de4e5993b188",
+        "source_filename": "building-pack-lowpoly_1K_f430c0a3-c79b-499d-b957-c3d40d8e166c.blend",
+        "source_size_bytes": 4554261,
+        "source_sha256": "9332a01cbe05d8e1708255b6a1d1a010b3ebcbbcbd7c24d8bbade2a53530121d",
+        "availability": "available_on_2026-07-30",
+        "licence": "BlenderKit Royalty Free"
+      },
+      "ground_asset_id": "cobblestone_floor_04",
+      "scene_setup": "scene_setup/setup_scene.py"
+    },
+    "apartment_building": {
+      "accepted_scene": {
+        "filename": "apartment_building.blend",
+        "size_bytes": 497554471,
+        "sha256": "9aacc8d61fa2230cb41156031dc88045275bf7aad4e9d66efc8fa4b6653905c4"
+      },
+      "base_model": {
+        "title": "Modern Apartment Building",
+        "author": "Pawel Walasiewicz",
+        "provider": "BlenderKit",
+        "listing_url": "https://www.blendkit.com/asset-gallery-detail/b3faf096-32df-466d-b04d-7c8b3b3983df/",
+        "listing_id": "b3faf096-32df-466d-b04d-7c8b3b3983df",
+        "cached_asset_id": "d5727bba-00f9-453b-9318-684c0b229300",
+        "source_filename": "modern-apartment-building_2K_d7b73adf-13bf-41c1-ae09-e44ac245d9a2.blend",
+        "source_size_bytes": 78167617,
+        "source_sha256": "aaeff45f4fad208ac5cdf96c1950392bc77b342fee42b0f979056bcf4a33c5d5",
+        "availability": "available_on_2026-07-30",
+        "licence": "BlenderKit Royalty Free"
+      },
+      "ground_asset_id": "concrete_floor_02",
+      "scene_setup": "scene_setup/setup_scene.py"
+    },
+    "arlanda_uppsala_cathedral": {
+      "accepted_scene": {
+        "filename": "arlanda_uppsala_cathedral.blend",
+        "size_bytes": 3087009524,
+        "sha256": "0b8a361cdc8606b2a3cc53fccc72b35058d92708e97fd29b777552bd2778c76a"
+      },
+      "base_model": {
+        "title": "Arlanda Uppsala Cathedral",
+        "author": "Tiv Sol",
+        "provider": "ArtStation Marketplace",
+        "listing_url": "https://www.artstation.com/marketplace/p/MpNz/arlanda-uppsala-cathedral",
+        "viewer_url": "https://sketchfab.com/3d-models/arlanda-uppsala-cathedral-9c91370bec27494ca3c64a3a3ea9964d",
+        "alternative_listing_url": "https://www.cgtrader.com/3d-models/exterior/historic-exterior/arlanda-uppsala-cathedral",
+        "source_filename": "Arlanda_Uppsala_Cathedral.fbx",
+        "availability": "available_for_purchase_on_2026-07-30",
+        "licence": "ArtStation Standard Use License"
+      },
+      "additional_asset_ids": [
+        "modular_fort_01",
+        "coastal_cliff_04",
+        "patterned_cobblestone"
+      ],
+      "scene_setup": "custom_scene_recorded_in_synthetic_scenes.md"
+    },
+    "glass_building": {
+      "accepted_scene": {
+        "filename": "glass_building.blend",
+        "size_bytes": 420745012,
+        "sha256": "de8c5f16f383fa75866fef26ccdb1567ee27858638c1417a72b20bfbdd86c960"
+      },
+      "base_model": {
+        "title": "Modern Glass Building",
+        "author": "Abbos Mirzaev",
+        "provider": "BlenderKit",
+        "listing_url": "https://www.blendkit.com/asset-gallery-detail/dd5d37c8-79e6-4171-81ba-4909aabde32d/",
+        "listing_id": "dd5d37c8-79e6-4171-81ba-4909aabde32d",
+        "cached_asset_id": "4cf3bd15-ad69-4c47-a47f-74149fbe5049",
+        "source_filename": "modern-glass-building_2K_4c17a0b5-cb09-4920-9e41-4ab8104ad0af.blend",
+        "source_size_bytes": 1430259,
+        "source_sha256": "e432c9de987b5a503d5d5afc167b476e13761cdb821bda466b82c19a03e46dab",
+        "availability": "available_on_2026-07-30",
+        "licence": "BlenderKit Royalty Free"
+      },
+      "ground_asset_id": "concrete_floor_02",
+      "scene_setup": "scene_setup/setup_scene.py"
+    },
+    "interstellar_house": {
+      "accepted_scene": {
+        "filename": "interstellar_house.blend",
+        "size_bytes": 559184315,
+        "sha256": "38178e4d0af3ac6deae7ed3c305e6cd507b14cd3e41f2e0550c19cbb7ac7a70d"
+      },
+      "base_model": {
+        "title": "Interstellar Cooper House",
+        "author": "Abin Suresh",
+        "provider": "BlenderKit",
+        "listing_url": "https://www.blendkit.com/asset-gallery-detail/02092ebd-0c3a-4474-9a9d-d54474b01445/",
+        "listing_id": "02092ebd-0c3a-4474-9a9d-d54474b01445",
+        "cached_asset_id": "463125e0-1edb-4679-a43c-fb71afe66960",
+        "source_filename": "interstellar-cooper-house_2K_ae02f51f-7de6-439d-8359-b5f0794b3c9a.blend",
+        "source_size_bytes": 139673764,
+        "source_sha256": "5a0ad27f6b14541705ca6533eeb6280433f4977cbd70271893b2ea59a5fd8c58",
+        "availability": "removed_from_blenderkit_on_2026-07-30",
+        "licence": "BlenderKit Royalty Free"
+      },
+      "ground_asset_id": "grass_path_2",
+      "scene_setup": "scene_setup/setup_scene.py"
+    }
+  }
+}

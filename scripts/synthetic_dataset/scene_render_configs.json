@@ -1,0 +1,48 @@
+{
+  "_comment": [
+    "Per-scene camera configuration for the NeuSky synthetic dataset.",
+    "Single source of truth for render geometry - used by render_eval_views.py",
+    "(and should replace the shell arrays in submit_renders.sh on the next",
+    "cluster render). 'geometry' args are shared by every render of the scene.",
+    "Profiles (composed by render_eval_views.py):",
+    "  train         = common.train + scene.train: varied views, focal 35-70mm,",
+    "                  exposure +-1.5EV, close-ups allowed (production profile).",
+    "  train_curated = common.train_curated + scene.eval: whole-building framing",
+    "                  with train's focal/exposure variation; seed/hdri offset",
+    "                  differ from eval so cameras and lighting do not overlap.",
+    "  eval          = common.eval + scene.eval: whole-building framing, fixed",
+    "                  40mm focal and fixed exposure for clean eval metrics."
+  ],
+  "common": {
+    "train": "--camera_height_min 0.5 --camera_height_max 2.0 --resolution 1920 1080 --samples 128 --hdri_16k --focal_mm_range 35 70 --exposure_range -1.5 1.5 --min_building_fraction 0.1 --seed 42",
+    "eval": "--camera_height_min 0.5 --camera_height_max 2.0 --resolution 1920 1080 --samples 128 --hdri_16k --focal_mm 40 --seed 1042 --hdri_offset 137",
+    "train_curated": "--camera_height_min 0.5 --camera_height_max 2.0 --resolution 1920 1080 --samples 128 --hdri_16k --focal_mm_range 35 70 --exposure_range -1.5 1.5 --seed 7 --hdri_offset 150"
+  },
+  "scenes": {
+    "arlanda_uppsala_cathedral": {
+      "geometry": "--sphere_center 0 0 20 --min_clearance 5 --exclude_box -50 -22 45 22",
+      "train": "--sphere_radius 80 --sphere_radius_min 25 --look_at 0 0 20 --look_at_z_range 2 40 --look_at_bias 0.3",
+      "eval": "--sphere_radius 75 --sphere_radius_min 40 --look_at 0 0 22 --look_at_z_range 10 40 --look_at_bias 0.1 --min_building_fraction 0.3"
+    },
+    "interstellar_house": {
+      "geometry": "--sphere_center 0 0 7 --min_clearance 5",
+      "train": "--sphere_radius 50 --sphere_radius_min 5 --look_at_building --building_clearance 5",
+      "eval": "--sphere_radius 50 --sphere_radius_min 36 --look_at 0 0 6 --look_at_z_range 4 9 --min_building_fraction 0.3"
+    },
+    "apartment_building": {
+      "geometry": "--sphere_center 0 0 7 --min_clearance 5",
+      "train": "--sphere_radius 50 --sphere_radius_min 5 --look_at_building --building_clearance 5",
+      "eval": "--sphere_radius 42 --sphere_radius_min 26 --look_at 0 0 6 --look_at_z_range 4 9 --min_building_fraction 0.3"
+    },
+    "abandoned_buildings": {
+      "geometry": "--sphere_center 0 0 7 --min_clearance 10",
+      "train": "--sphere_radius 50 --sphere_radius_min 5 --look_at_building --building_clearance 5",
+      "eval": "--sphere_radius 50 --sphere_radius_min 36 --look_at 0 0 6 --look_at_z_range 4 9 --min_building_fraction 0.3"
+    },
+    "glass_building": {
+      "geometry": "--sphere_center 0 0 7 --auto_exclude",
+      "train": "--sphere_radius 50 --sphere_radius_min 5 --look_at_building --building_clearance 5",
+      "eval": "--sphere_radius 50 --sphere_radius_min 32 --look_at 0 0 6 --look_at_z_range 4 9 --min_building_fraction 0.3"
+    }
+  }
+}
