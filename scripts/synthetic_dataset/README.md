@@ -152,3 +152,19 @@ prepared-data release.
 Method-specific NeRF-OSR and GS-IR adapters are under
 `scripts/synthetic_benchmark/`; they are derived from the prepared release and
 are not distributed as separate datasets.
+
+## Build The Hugging Face Release
+
+The public release is constructed from an allowlist so that working
+directories such as `_replaced_eval`, raw renders and restricted `.blend`
+files cannot be included accidentally:
+
+```bash
+python scripts/synthetic_dataset/build_hf_release.py \
+  --output /path/to/neusky-synthetic-v1 \
+  --overview /path/to/synthetic_dataset_overview.png
+```
+
+The builder validates every split and ground-truth layer, stages the five
+accepted scenes, adds the dataset card and benchmark results, and generates
+`MANIFEST.json` and `SHA256SUMS`.

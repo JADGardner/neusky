@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import importlib.util
 from pathlib import Path
 
 
@@ -14,6 +15,15 @@ SCENES = {
     "glass_building",
     "interstellar_house",
 }
+
+
+def _load_release_builder():
+    path = GENERATOR / "build_hf_release.py"
+    spec = importlib.util.spec_from_file_location("build_hf_release", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def _asset_ids() -> list[str]:
@@ -77,3 +87,19 @@ def test_scene_provenance_covers_the_accepted_scenes():
 
     interstellar = sources["scenes"]["interstellar_house"]["base_model"]
     assert interstellar["availability"] == "removed_from_blenderkit_on_2026-07-30"
+
+
+def test_huggingface_release_uses_an_explicit_allowlist():
+    builder = _load_release_builder()
+    assert set(builder.SCENES) == SCENES
+    assert builder.SPLIT_COUNTS == {"train": 250, "validation": 25, "test": 25}
+    assert set(builder.SPLIT_LAYERS["train"]) == {"rgb", "cityscapes_mask"}
+    assert {"albedo", "normal", "depth"} <= set(
+        builder.SPLIT_LAYERS["validation"]
+    )
+    assert "_replaced_eval" not in json.dumps(builder.SPLIT_LAYERS)
+
+    card = (GENERATOR / "DATASET_CARD.md").read_text()
+    assert "license: cc-by-4.0" in card
+    assert "1,500" in card
+    assert "@@REPO_ID@@" in card
