@@ -133,8 +133,7 @@ tar --zstd -xf \
   -C neusky-synthetic
 ```
 
-Once the repository is public, an individual scene can also be downloaded
-without the CLI:
+An individual scene can also be downloaded without the CLI:
 
 ```bash
 curl -L \
