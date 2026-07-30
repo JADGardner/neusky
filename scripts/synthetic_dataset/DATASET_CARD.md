@@ -110,6 +110,7 @@ extract the five scene archives:
 ```bash
 hf download @@REPO_ID@@ \
   --repo-type dataset \
+  --revision v@@RELEASE_VERSION@@ \
   --local-dir neusky-synthetic
 
 (cd neusky-synthetic && sha256sum -c SHA256SUMS)
@@ -123,6 +124,7 @@ Download one scene:
 ```bash
 hf download @@REPO_ID@@ \
   --repo-type dataset \
+  --revision v@@RELEASE_VERSION@@ \
   archives/interstellar_house.tar.zst \
   --local-dir neusky-synthetic
 
@@ -136,7 +138,7 @@ without the CLI:
 
 ```bash
 curl -L \
-  "https://huggingface.co/datasets/@@REPO_ID@@/resolve/main/archives/interstellar_house.tar.zst?download=true" \
+  "https://huggingface.co/datasets/@@REPO_ID@@/resolve/v@@RELEASE_VERSION@@/archives/interstellar_house.tar.zst?download=true" \
   -o interstellar_house.tar.zst
 ```
 
