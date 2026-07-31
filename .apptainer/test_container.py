@@ -5,10 +5,12 @@ Run inside the container:
     python .apptainer/test_container.py
 """
 
+import subprocess
 import sys
 
 checks_passed = 0
 checks_failed = 0
+NERFSTUDIO_COMMIT = "50e0e3c70c775e89333256213363badbf074f29d"
 
 
 def check(name, fn):
@@ -24,6 +26,7 @@ def check(name, fn):
 
 def check_cuda():
     import torch
+
     assert torch.cuda.is_available(), "CUDA not available"
     assert torch.cuda.get_device_name(0), "No GPU detected"
 
@@ -38,6 +41,22 @@ def check_nvdiffrast():
 
 def check_nerfstudio():
     import nerfstudio  # noqa: F401
+
+
+def check_nerfstudio_revision():
+    revision = subprocess.check_output(
+        [
+            "git",
+            "-c",
+            "safe.directory=/opt/nerfstudio",
+            "-C",
+            "/opt/nerfstudio",
+            "rev-parse",
+            "HEAD",
+        ],
+        text=True,
+    ).strip()
+    assert revision == NERFSTUDIO_COMMIT, revision
 
 
 def check_neusky():
@@ -55,6 +74,7 @@ check("PyTorch CUDA", check_cuda)
 check("tiny-cuda-nn", check_tinycudann)
 check("nvdiffrast", check_nvdiffrast)
 check("nerfstudio", check_nerfstudio)
+check("nerfstudio revision", check_nerfstudio_revision)
 check("neusky", check_neusky)
 check("ns_reni", check_reni)
 

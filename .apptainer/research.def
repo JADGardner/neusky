@@ -8,6 +8,7 @@ From: nvidia/cuda:12.8.1-cudnn-devel-ubuntu24.04
 %post
     export DEBIAN_FRONTEND=noninteractive
     CUDA_ARCHITECTURES="90;89;86;80"
+    NERFSTUDIO_COMMIT="50e0e3c70c775e89333256213363badbf074f29d"
 
     # Disable apt sandbox privilege dropping (fails in rootless/fakeroot builds)
     echo 'APT::Sandbox::User "root";' > /etc/apt/apt.conf.d/01-no-sandbox
@@ -88,15 +89,19 @@ From: nvidia/cuda:12.8.1-cudnn-devel-ubuntu24.04
         ln -sf \$CONDA_PREFIX/lib/python3.12/site-packages/triton/backends/nvidia/include/crt \$CONDA_PREFIX/include/ && \
         pip install --no-cache-dir --no-build-isolation git+https://github.com/NVlabs/nvdiffrast.git"
 
-    # -- nerfstudio (mainline) -----------------------------------------------------
+    # -- nerfstudio ---------------------------------------------------------------
+    # Pin the exact revision verified with the released thesis implementation.
     # open3d ships no aarch64 wheels; nerfstudio only uses it for exporter
     # utilities NeuSky never touches, so drop it from the dep list on ARM.
     # TORCH_CUDA_ARCH_LIST lets nerfstudio's transitive gsplat build from source
     # when no matching wheel exists (aarch64).
     conda run -n research bash -c " \
         export TORCH_CUDA_ARCH_LIST='8.0;8.6;8.9;9.0+PTX' && \
-        git clone --depth 1 https://github.com/nerfstudio-project/nerfstudio.git /opt/nerfstudio && \
+        git init /opt/nerfstudio && \
         cd /opt/nerfstudio && \
+        git remote add origin https://github.com/nerfstudio-project/nerfstudio.git && \
+        git fetch --depth 1 origin ${NERFSTUDIO_COMMIT} && \
+        git checkout --detach FETCH_HEAD && \
         if [ \"${ARCH}\" = aarch64 ]; then sed -i 's/\"open3d[^\"]*\",//' pyproject.toml; fi && \
         pip install --no-cache-dir -e ."
 

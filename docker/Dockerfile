@@ -82,11 +82,15 @@ RUN conda run -n research bash -c " \
     pip install --no-cache-dir --no-build-isolation git+https://github.com/NVlabs/nvdiffrast.git \
     && pip cache purge && rm -rf /tmp/*"
 
-# -- nerfstudio (mainline) ----------------------------------------------------
-# Shallow clone to save space. Installed as editable so nerfstudio CLI works.
+# -- nerfstudio ---------------------------------------------------------------
+# Pin the exact revision verified with the released thesis implementation.
+ARG NERFSTUDIO_COMMIT=50e0e3c70c775e89333256213363badbf074f29d
 RUN conda run -n research bash -c " \
-    git clone --depth 1 https://github.com/nerfstudio-project/nerfstudio.git /opt/nerfstudio && \
+    git init /opt/nerfstudio && \
     cd /opt/nerfstudio && \
+    git remote add origin https://github.com/nerfstudio-project/nerfstudio.git && \
+    git fetch --depth 1 origin ${NERFSTUDIO_COMMIT} && \
+    git checkout --detach FETCH_HEAD && \
     pip install --no-cache-dir -e . \
     && pip cache purge && rm -rf /tmp/*"
 

@@ -80,8 +80,8 @@ fi
 # Derived paths
 # ---------------------------------------------------------------------------
 DEF_FILE="${SCRIPT_DIR}/research.def"
-SIF_FILE="${CONTAINER_DIR}/research.sif"
-OVERLAY_FILE="${CONTAINER_DIR}/research_overlay.img"
+SIF_FILE="${SIF_FILE:-${CONTAINER_DIR}/research.sif}"
+OVERLAY_FILE="${OVERLAY_FILE:-${CONTAINER_DIR}/research_overlay.img}"
 
 # Auto-enable read-only overlay inside SLURM jobs
 if [[ -n "${SLURM_JOB_ID:-}" ]]; then

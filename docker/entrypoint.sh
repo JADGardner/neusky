@@ -23,8 +23,10 @@ set -e
 PROJECT_ROOT="${PROJECT_ROOT:-/workspace}"
 for pkg in "$PROJECT_ROOT/ns_reni" "$PROJECT_ROOT"; do
     if [ -f "$pkg/pyproject.toml" ] || [ -f "$pkg/setup.py" ]; then
-        rm -rf "$pkg"/*.egg-info 2>/dev/null || true
-        pip install -e "$pkg" --no-deps --quiet 2>/dev/null || true
+        pip install -e "$pkg" \
+            --no-deps \
+            --no-build-isolation \
+            --quiet
     fi
 done
 

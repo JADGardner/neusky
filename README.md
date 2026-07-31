@@ -10,7 +10,8 @@ Paper: The Sky's the Limit: Relightable Outdoor Scenes via a Sky-pixel Constrain
 
 NeuSky is a [nerfstudio](https://github.com/nerfstudio-project/nerfstudio) extension for outdoor neural scene reconstruction with sky-pixel constrained illumination priors. It depends on:
 
-- **nerfstudio** (mainline, from source)
+- **nerfstudio** (revision
+  `50e0e3c70c775e89333256213363badbf074f29d`, from source)
 - **ns_reni** (RENI++ illumination fields, included as a git submodule)
 - **tiny-cuda-nn** (hash grid encodings)
 - **nvdiffrast** (differentiable rasterization)
@@ -70,6 +71,9 @@ from the later joint-frame RENI thesis model.
 ```bash
 # Build the image (compiles CUDA extensions — takes 20-40 min first time)
 docker compose build research
+
+# Verify a clean clone
+docker compose run --rm research python .apptainer/test_container.py
 
 # Start an interactive shell
 docker compose run research bash
@@ -132,7 +136,12 @@ pip install --no-build-isolation git+https://github.com/NVlabs/tiny-cuda-nn.git#
 pip install --no-build-isolation git+https://github.com/NVlabs/nvdiffrast.git
 
 # nerfstudio
-git clone --depth 1 https://github.com/nerfstudio-project/nerfstudio.git
+NERFSTUDIO_COMMIT=50e0e3c70c775e89333256213363badbf074f29d
+git init nerfstudio
+git -C nerfstudio remote add origin \
+  https://github.com/nerfstudio-project/nerfstudio.git
+git -C nerfstudio fetch --depth 1 origin "$NERFSTUDIO_COMMIT"
+git -C nerfstudio checkout --detach FETCH_HEAD
 pip install -e nerfstudio
 
 # ns_reni (submodule)
