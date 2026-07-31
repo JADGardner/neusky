@@ -209,7 +209,7 @@ do_install() {
             register_cuda_if_needed /workspace/code/thirdparty/gs-ir/submodules/simple-knn 'import simple_knn._C'
             register_cuda_if_needed /workspace/code/thirdparty/gs-ir/gs-ir 'import gs_ir'
 
-            echo '[2/4] nerfstudio (mainline)'
+            echo '[2/4] nerfstudio (pinned)'
             echo '  Registering nerfstudio ...'
             pip install --target /overlay-packages -e /opt/nerfstudio --no-deps --no-cache-dir --no-build-isolation
 
