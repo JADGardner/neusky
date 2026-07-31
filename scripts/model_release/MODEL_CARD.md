@@ -1,4 +1,5 @@
 ---
+license: apache-2.0
 library_name: nerfstudio
 tags:
 - inverse-rendering
@@ -61,7 +62,7 @@ Files can also be retrieved directly:
 
 ```bash
 hf download jadgardner/neusky-models \
-  --revision v1.0 \
+  --revision v1.0.1 \
   --include "nerf-osr/lk2/*" "nerf-osr/lk2/**/*" \
   --local-dir model-storage/neusky
 ```
@@ -79,5 +80,5 @@ here.
 
 ## Licence
 
-No licence has yet been assigned to the NeuSky checkpoint release. The source
-datasets and third-party assets retain their own licences.
+The NeuSky checkpoint release is available under the Apache License 2.0.
+Third-party datasets and assets retain their own licences.

@@ -13,7 +13,7 @@ import requests
 
 
 REPO_ID = "jadgardner/neusky-models"
-RELEASE_VERSION = "1.0"
+RELEASE_VERSION = "1.0.1"
 REVISION = f"v{RELEASE_VERSION}"
 BASE_URL = f"https://huggingface.co/{REPO_ID}/resolve/{REVISION}"
 MANIFEST_NAME = "MODEL_MANIFEST.json"

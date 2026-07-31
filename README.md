@@ -158,7 +158,7 @@ python scripts/download_models.py model-storage/neusky
 ```
 
 The NeuSky downloader reads the tagged
-[NeuSky Models v1.0 release](https://huggingface.co/jadgardner/neusky-models),
+[NeuSky Models v1.0.1 release](https://huggingface.co/jadgardner/neusky-models),
 supports resumable downloads, and verifies each file against the release
 manifest. Fetch one real scene or the five accepted synthetic models with:
 
@@ -225,6 +225,12 @@ code and the small accepted Poly Haven source-revision differences.
 ```bash
 ns-train neusky --vis wandb
 ```
+
+## Licence
+
+NeuSky source code and released checkpoints are available under the
+[Apache License 2.0](LICENSE). Third-party datasets and assets retain their
+own licences.
 
 If you run out of GPU memory, try updating some or all of these settings in `neusky/configs/neusky_config.py`:
 

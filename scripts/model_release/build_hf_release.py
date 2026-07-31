@@ -11,6 +11,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
+RELEASE_VERSION = "1.0.1"
+
+
 @dataclass(frozen=True)
 class RunSpec:
     model_id: str
@@ -168,9 +171,10 @@ def main() -> None:
         )
 
     shutil.copy2(Path(__file__).with_name("MODEL_CARD.md"), output / "README.md")
+    shutil.copy2(Path(__file__).resolve().parents[2] / "LICENSE", output / "LICENSE")
     manifest = {
         "schema_version": 1,
-        "release_version": "1.0",
+        "release_version": RELEASE_VERSION,
         "repository": "jadgardner/neusky-models",
         "models": models,
     }
