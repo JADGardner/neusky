@@ -1,8 +1,8 @@
 # Static figure bases
 
 Hand-drawn static diagram bases for the NeuSky method figures, copied
-2026-07-02 from the thesis assets at
-`latex/9_Chapter3/paper_assets/neusky_tpami/figures/` (phd repo). The thesis
+2026-07-02 from the thesis assets now stored at
+`latex/9_Chapter3/figures/` (phd repo). The thesis
 originally overlaid the label text on these bases with TikZ; the
 `scripts/figures/fig_*.py` scripts bake that label text into generated
 `outputs/figures/<name>_labeled.{png,pdf}` working outputs instead. Reviewed

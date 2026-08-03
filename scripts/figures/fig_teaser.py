@@ -1,7 +1,7 @@
 """NeuSky teaser (working output -> outputs/figures/teaser.{svg,png,pdf}).
 
 Programmatic reproduction of the TPAMI/thesis teaser composite
-(latex/9_Chapter3/paper_assets/neusky_tpami/figures/teaser.pdf), left to right:
+(latex/9_Chapter3/figures/teaser.pdf), left to right:
 
 1. a collage of slightly-rotated training photos (one per capture session, so
    the illumination visibly varies);
