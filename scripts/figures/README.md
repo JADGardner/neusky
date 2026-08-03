@@ -14,9 +14,13 @@ All commands run from the repo root:
 PYTHONPATH=. python scripts/figures/<script>.py [--help]
 ```
 
-Outputs default to `publication/figures/<name>.{png,pdf}` and
-`publication/tables/<name>.{tex,csv}` (`--output` / `--output-dir` override;
-`--svg` adds SVG).
+Working outputs default to `outputs/figures/<name>.{png,pdf}` and
+`outputs/tables/<name>.{tex,csv}` (`--output` / `--output-dir` override;
+`--svg` adds SVG). The reviewed files under `publication/` are the compact
+paper/thesis snapshot. Update them deliberately by passing an explicit
+`--output publication/figures/<name>` or
+`--output-dir publication/tables/<snapshot>` after inspecting the working
+output.
 
 ## Inventory
 
@@ -55,7 +59,7 @@ PYTHONPATH=. python scripts/figures/make_tables.py --tables nerf_osr --scenes lk
 PYTHONPATH=. python scripts/figures/make_tables.py             # everything
 ```
 
-Metrics are cached in `publication/tables/neusky_metrics.json`; delete an
+Metrics are cached in `outputs/tables/neusky_metrics.json`; delete an
 entry (or the file) to force re-evaluation. Re-running `make_tables.py` after
 more scenes finish training fills in the `---` cells.
 
@@ -82,7 +86,7 @@ more scenes finish training fills in the `---` cells.
 
 | Var | Default | Meaning |
 |-----|---------|---------|
-| `NEUSKY_OUTPUTS` | `<repo>/outputs` | training outputs root |
+| `NEUSKY_OUTPUTS` | `<repo>/outputs` | training and working figure/table outputs root |
 | `NERF_OSR_ROOT` | `~/data/NeRF-OSR/Data` (else `<repo>/data/NeRF-OSR/Data`) | NeRF-OSR dataset root |
 | `NEUSKY_SYNTHETIC_ROOT` | `~/data/neusky_synthetic_data/renders` (else repo-relative) | synthetic renders root |
 | `NEUSKY_RENI_PRIOR` | `<repo>/model-storage/reni_paper_models/reni_plus_plus_models/latent_dim_100` | RENI++ prior ckpt dir |

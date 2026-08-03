@@ -1,4 +1,4 @@
-"""NeuSky teaser (thesis Fig: teaser -> publication/figures/teaser.{svg,png,pdf}).
+"""NeuSky teaser (working output -> outputs/figures/teaser.{svg,png,pdf}).
 
 Programmatic reproduction of the TPAMI/thesis teaser composite
 (latex/9_Chapter3/paper_assets/neusky_tpami/figures/teaser.pdf), left to right:
@@ -26,7 +26,7 @@ vector elements, then rasterised to PNG/PDF via rsvg-convert (or cairosvg).
 
 Two-stage workflow so composition can iterate without re-rendering:
 
-    # render panel PNGs into publication/figures/teaser_panels/ (GPU)
+    # render panel PNGs into outputs/figures/teaser_panels/ (GPU)
     PYTHONPATH=.:../ns_reni python scripts/figures/fig_teaser.py --panels-only \
         --scale 0.5 --chunk 512
     # compose the SVG/PNG/PDF from cached panels (CPU only)

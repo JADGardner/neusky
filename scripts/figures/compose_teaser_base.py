@@ -5,17 +5,22 @@ under the arrows, exported to PDF/PNG.
     PYTHONPATH=. python scripts/figures/compose_teaser_base.py
 
 This stage is CPU-only and never runs the model: the panels are read from
-the cache that fig_teaser.py's GPU stage wrote (publication/figures/
-teaser_panels/). Tweak the LAYOUT block below and re-run to move things.
+the cache that fig_teaser.py's GPU stage wrote
+(``outputs/figures/teaser_panels/``). Tweak the LAYOUT block below and re-run
+to move things.
 """
 import argparse
 import base64
+import os
 import subprocess
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
-FIGS = REPO / "publication" / "figures"
+FIGS = (
+    Path(os.environ.get("NEUSKY_OUTPUTS", REPO / "outputs")).expanduser()
+    / "figures"
+)
 
 # ---------------------------------------------------------------------------
 # LAYOUT -- edit and re-run (seconds, no GPU). All coordinates are in

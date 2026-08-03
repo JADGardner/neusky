@@ -3,8 +3,10 @@
 The thesis overlays label text on ``figures/technical_overview.pdf`` with a
 TikZ picture (``latex/9_Chapter3/paper_sections/01_Introduction.tex``). This
 script bakes those labels into the asset itself, emitting
-``publication/figures/technical_overview_labeled.{png,pdf}`` so the LaTeX
-side can become a plain ``\\includegraphics``. Deterministic, CPU-only.
+``outputs/figures/technical_overview_labeled.{png,pdf}`` by default so the
+LaTeX side can become a plain ``\\includegraphics``. Pass
+``--output-dir publication/figures`` when promoting a reviewed version.
+Deterministic, CPU-only.
 
 The hand-drawn base lives in ``scripts/figures/assets/`` (see its README).
 The base PDF is rasterised with pymupdf or ``pdftoppm`` when available,
@@ -154,7 +156,7 @@ def main():
                         help="Bake the thesis TikZ labels into the figure "
                              "(default on; --no-labels exports the bare base)")
     parser.add_argument("--output-dir", type=Path, default=FIGURES_DIR,
-                        help="Output directory (default publication/figures/)")
+                        help="Output directory (default outputs/figures/)")
     parser.add_argument("--base", type=Path, default=BASE_PDF,
                         help="Base diagram PDF (default scripts/figures/assets/"
                              "technical_overview.pdf)")

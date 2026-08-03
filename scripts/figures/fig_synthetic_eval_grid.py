@@ -9,7 +9,7 @@ the same artifacts as tab:synthetic.
 Example:
     PYTHONPATH=. python scripts/figures/fig_synthetic_eval_grid.py \
         --scenes abandoned_buildings --frame-indices 0 \
-        --output publication/figures/synthetic_eval_grid_abandoned_preview
+        --output outputs/figures/synthetic_eval_grid_abandoned_preview
 """
 
 from __future__ import annotations

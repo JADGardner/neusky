@@ -3,8 +3,9 @@
 The hand-drawn diagram is stored as SVG so its circle, arrows, brackets and
 markers remain vector graphics. This script appends the former TikZ labels as
 SVG text, then emits
-``publication/figures/implicit_visibility_explainer_labeled.{svg,png,pdf}``.
-Only the rabbit rendering embedded in the source SVG is rasterised.
+``outputs/figures/implicit_visibility_explainer_labeled.{svg,png,pdf}`` by
+default. Pass ``--output-dir publication/figures`` when promoting a reviewed
+version. Only the rabbit rendering embedded in the source SVG is rasterised.
 Deterministic, CPU-only.
 
 The hand-drawn base lives in ``scripts/figures/assets/`` (see its README).
@@ -118,7 +119,7 @@ def main():
                         help="Bake the thesis TikZ labels into the figure "
                              "(default on; --no-labels exports the bare base)")
     parser.add_argument("--output-dir", type=Path, default=FIGURES_DIR,
-                        help="Output directory (default publication/figures/)")
+                        help="Output directory (default outputs/figures/)")
     parser.add_argument("--base", type=Path, default=BASE_SVG,
                         help="Base diagram SVG (default scripts/figures/assets/"
                              "implicit_visibility_explainer.svg)")

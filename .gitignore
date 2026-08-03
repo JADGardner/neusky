@@ -200,3 +200,76 @@ publication/animations/
 # Downloaded figure inputs and editor backups
 /publication/dam_wall_1k.exr
 *.orig
+
+# Publication working files
+#
+# `publication/` contains reviewed paper/thesis snapshots. Figure and table
+# scripts write to `outputs/` by default; these rules hide legacy render
+# caches, duplicate rasters, and superseded experiment snapshots without
+# ignoring the canonical publication directory.
+/publication/envreg/
+/publication/figures/ao_and_shadow.png
+/publication/figures/ao_and_shadow_thesis.png
+/publication/figures/ddf_depth_thesis.png
+/publication/figures/ddf_sdf_comparison.png
+/publication/figures/further_relighting_examples.png
+/publication/figures/holdout_protocol_lk2.png
+/publication/figures/nerfosr_examples_thesis.png
+/publication/figures/neusky_comparison_thesis.png
+/publication/figures/relight_rot_exp_check.png
+/publication/figures/relight_rotation_axis_check.png
+/publication/figures/relighting_examples_thesis.png
+/publication/figures/scene_contraction.png
+/publication/figures/sigmoid.png
+/publication/figures/synthetic_comparison_*.png
+/publication/figures/synthetic_eval_grid_abandoned_preview.png
+/publication/figures/synthetic_methods_rgb_preview.png
+/publication/figures/teaser.png
+/publication/figures/teaser_thesis.png
+/publication/figures/technical_overview_labeled.png
+/publication/figures/further_relighting_examples_panels/
+/publication/figures/implicit_visibility_thesis/
+/publication/figures/nerfosr_examples_panels/
+/publication/figures/protocol_renders/
+/publication/figures/relight_rot_exp_check_panels/
+/publication/figures/relight_rotation_axis_check_panels/
+/publication/figures/relighting_examples_thesis_panels/
+/publication/figures/synthetic_comparison_panels/**/*.png
+/publication/figures/synthetic_comparison_panels/**/*.npy
+/publication/figures/teaser_panels/
+/publication/figures/technical_overview_thesis/
+/publication/figures/ao_and_shadow.pdf
+/publication/figures/ddf_sdf_comparison.pdf
+/publication/figures/further_relighting_examples.pdf
+/publication/figures/nerfosr_examples.pdf
+/publication/figures/relight_rot_exp_check.pdf
+/publication/figures/relight_rotation_axis_check.pdf
+/publication/figures/scene_contraction.pdf
+/publication/figures/sigmoid.pdf
+/publication/figures/synthetic_eval_grid_abandoned_preview.pdf
+/publication/figures/synthetic_methods_rgb_preview.pdf
+/publication/figures/teaser.pdf
+/publication/figures/teaser.svg
+/publication/figures_anneal_lrprior/
+/publication/figures_baseline_jun/
+/publication/figures_fgboundary/
+/publication/figures_hash21/
+/publication/figures_lrprior/
+/publication/figures_lrprior_f11/
+/publication/figures_twobracket/
+/publication/sharpness_ab/
+/publication/tables/
+/publication/tables_anneal_lrprior/
+/publication/tables_fgboundary/
+/publication/tables_fixedrays_eccv/
+/publication/tables_fixedrays_v2/
+/publication/tables_fixedrays_v2np/
+/publication/tables_hash21_eccv/
+/publication/tables_hash21_v2np/
+/publication/tables_lk2_twoview/
+/publication/tables_lrprior/
+/publication/tables_lrprior_f11/
+/publication/tables_twobracket_eccv/
+/publication/tables_twobracket_v2np/
+/publication/tables_wave2_sweep/
+/publication/tables_wave2_v2np_long/

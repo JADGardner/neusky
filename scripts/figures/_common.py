@@ -50,9 +50,6 @@ matplotlib.use("Agg")
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
-FIGURES_DIR = REPO_ROOT / "publication" / "figures"
-TABLES_DIR = REPO_ROOT / "publication" / "tables"
-
 
 def _env_path(name: str, *fallbacks: Path) -> Path:
     """First of $name, then the first existing fallback, then fallbacks[0]."""
@@ -65,6 +62,8 @@ def _env_path(name: str, *fallbacks: Path) -> Path:
 
 
 OUTPUTS_ROOT = _env_path("NEUSKY_OUTPUTS", REPO_ROOT / "outputs")
+FIGURES_DIR = OUTPUTS_ROOT / "figures"
+TABLES_DIR = OUTPUTS_ROOT / "tables"
 NERF_OSR_ROOT = _env_path(
     "NERF_OSR_ROOT",
     Path("~/data/NeRF-OSR/Data"),

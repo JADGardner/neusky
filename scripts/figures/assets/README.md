@@ -5,8 +5,9 @@ Hand-drawn static diagram bases for the NeuSky method figures, copied
 `latex/9_Chapter3/paper_assets/neusky_tpami/figures/` (phd repo). The thesis
 originally overlaid the label text on these bases with TikZ; the
 `scripts/figures/fig_*.py` scripts bake that label text into generated
-`publication/figures/<name>_labeled.{png,pdf}` outputs instead, so LaTeX can
-use a plain `\includegraphics`.
+`outputs/figures/<name>_labeled.{png,pdf}` working outputs instead. Reviewed
+versions are promoted explicitly to `publication/figures/`, so LaTeX can use
+a plain `\includegraphics`.
 
 | File | Used by | Notes |
 |------|---------|-------|
