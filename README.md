@@ -2,7 +2,9 @@
 
 ### Official implementation of NeuSky.
 
-Paper: The Sky's the Limit: Relightable Outdoor Scenes via a Sky-pixel Constrained Illumination Prior and Outside-In Visibility
+Paper: [The Sky's the Limit: Relightable Outdoor Scenes via a Sky-Pixel
+Constrained Illumination Prior and Outside-In
+Visibility](https://doi.org/10.1007/978-3-031-72949-2_8)
 
 ![NeuSky Teaser](imgs/teaser.jpg)
 
@@ -250,4 +252,25 @@ images_on_gpu=True,                   # set False if out of GPU memory
 masks_on_gpu=True,                    # set False if out of GPU memory
 train_num_rays_per_batch=1024,        # Lower to 512, 256, or 128 if out of GPU memory
 eval_num_rays_per_batch=1024,         # Lower to 512, 256, or 128 if out of GPU memory
+```
+
+## Citation
+
+Please cite the NeuSky publication:
+
+```bibtex
+@inproceedings{gardner2024neusky,
+  title     = {The Sky's the Limit: Relightable Outdoor Scenes via a
+               Sky-Pixel Constrained Illumination Prior and Outside-In
+               Visibility},
+  author    = {Gardner, James A. D. and Kashin, Evgenii and
+               Egger, Bernhard and Smith, William A. P.},
+  booktitle = {Computer Vision -- ECCV 2024},
+  series    = {Lecture Notes in Computer Science},
+  volume    = {15112},
+  pages     = {126--143},
+  publisher = {Springer},
+  year      = {2024},
+  doi       = {10.1007/978-3-031-72949-2_8}
+}
 ```
