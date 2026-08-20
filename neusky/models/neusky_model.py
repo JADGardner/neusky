@@ -682,12 +682,20 @@ class NeuSkyFactoModel(NeuSFactoModel):
         )
 
         scale = None if scale_bank is None else scale_bank[camera_indices]
+        field_scale = scale
+        if self.illumination_hdr_decode.two_bracket and scale is not None:
+            # Exposure is applied after the bounded brackets are reconstructed.
+            field_scale = torch.zeros_like(scale)
         outputs = self.illumination_field.forward(
             ray_samples=ray_samples,
             latent_codes=latent_bank[camera_indices],
-            scale=scale,
+            scale=field_scale,
         )
-        pred_hdr = self.illumination_field.unnormalise(outputs[RENIFieldHeadNames.RGB]).clamp_min(0.0)
+        pred_hdr = self.illumination_hdr_decode.to_linear_hdr(
+            self.illumination_field,
+            outputs[RENIFieldHeadNames.RGB],
+            scale=scale if self.illumination_hdr_decode.two_bracket else None,
+        ).clamp_min(0.0)
 
         gt_chunks = []
         for idx in valid:

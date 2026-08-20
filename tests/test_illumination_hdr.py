@@ -209,6 +209,21 @@ def test_two_bracket_helper_matches_reference():
     assert torch.all(neusky_hdr >= 0)
 
 
+def test_two_bracket_helper_applies_scale_after_reconstruction():
+    _require(TWO_BRACKET_DIR)
+    decode = IlluminationHDRDecode.from_reni_run_config(TWO_BRACKET_DIR / "config.yml")
+    field = _build_field_like_neusky(TWO_BRACKET_DIR, decode)
+    raw = _forward_raw(field)
+    scale = torch.linspace(-0.5, 0.5, raw.shape[0], device=raw.device, dtype=raw.dtype)
+
+    neusky_hdr = decode.to_linear_hdr(field, raw, scale=scale)
+    reference = two_bracket_to_linear(
+        raw, m_ldr=KNOWN_M_LDR, m_log=KNOWN_M_LOG
+    ) * torch.exp(scale).unsqueeze(-1)
+
+    assert torch.allclose(neusky_hdr, reference, atol=1e-6, rtol=1e-5)
+
+
 def test_three_channel_helper_matches_unnormalise():
     _require(PAPER_DIR)
     decode = IlluminationHDRDecode.from_reni_run_config(PAPER_DIR / "config.yml")
@@ -228,6 +243,7 @@ def _run_all() -> int:
         test_two_bracket_config_detection,
         test_paper_config_detection,
         test_two_bracket_helper_matches_reference,
+        test_two_bracket_helper_applies_scale_after_reconstruction,
         test_three_channel_helper_matches_unnormalise,
     ]
     failures = 0
