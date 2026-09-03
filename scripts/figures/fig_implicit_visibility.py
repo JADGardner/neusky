@@ -10,12 +10,12 @@ Deterministic, CPU-only.
 
 The hand-drawn base lives in ``scripts/figures/assets/`` (see its README).
 
-Label geometry replicates the compiled thesis exactly (verified against
-``latex/build/thesis.pdf`` p.81): the TikZ node coordinates are cm from the
+Label geometry is based on the compiled thesis (verified against
+``latex/build/thesis.pdf`` p.81): the coordinates are cm from the
 image centre (y up, 1 cm = 28.3465 bp) and the image is shown at
-``0.5\\textwidth`` = 217.92 bp; ``\\tiny`` in the 12pt class is 5.98 bp. The
-three multi-line groups (DDF intersection, ground-truth distance, difference)
-stay grouped because consecutive lines sit 0.2 cm apart, as in the TikZ.
+``0.5\\textwidth`` = 217.92 bp; ``\\tiny`` in the 12pt class is 5.98 bp.
+Marker-adjacent labels are edge-aligned to the query-point dots so their text
+does not cross the markers.
 
     PYTHONPATH=. python scripts/figures/fig_implicit_visibility.py
 """
@@ -47,24 +47,25 @@ DISPLAY_WIDTH_BP = 0.5 * TEXTWIDTH_BP  # \includegraphics[width=0.5\textwidth]
 
 TINY = 5.98                 # \tiny at the 12pt thesis class, in bp
 
-# (x_cm, y_cm, text) from the thesis TikZ; all \tiny, black, unrotated.
+# (x_cm, y_cm, text, SVG text anchor); all \tiny, black, unrotated.
 LABELS = (
-    # DDF intersection group
-    (-2.3, 3.6, "DDF Intersection"),
-    (-2.3, 3.4, "/ Query Point"),
-    (-2.3, 3.2, "and Direction"),
-    (0.9, 3.2, "DDF Predicted Depth"),
-    (1.3, 0.6, "Query Point"),
-    (1.85, 0.4, "and Direction"),
+    # DDF intersection group: end immediately before the outer query marker.
+    (-2.06, 3.6, "DDF Intersection", "end"),
+    (-2.06, 3.4, "/ Query Point", "end"),
+    (-2.06, 3.2, "and Direction", "end"),
+    (0.9, 3.2, "DDF Predicted Depth", "middle"),
+    # Inner query group: begin immediately after the surface query marker.
+    (0.8, 0.6, "Query Point", "start"),
+    (0.8, 0.4, "and Direction", "start"),
     # Ground-truth distance group
-    (-2.6, -0.2, "Ground"),
-    (-2.6, -0.4, "Truth"),
-    (-2.6, -0.6, "Distance"),
+    (-2.6, -0.2, "Ground", "middle"),
+    (-2.6, -0.4, "Truth", "middle"),
+    (-2.6, -0.6, "Distance", "middle"),
     # Difference group
-    (2.0, 2.1, "Difference"),
-    (2.0, 2.3, "="),
-    (2.0, 2.5, "GT - Predicted"),
-    (0.0, -2.6, "Visibility = Difference < Threshold"),
+    (2.0, 2.1, "Difference", "middle"),
+    (2.0, 2.3, "=", "middle"),
+    (2.0, 2.5, "GT - Predicted", "middle"),
+    (0.0, -2.6, "Visibility = Difference < Threshold", "middle"),
 )
 
 
@@ -90,7 +91,7 @@ def compose_svg(base_svg: Path, add_labels: bool) -> tuple[bytes, float, float]:
         label_group = ET.SubElement(root, f"{{{SVG_NS}}}g", {"id": "thesis-labels"})
         svg_units_per_bp = width / width_bp
         font_size = TINY * svg_units_per_bp
-        for x_cm, y_cm, label in LABELS:
+        for x_cm, y_cm, label, text_anchor in LABELS:
             x = x0 + width / 2.0 + x_cm * CM_TO_BP * svg_units_per_bp
             y = y0 + height / 2.0 - y_cm * CM_TO_BP * svg_units_per_bp
             element = ET.SubElement(
@@ -99,7 +100,7 @@ def compose_svg(base_svg: Path, add_labels: bool) -> tuple[bytes, float, float]:
                 {
                     "x": f"{x:.6f}",
                     "y": f"{y:.6f}",
-                    "text-anchor": "middle",
+                    "text-anchor": text_anchor,
                     "dominant-baseline": "middle",
                     "font-family": "Nimbus Roman, Times, Liberation Serif, serif",
                     "font-size": f"{font_size:.6f}",
