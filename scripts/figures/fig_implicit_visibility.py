@@ -50,21 +50,21 @@ TINY = 5.98                 # \tiny at the 12pt thesis class, in bp
 # (x_cm, y_cm, text, SVG text anchor); all \tiny, black, unrotated.
 LABELS = (
     # DDF intersection group: end immediately before the outer query marker.
-    (-2.06, 3.6, "DDF Intersection", "end"),
-    (-2.06, 3.4, "/ Query Point", "end"),
-    (-2.06, 3.2, "and Direction", "end"),
-    (0.9, 3.2, "DDF Predicted Depth", "middle"),
+    (-2.25, 3.6, "DDF Intersection", "end"),
+    (-2.25, 3.4, "/ Query Point", "end"),
+    (-2.25, 3.2, "and Direction", "end"),
+    (-0.25, 3.3, "DDF Predicted Depth", "start"),
     # Inner query group: begin immediately after the surface query marker.
-    (0.8, 0.6, "Query Point", "start"),
-    (0.8, 0.4, "and Direction", "start"),
+    (1.15, 0.82, "Query Point", "start"),
+    (1.15, 0.62, "and Direction", "start"),
     # Ground-truth distance group
-    (-2.6, -0.2, "Ground", "middle"),
-    (-2.6, -0.4, "Truth", "middle"),
-    (-2.6, -0.6, "Distance", "middle"),
+    (-2.77, -0.03, "Ground", "middle"),
+    (-2.77, -0.23, "Truth", "middle"),
+    (-2.77, -0.43, "Distance", "middle"),
     # Difference group
-    (2.0, 2.1, "Difference", "middle"),
-    (2.0, 2.3, "=", "middle"),
-    (2.0, 2.5, "GT - Predicted", "middle"),
+    (1.9, 2.15, "Difference", "middle"),
+    (1.9, 2.35, "=", "middle"),
+    (1.9, 2.55, "GT - Predicted", "middle"),
     (0.0, -2.6, "Visibility = Difference < Threshold", "middle"),
 )
 
@@ -86,6 +86,12 @@ def compose_svg(base_svg: Path, add_labels: bool) -> tuple[bytes, float, float]:
     # size and centimetre offsets remain unchanged.
     root.set("width", f"{width_bp / 72.0:.8f}in")
     root.set("height", f"{height_bp / 72.0:.8f}in")
+
+    # Extend the ground-truth leader slightly so its tip aligns with the
+    # centred label while keeping that label clear of the rabbit outline.
+    ground_truth_leader = root.find(f".//{{{SVG_NS}}}path[@id='path23-6-5']")
+    if ground_truth_leader is not None:
+        ground_truth_leader.set("d", "M 84.496719,121.27923 50.396,151.524")
 
     if add_labels:
         label_group = ET.SubElement(root, f"{{{SVG_NS}}}g", {"id": "thesis-labels"})

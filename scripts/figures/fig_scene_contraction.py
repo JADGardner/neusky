@@ -101,24 +101,24 @@ def main():
 
     # r = 2 annotation: central label, arrows out to the shell / convergence
     y2 = 1.95
-    ax.annotate("", xy=(CX["left"] + 0.55, y2), xytext=(-0.62, y2),
+    ax.annotate("", xy=(CX["left"] + 0.55, y2), xytext=(-1.0, y2),
                 arrowprops=dict(arrowstyle="->", lw=0.9, color="black"))
-    ax.annotate("", xy=(CX["right"] - 0.35, y2), xytext=(0.62, y2),
+    ax.annotate("", xy=(CX["right"] - 0.35, y2), xytext=(1.0, y2),
                 arrowprops=dict(arrowstyle="->", lw=0.9, color="black"))
-    ax.text(0, y2, r"$r = 2$", ha="center", va="center", fontsize=12)
+    ax.text(0, y2, r"$r = 2$", ha="center", va="center", fontsize=24)
 
     # r = 1 annotation
     y1 = 0.30
     x1l = CX["left"] + float(np.sqrt(1 - y1 ** 2))
     x1r = CX["right"] - float(np.sqrt(1 - y1 ** 2))
-    ax.annotate("", xy=(x1l, y1), xytext=(-0.62, y1),
+    ax.annotate("", xy=(x1l, y1), xytext=(-1.0, y1),
                 arrowprops=dict(arrowstyle="->", lw=0.9, color="black"))
-    ax.annotate("", xy=(x1r, y1), xytext=(0.62, y1),
+    ax.annotate("", xy=(x1r, y1), xytext=(1.0, y1),
                 arrowprops=dict(arrowstyle="->", lw=0.9, color="black"))
-    ax.text(0, y1, r"$r = 1$", ha="center", va="center", fontsize=12)
+    ax.text(0, y1, r"$r = 1$", ha="center", va="center", fontsize=24)
 
     for name, cx in (("No contraction", CX["left"]), ("Contraction", CX["right"])):
-        ax.text(cx, -2.45, name, ha="center", va="top", fontsize=12)
+        ax.text(cx, -2.45, name, ha="center", va="top", fontsize=24)
 
     ax.set_xlim(-5.0, 5.0)
     ax.set_ylim(-2.9, 2.35)

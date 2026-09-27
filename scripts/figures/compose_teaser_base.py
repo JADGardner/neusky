@@ -44,18 +44,18 @@ HDR_LABEL_GAP = 6.5   # baseline distance below the panels
 # Baked text labels: (centre_x, first_line_y, font_size, lines).
 # Multi-line labels advance by LABEL_LINE_SPACING * font_size per line.
 # Positions are centred on component bounding boxes measured from
-# teaser_base.svg (2026-07-14): collage 0..74.5; arcs centred x 136 with
+# teaser_base.svg: collage 0..65; arcs centred x 127.82 with
 # outer apex y 27.5 and inner apex y 42; latent squares 118..169.8; DDF grid
 # 215.8..255.3 (bottom 44.5); albedo 194..233; normal 238.3..277.3 (bottoms
 # 83.3); relit renders 303..371.3 (top bottom 54.3, lower top 69.0,
 # lower bottom 118.5).
 LABELS = [
-    (37.2, 116.5, 5.0, ["Unconstrained Outdoor", "Multi-View Images"]),
+    (32.45, 116.5, 5.0, ["Unconstrained Outdoor", "Multi-View Images"]),
     # Both arch labels hug the centre-top of their arch (apexes y=27.5 and
     # y=42.0, clearance 1.5); NeuS-Facto shares the same centre axis.
-    (120.0, 22.3, 3.2, ["Sky at", "Infinity"]),
-    (120.0, 36.8, 3.2, ["Scene Geometry", "Bounds"]),
-    (120.0, 122.0, 5.0, ["NeuS-Facto Volume"]),
+    (127.82, 22.3, 3.2, ["Sky at", "Infinity"]),
+    (127.82, 36.8, 3.2, ["Scene Geometry", "Bounds"]),
+    (127.82, 122.0, 5.0, ["NeuS-Facto Volume"]),
     (143.9, 106.5, 2.9, ["Sky Pixel Illumination Constraint"]),
     (235.5, 52.5, 5.0, ["Differentiable Sky Visibility"]),
     (213.5, 90.5, 5.0, ["Albedo"]),
